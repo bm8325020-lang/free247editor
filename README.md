@@ -111,6 +111,8 @@ free247editor/
   AGENTS.md          tells every agent to use the skill (CLAUDE.md imports it)
   setup.mjs          one-time setup (safe to re-run)
   tools/             free transcription
+  docs/, PRODUCT.md  how the editor is built (for changing its code)
+  scripts/, tests/   npm run check: fast checks, also run by CI
   inbox/             your raw videos
   outbox/            drafts and finals
   my-style.md        your style (created at setup, stays private)

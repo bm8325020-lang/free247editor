@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { buildTranscript, fromGroq } from './transcript.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const { values: opts, positionals: [video] } = parseArgs({
@@ -63,17 +64,13 @@ if (local) {
     process.exit(3);
   }
   const body = await res.json();
-  words = (body.words || []).map((w) => ({ text: w.word.trim(), start: w.start, end: w.end }));
+  words = fromGroq(body);
 }
 
-words = words.filter((w) => w.text && w.end >= w.start);
-if (!words.length) {
+const transcript = buildTranscript(words, duration);
+if (!transcript.words.length) {
   console.error('No words with timestamps came back. Is there speech in this video?');
   process.exit(4);
 }
-writeFileSync(out, JSON.stringify({
-  text: words.map((w) => w.text).join(' '),
-  audio_duration_secs: duration,
-  words,
-}, null, 2));
-console.log(`Wrote ${words.length} words (${duration.toFixed(1)} s) to ${out}`);
+writeFileSync(out, JSON.stringify(transcript, null, 2));
+console.log(`Wrote ${transcript.words.length} words (${duration.toFixed(1)} s) to ${out}`);
