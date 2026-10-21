@@ -28,9 +28,9 @@ video. A real Groq transcription returned one word out of order ("Bom." at 25.24
 | Quality gate | Added `npm run check` (`scripts/check.mjs`) and `node:test` unit tests; no new dependencies | Project | Passes; drift and regression checks shown to fail when broken |
 | ESLint/Biome | Not added: about 200 lines of dependency-free scripts; syntax check plus tests cover the current risk | n/a | Revisit if the code grows |
 | CI | Added `.github/workflows/check.yml` running `npm run check` | Project | Configured; first run happens on push |
-| Superpowers, Ponytail, Caveman | Not installed in the repo: they are client plugins. Their agreements (smallest change, verify, concise) are in `AGENTS.md` and `docs/quality.md` | Client | Reused by agreement |
-| Context7 | Not configured: no third-party library APIs to look up at the root; the kit has its own docs | Client | Not applicable |
-| RTK | Not installed: global tool, and the session is temporary | Machine | Not applicable here |
+| Superpowers, Ponytail, Caveman | Installed with `claude plugin install --scope project` (2026-10-21): superpowers 7.0.0 and context7 from `claude-plugins-official`, ponytail 5.3.2 from `DietrichGebert/ponytail`, caveman 4.0.1 from `JuliusBrussee/caveman`. Declared in `.claude/settings.json`, so new Claude Code sessions in this repo offer to install them | Project | Installed; loads in the next session. Ponytail options (task board, webhook) left unset so nothing is sent out |
+| Context7 | Plugin `context7@claude-plugins-official` (remote MCP at mcp.context7.com) | Project | Installed; `claude mcp list` shows "Needs authentication". Anonymous use or a `CONTEXT7_API_KEY` environment secret still to verify with a real query |
+| RTK | Not installed: it is a machine-wide binary plus a hook, and cloud sessions are temporary. Would belong in the environment setup script | Machine | Pending, needs the user's environment settings |
 | Graphify | Not used: repo is small enough to read whole | n/a | Not applicable |
 | Memory (layered) | Repo docs are the memory; `AGENTS.md` is the short index. User preferences already live in `my-style.md` / `my-rules.md` (private) | Project | Done |
 | Hooks | None added; nothing needs automatic enforcement beyond CI | n/a | Not applicable |
@@ -63,7 +63,8 @@ video. A real Groq transcription returned one word out of order ("Bom." at 25.24
 
 ## Pending work and next delivery
 
-- Push to run CI the first time.
+- Enable GitHub Actions on the fork so CI runs.
+- Open a new session and confirm the four plugins load; run one Context7 query.
 - Groq's 25 MB limit: long recordings would need audio chunking in `transcribe.mjs`.
 - Rerun: paste prompt 12 again; it should find this file, keep the decisions above, and only
   update what changed in the toolkit.

@@ -21,3 +21,11 @@ Only when the user asks to change the editor's code or docs (not when editing a 
 - Map: `PRODUCT.md` (scope), `docs/architecture.md` (how it fits together),
   `docs/onboarding.md` (developer setup), `docs/quality.md` (checks and review),
   `docs/setup.md` (toolkit adoption record). Update the one that owns a change.
+
+## Agent plugins (project scope, `.claude/settings.json`)
+
+- **Superpowers:** brainstorm, plan, debug, and verify in proportion to the task.
+- **Ponytail:** smallest change that works. `stop ponytail` turns it off.
+- **Caveman:** short replies in the user's language; code, docs, and commits stay in normal
+  wording. Plain explanations for a non-technical user still win. `stop caveman` turns it off.
+- **Context7:** current library docs. Never send secrets or private code in a query.
