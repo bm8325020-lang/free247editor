@@ -10,3 +10,10 @@ For using the editor, see `README.md`. This page is for changing its code or doc
 4. To try transcription, copy `.env.example` to `.env` and add a free Groq key, or install
    `faster-whisper` and pass `--local`. Never commit `.env`.
 5. Before committing, run `npm run check`. Read `AGENTS.md` for the rules agents follow here.
+
+## Claude Code cloud sessions
+
+Cloud sessions start from a fresh container. Paste `scripts/cloud-session-setup.sh` into the
+cloud environment's setup script (environment menu > Edit) so every new session clones the
+Vibe Coding Toolkit, Claude Code Game Studios, and OmniRoute, installs OmniRoute, and runs
+`node setup.mjs` here. Keep the Groq key in the environment's secrets as `GROQ_API_KEY`.
