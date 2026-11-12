@@ -1,0 +1,9 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- a vertical phone frame with a play triangle and a cut mark -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M40,28h28a4,4 0 0 1 4,4v44a4,4 0 0 1 -4,4h-28a4,4 0 0 1 -4,-4v-44a4,4 0 0 1 4,-4zM41,33v42h26v-42z" />
+    <path android:fillColor="#FFD400" android:pathData="M49,44l13,10l-13,10z" />
+    <path android:fillColor="#FFD400" android:pathData="M30,66l8,-3v2l-8,3zM70,63l8,3v2l-8,-3z" />
+</vector>

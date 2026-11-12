@@ -3,7 +3,22 @@
 Transforma uma live ou um gameplay longo em vários clipes verticais (TikTok, Reels, Shorts), prontos para postar.
 Nada é publicado: os arquivos ficam na sua máquina.
 
-## Instalar (uma vez)
+## No celular (APK)
+
+Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o Android pedir). Depois:
+
+1. Abra o app e toque em **Escolher vídeo**. Ou, na galeria ou em qualquer app, toque em **Compartilhar →
+   Fábrica de Clipes**.
+2. (Recomendado) Cole a chave grátis do Groq em **Chaves**. Sem ela, os clipes saem sem legenda e são escolhidos
+   só pelo áudio.
+3. Toque em **CRIAR CLIPES**. Pode bloquear a tela: o progresso fica na notificação.
+4. Os clipes aparecem no app (Assistir / Compartilhar) e na galeria, pasta `Movies/Clipes`.
+
+O código do app está em `android/`.
+
+## No computador
+
+### Instalar (uma vez)
 
 Precisa de **Python 3.10+** e **FFmpeg**.
 
@@ -13,7 +28,7 @@ python clip.py --setup
 
 Se faltar o FFmpeg, o comando mostra como instalar (Windows: `winget install Gyan.FFmpeg`, Mac: `brew install ffmpeg`).
 
-## Usar
+### Usar
 
 | Quero... | Comando |
 | --- | --- |
