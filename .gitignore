@@ -6,8 +6,11 @@ node_modules/
 .env
 inbox/*
 outbox/*
+streams/*
+clipper.config.json
 my-sounds/*
 !inbox/.gitkeep
+!streams/.gitkeep
 !outbox/.gitkeep
 !my-sounds/.gitkeep
 my-style.md

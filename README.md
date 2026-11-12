@@ -51,6 +51,13 @@ it by name: `/free247editor` in Claude Code and Cursor, `$free247editor` in Code
 Vertical 9:16 for Reels, TikTok, and Shorts by default. Ask for a horizontal version for
 YouTube and it gets its own framing and text placement.
 
+## Clip factory (streams and gameplay)
+
+Turn a long stream, VOD link, or gameplay recording into many vertical clips: hype moments found from audio
+spikes and what was said, facecam-over-gameplay layout detected automatically, word-by-word captions, and a
+review page. `python clip.py --setup` once, then `python clip.py <file or link>` or drop videos in `streams/`
+and run `python clip.py` (or `--watch`). Full guide in Portuguese: [CLIPES.md](CLIPES.md).
+
 ## What it does
 
 | | |
@@ -112,6 +119,7 @@ free247editor/
   setup.mjs          one-time setup (safe to re-run)
   tools/             free transcription
   inbox/             your raw videos
+  streams/           long streams and gameplay to cut into clips (clip.py, tools/clipper/)
   outbox/            drafts and finals
   my-style.md        your style (created at setup, stays private)
   my-rules.md        rules learned from your notes (stays private)

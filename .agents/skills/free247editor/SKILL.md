@@ -1,6 +1,6 @@
 ---
 name: free247editor
-description: The user's personal video editor in this free247editor folder. Use for "start" or first-time setup; "edit this", "edit mo to", or a video dropped in or added to inbox/; notes on a draft ("faster", "bigger captions", "approved", "final"); a horizontal or YouTube version; or changing the user's style or rules. Runs setup.mjs, free transcription, and the Herk Edit Kit pipeline in kit/, renders drafts to outbox/, and saves lasting notes to my-rules.md.
+description: The user's personal video editor in this free247editor folder. Use for "start" or first-time setup; "edit this", "edit mo to", or a video dropped in or added to inbox/; turning a long stream, VOD link, or gameplay into many vertical clips ("clipa", "faz clipes", "clip this stream", a video in streams/); notes on a draft ("faster", "bigger captions", "approved", "final"); a horizontal or YouTube version; or changing the user's style or rules. Runs setup.mjs, free transcription, and the Herk Edit Kit pipeline in kit/, renders drafts to outbox/, and saves lasting notes to my-rules.md.
 ---
 
 # free247editor: the user's personal video editor
@@ -20,6 +20,8 @@ editing or coding terms. Run every command from the repo root unless a step says
 | `my-style.md` | The user's style, written during style setup. |
 | `my-rules.md` | Lasting rules learned from the user's notes. |
 | `my-sounds/` | Music and sound effects the user supplies. |
+| `streams/` | Long streams and gameplay to cut into clips (see Clipping). |
+| `clip.py`, `tools/clipper/` | The clip factory. `CLIPES.md` is its guide for the user. |
 | `kit/` | The editing engine, Herk Edit Kit, installed by setup. Never edit files in it. |
 
 `kit/` has its own guide, `kit/AGENTS.md` (the same text as `kit/CLAUDE.md`), and skills in
@@ -109,6 +111,29 @@ any other paid API). The default is to use none of them.
    services unasked.
 6. Render a draft and copy it to `outbox/<slug>-v1.mp4`. Open it. Tell the user in 3 to 5
    short bullets what you did, then ask for notes.
+
+## Clipping: a long stream or gameplay into many clips
+
+Use this, not the editing flow, when the user wants clips from something long: "clipa", "faz clipes",
+"clip this stream", a Twitch/YouTube/Kick link, or a video in `streams/`. The user's focus is gaming clips.
+The guide for the user is `CLIPES.md`; the engine is `clip.py` with `tools/clipper/`.
+
+1. First time on a computer: `python clip.py --setup` (installs Python packages; tells you if FFmpeg is missing).
+2. Run it and do not stop for approval between steps:
+   - a link or a file path: `python clip.py "<link or path>"`
+   - otherwise: `python clip.py` (clips everything in `streams/`, moves each source to `streams/done/`)
+   - add `--mode talk` only for podcasts or talking-head videos; gaming is the default.
+3. Tell the user in 3 to 5 short bullets: how many clips, the top titles, the layout used (facecam on top,
+   gameplay only, or follow), and the path to `outbox/<slug>/index.html`. Open it for them.
+4. Notes on clips ("legenda maior", "clipes mais curtos", "sempre 10 clipes", "webcam maior") go in
+   `clipper.config.json` (create it from `clipper.config.example.json`; keys are in `tools/clipper/config.py`),
+   then re-run: the transcription is cached in `outbox/<slug>/.work/`, so re-runs are fast. Lasting notes also go
+   to `my-rules.md` as rules, as below.
+5. If the user wants to run it unattended, tell them: `python clip.py --watch` keeps clipping whatever lands in
+   `streams/` until they press Ctrl+C.
+
+`ANTHROPIC_API_KEY` in `.env` makes Claude pick the moments and write titles (paid per use): never add it
+without the user asking. `GROQ_API_KEY` is used for transcription when present, as in the editing flow.
 
 ## Notes become rules
 

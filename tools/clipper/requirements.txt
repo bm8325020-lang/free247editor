@@ -1,0 +1,6 @@
+numpy>=1.26
+opencv-python-headless>=4.8
+faster-whisper>=1.1
+yt-dlp>=2025.1.1
+anthropic>=0.75
+pydantic>=2.6

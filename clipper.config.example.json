@@ -1,0 +1,11 @@
+{
+  "mode": "gaming",
+  "layout": "auto",
+  "clips": 8,
+  "min_seconds": 15,
+  "max_seconds": 50,
+  "language": "pt",
+  "caption_highlight": "#FFD400",
+  "caption_size": 96,
+  "hook": true
+}
