@@ -58,13 +58,22 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
             targetSeconds = min(28.0, opt.maxSeconds.toDouble()).coerceAtLeast(15.0),
         )
 
-        report("Ouvindo o vídeo inteiro", 0.0)
         val audio = AudioAnalyzer(ctx, uri)
-        val loud = audio.loudness(hop) { report("Ouvindo o vídeo inteiro", 0.25 * it) }
-        coroutineContext.ensureActive()
-
-        report("Procurando a webcam", 0.25)
-        val samples = frames.sample(info, 40) { report("Procurando a webcam", 0.25 + 0.08 * it) }
+        val cached = AnalysisCache.load(ctx, uri, info)
+        val loud: FloatArray
+        val samples: FrameAnalyzer.Samples
+        if (cached != null) {
+            report("Usando a análise salva deste vídeo", 0.33)
+            loud = cached.loud
+            samples = cached.samples
+        } else {
+            report("Ouvindo o vídeo inteiro", 0.0)
+            loud = audio.loudness(hop) { report("Ouvindo o vídeo inteiro", 0.25 * it) }
+            coroutineContext.ensureActive()
+            report("Procurando a webcam", 0.25)
+            samples = frames.sample(info, 40) { report("Procurando a webcam", 0.25 + 0.08 * it) }
+            AnalysisCache.save(ctx, uri, info, AnalysisCache.Entry(loud, samples))
+        }
         val det = LayoutMath.detectFacecam(samples.faces, samples.edgeFreq, samples.w, samples.h)
         val bigFace = samples.faces.flatten().maxByOrNull { it.h }
         val layout = LayoutMath.choose(det, info.width, info.height, opt.layout, bigFace)
@@ -132,8 +141,20 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
                 CaptionOverlay(ctx, events, if (opt.hook) c.hook else "", 3.0, cy, hy) else null
             val out = File(work, "clip-%02d.mp4".format(i + 1))
             try {
-                Renderer.render(ctx, uri, c, layout, info.width, info.height, overlay, gainFor(loud, c), out) {
-                    report("Renderizando clipe ${i + 1} de ${clips.size}", base + span * it)
+                // a busy phone can fail to start the video encoder; try twice more before giving up on this clip
+                var attempt = 0
+                while (true) {
+                    try {
+                        Renderer.render(ctx, uri, c, layout, info.width, info.height, overlay, gainFor(loud, c), out) {
+                            report("Renderizando clipe ${i + 1} de ${clips.size}", base + span * it)
+                        }
+                        break
+                    } catch (e: androidx.media3.transformer.ExportException) {
+                        if (++attempt >= 3) throw e
+                        Log.w("Engine", "render attempt $attempt failed, retrying", e)
+                        out.delete()
+                        kotlinx.coroutines.delay(2000L * attempt)
+                    }
                 }
                 val saved = saveToGallery(out, folder, "clip-%02d-%s.mp4".format(i + 1, slug(c.title)))
                 results.add(ClipResult(i + 1, c.title, c.score, c.reason, c.seconds, c.start, saved.toString(), layoutName(layout)))
