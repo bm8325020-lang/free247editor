@@ -178,8 +178,9 @@ object LayoutMath {
         val cx0 = cam.x * W
         val cx1 = (cam.x + cam.w) * W
         if (cx1 > gx && cx0 < gx + gw && cam.y * H < gy + gh) {
-            if (cx1 - gx < W * 0.12 && cx1 + gw <= W) gx = cx1
-            else if (gx + gw - cx0 < W * 0.12 && cx0 - gw >= 0) gx = cx0 - gw
+            val m = W * 0.01 // the detected border sits a pixel or two inside the real one
+            if (cx1 - gx < W * 0.12 && cx1 + m + gw <= W) gx = cx1 + m
+            else if (gx + gw - cx0 < W * 0.12 && cx0 - m - gw >= 0) gx = cx0 - m - gw
         }
         return Box(gx / W, gy / H, gw / W, gh / H)
     }

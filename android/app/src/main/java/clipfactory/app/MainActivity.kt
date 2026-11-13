@@ -206,11 +206,32 @@ class MainActivity : Activity() {
         k.addView(text("3. Chaves (opcional, mas melhora muito)", 17f, fg, true))
         k.addView(text("Groq (grátis): transcrição para legendas e palavras de hype. Sem ela, os clipes saem sem legenda e escolhidos só pelo áudio.", 13f, muted))
         k.addView(field("Chave do Groq (gsk_...)", opts.groqKey, true) { opts = opts.copy(groqKey = it); save() })
+        val groqStatus = text("", 13f, muted)
+        k.addView(button("Testar chave do Groq") {
+            groqStatus.setTextColor(muted); groqStatus.text = "Testando…"
+            ui.launch {
+                val r = withContext(Dispatchers.IO) { KeyCheck.groq(opts.groqKey) }
+                groqStatus.setTextColor(if (r.ok) Color.rgb(90, 220, 120) else Color.rgb(255, 120, 110))
+                groqStatus.text = r.message
+            }
+        })
+        k.addView(groqStatus)
         k.addView(button("Pegar chave grátis do Groq") {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys")))
         })
         k.addView(text("Anthropic (pago por uso, centavos por live): o Claude escolhe os momentos e escreve os títulos.", 13f, muted).apply { setPadding(0, dp(12), 0, 0) })
         k.addView(field("Chave da Anthropic (sk-ant-...)", opts.claudeKey, true) { opts = opts.copy(claudeKey = it); save() })
+        val claudeStatus = text("", 13f, muted)
+        k.addView(button("Testar chave da Anthropic") {
+            claudeStatus.setTextColor(muted); claudeStatus.text = "Testando…"
+            ui.launch {
+                val r = withContext(Dispatchers.IO) { KeyCheck.anthropic(opts.claudeKey) }
+                claudeStatus.setTextColor(if (r.ok) Color.rgb(90, 220, 120) else Color.rgb(255, 120, 110))
+                claudeStatus.text = r.message
+            }
+        })
+        k.addView(claudeStatus)
+        k.addView(text("As chaves ficam criptografadas no aparelho (Android Keystore) e só são enviadas ao próprio provedor.", 12f, muted).apply { setPadding(0, dp(8), 0, 0) })
         k.addView(field("Idioma da live (ex.: pt). Vazio = detectar", opts.language, false) { opts = opts.copy(language = it); save() })
         root.addView(k)
 

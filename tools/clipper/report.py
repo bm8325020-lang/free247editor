@@ -7,7 +7,7 @@ def _mmss(t):
     return f"{int(t // 60)}:{int(t % 60):02d}"
 
 
-def write_report(folder, source_name, clips):
+def write_report(folder, source_name, clips, summary=None):
     cards = []
     for c in clips:
         cards.append(f"""
@@ -22,13 +22,14 @@ def write_report(folder, source_name, clips):
       <a href="{html.escape(c['file'])}" download>Baixar MP4</a>
     </div>
   </article>""")
+    summary_html = f'<p class="sum">{html.escape(summary["explanation"])}</p>' if summary else ""
     page = f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Clipes: {html.escape(source_name)}</title>
 <style>
 :root{{--bg:#0e0f12;--card:#17191e;--fg:#f2f2f2;--mut:#9aa0aa;--acc:#ffd400}}
 *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}}
-header{{padding:24px 16px 8px;max-width:1200px;margin:auto}} h1{{margin:0;font-size:22px}} header p{{color:var(--mut);margin:4px 0 0}}
+.sum{{color:var(--acc)!important}} header{{padding:24px 16px 8px;max-width:1200px;margin:auto}} h1{{margin:0;font-size:22px}} header p{{color:var(--mut);margin:4px 0 0}}
 main{{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;padding:16px;max-width:1200px;margin:auto}}
 article{{background:var(--card);border-radius:14px;overflow:hidden}}
 video{{width:100%;aspect-ratio:9/16;background:#000;display:block}}
@@ -36,9 +37,9 @@ video{{width:100%;aspect-ratio:9/16;background:#000;display:block}}
 .score{{color:var(--acc);font-weight:700}} h2{{font-size:16px;margin:6px 0}} .sub,.why{{color:var(--mut);font-size:13px;margin:4px 0}}
 details{{font-size:13px;color:var(--mut);margin:8px 0}} a{{color:var(--acc);font-weight:600;text-decoration:none}}
 </style></head><body>
-<header><h1>{len(clips)} clipes de “{html.escape(source_name)}”</h1><p>Ordenados do melhor para o pior. Os arquivos estão nesta mesma pasta.</p></header>
+<header><h1>{len(clips)} clipes de “{html.escape(source_name)}”</h1><p>Ordenados do melhor para o pior. Os arquivos estão nesta mesma pasta.</p>{summary_html}</header>
 <main>{''.join(cards)}
 </main></body></html>"""
     (folder / "index.html").write_text(page, encoding="utf-8")
-    (folder / "clips.json").write_text(json.dumps({"source": source_name, "clips": clips}, ensure_ascii=False, indent=2),
+    (folder / "clips.json").write_text(json.dumps({"source": source_name, "summary": summary, "clips": clips}, ensure_ascii=False, indent=2),
                                        encoding="utf-8")

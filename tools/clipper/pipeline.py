@@ -49,17 +49,18 @@ def process(source, cfg, out_root=None):
 
     if cfg["mode"] == "gaming":
         log("== 2/4 Finding hype moments")
-        clips, words, lang = find_gaming_highlights(
+        clips, words, lang, summary = find_gaming_highlights(
             src, info, loud, HOP, cfg, lambda r: transcribe_ranges(src, r, cfg, work / "moments.json"))
     else:
         log("== 2/4 Transcribing and finding the best moments")
         tr = transcribe(src, cfg, work / "transcript.json")
         words, lang = tr["words"], tr.get("language")
         clips = find_highlights(words, loud, HOP, cfg, lang)
+        summary = {"requested": cfg["clips"], "picked": len(clips), "picker": clips[0]["picker"] if clips else "-"}
     log(f"   {len(clips)} clips picked by {clips[0]['picker'] if clips else '-'}, language: {lang}")
 
     log("== 3/4 Rendering vertical clips")
-    done = []
+    done, failed = [], []
     for rank, c in enumerate(clips, 1):
         name = f"clip-{rank:02d}-{slugify(c['title'])[:40]}.mp4"
         out = folder / name
@@ -68,6 +69,7 @@ def process(source, cfg, out_root=None):
             meta = render_clip(src, info, words, c, cfg, out, work, layout)
         except Exception as e:  # one bad clip should not sink the batch
             log(f"   skipped: {e}")
+            failed.append(f"clipe {rank} ({c['title']}): {str(e)[:160]}")
             continue
         done.append({"rank": rank, "file": name, "thumb": meta["thumb"], "title": c["title"], "score": c["score"],
                      "reason": c["reason"], "picker": c["picker"], "duration": meta["duration"], "cuts": meta["cuts"],
@@ -76,7 +78,10 @@ def process(source, cfg, out_root=None):
         (folder / name).with_suffix(".txt").write_text(f"{c['title']}\n\n{c['text']}\n", encoding="utf-8")
 
     log("== 4/4 Writing the review page")
-    write_report(folder, src.name, done)
+    summary.update(rendered=len(done), failed=failed)
+    summary["explanation"] = explain(summary)
+    log("   " + summary["explanation"])
+    write_report(folder, src.name, done, summary)
     if not cfg.get("keep_work"):
         for p in work.glob("*.ass"):
             p.unlink()
@@ -86,6 +91,23 @@ def process(source, cfg, out_root=None):
     log(f"== Done in {(time.time() - t0) / 60:.1f} min: {len(done)} clips in {folder}")
     log(f"   Open {folder / 'index.html'} to review them.")
     return folder
+
+
+def explain(s):
+    """One honest sentence: what was asked, what came out, and why any difference."""
+    req, out = s["requested"], s["rendered"]
+    msg = f"Pedido: até {req} clipes. Saíram {out}."
+    if out >= req:
+        return msg
+    reasons = []
+    if "strong" in s and s["strong"] < req:
+        reasons.append(f"só {s['strong']} momentos fortes de verdade foram encontrados (pico de áudio claro ou "
+                       f"palavras de hype); trechos fracos não viram clipe só para completar a conta")
+    elif s["picked"] < req:
+        reasons.append(f"o seletor ({s['picker']}) escolheu {s['picked']} momentos que se sustentam sozinhos")
+    if s.get("failed"):
+        reasons.append(f"{len(s['failed'])} falharam ao renderizar: " + "; ".join(s["failed"]))
+    return msg + (" Motivo: " + "; ".join(reasons) + "." if reasons else "")
 
 
 def pending_inbox():

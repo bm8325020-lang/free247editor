@@ -47,6 +47,10 @@ DEFAULTS = {
     "hook_seconds": 3.0,
     "hook_size": 72,
     "hook_y": 0.12,  # vertical position of the hook box (top of the box)
+    # Gaming: a window only becomes a clip if its audio spike (in standard deviations) or hype-word score clears
+    # these. "clips" is a maximum, never a quota. --all sets both to 0.
+    "min_audio_spike": 1.0,
+    "min_hype": 2.0,
     # Highlight picking: "auto" uses Claude when ANTHROPIC_API_KEY is set, else the built-in scorer.
     "picker": "auto",
     "claude_model": "claude-opus-5-5",

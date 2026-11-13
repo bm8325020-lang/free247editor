@@ -123,7 +123,9 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
                 if (acc.all { c.end <= it.start || c.start >= it.end }) acc.add(c); acc
             }
         }
+        val strong = ranked.count { Hype.isStrong(it, s) }
         val clips = picked ?: Hype.pick(ranked, words, s)
+        val failed = ArrayList<String>()
         Hype.fillText(clips, words)
 
         val stamp = SimpleDateFormat("yyyy-MM-dd HH-mm", Locale.US).format(Date())
@@ -160,12 +162,14 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
                 results.add(ClipResult(i + 1, c.title, c.score, c.reason, c.seconds, c.start, saved.toString(), layoutName(layout)))
             } catch (e: Exception) {
                 Log.e("Engine", "render failed for clip ${i + 1}", e)
-                notes.add("Clipe ${i + 1} falhou ao renderizar: ${e.message?.take(100)}")
+                failed.add("clipe ${i + 1} (${c.title}): ${e.message?.take(100)}")
             } finally {
                 overlay?.recycle()
                 out.delete()
             }
         }
+        notes.add(0, Hype.explain(opt.clips, if (picked == null) strong else null, clips.size,
+            if (picked == null) "automático" else "Claude", results.size, failed))
         report("Pronto", 1.0)
         val job = JobResult(name, stamp, results, notes)
         History.add(ctx, job)

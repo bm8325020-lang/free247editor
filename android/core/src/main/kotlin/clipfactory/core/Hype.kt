@@ -31,6 +31,9 @@ data class Settings(
     val minSeconds: Double = 15.0,
     val maxSeconds: Double = 50.0,
     val targetSeconds: Double = 28.0,
+    // a window only becomes a clip with a clear audio spike (std devs) or clear hype words; clips is a maximum
+    val minAudioSpike: Double = 1.0,
+    val minHype: Double = 2.0,
 )
 
 /**
@@ -264,10 +267,12 @@ object Hype {
         return cands.sortedByDescending { it.raw }
     }
 
-    /** Built-in pick: best first, no overlaps; fills title, hook, reason, score. */
+    fun isStrong(c: Clip, s: Settings) = c.audio >= s.minAudioSpike || c.hype >= s.minHype
+
+    /** Built-in pick: strong moments only, best first, no overlaps; fills title, hook, reason, score. */
     fun pick(sorted: List<Clip>, words: List<Word>, s: Settings): List<Clip> {
         val picked = ArrayList<Clip>()
-        for (c in sorted) {
+        for (c in sorted.filter { isStrong(it, s) }) {
             if (picked.all { c.end <= it.start || c.start >= it.end }) picked.add(c)
             if (picked.size >= s.clips) break
         }
@@ -285,6 +290,21 @@ object Hype {
             c.score = (60 + 35 * (if (hi > lo) (c.raw - lo) / (hi - lo) else 1.0)).roundToInt()
         }
         return picked
+    }
+
+    /** One honest sentence: what was asked, what came out, and why any difference. */
+    fun explain(requested: Int, strong: Int?, picked: Int, picker: String, rendered: Int, failed: List<String>): String {
+        val msg = "Pedido: até $requested clipes. Saíram $rendered."
+        if (rendered >= requested) return msg
+        val reasons = ArrayList<String>()
+        if (strong != null && strong < requested) {
+            reasons.add("só $strong momentos fortes de verdade foram encontrados (pico de áudio claro ou palavras de hype); " +
+                "trechos fracos não viram clipe só para completar a conta")
+        } else if (picked < requested) {
+            reasons.add("o seletor ($picker) escolheu $picked momentos que se sustentam sozinhos")
+        }
+        if (failed.isNotEmpty()) reasons.add("${failed.size} falharam ao renderizar: " + failed.joinToString("; "))
+        return msg + if (reasons.isNotEmpty()) " Motivo: " + reasons.joinToString("; ") + "." else ""
     }
 
     fun fillText(clips: List<Clip>, words: List<Word>) {

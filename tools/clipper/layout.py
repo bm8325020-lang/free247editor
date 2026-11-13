@@ -41,6 +41,11 @@ def detect_facecam(src, info, samples=40):
         for f in (found if found is not None else []):
             x, y, w, h = [float(v) for v in f[:4]]
             hits.append(((x + w / 2) / dw, (y + h / 2) / dh, w / dw, h / dh))
+    return facecam_from(hits, n, np.mean(edges, axis=0) if edges else None)
+
+
+def facecam_from(hits, n, edge_freq):
+    """Pure part of detect_facecam: faces [(cx, cy, w, h)] from n sampled frames, plus edge persistence."""
     if not n or not hits:
         return None
     # The face moves around inside the webcam, so cluster loosely and keep the area it moves in.
@@ -64,7 +69,7 @@ def detect_facecam(src, info, samples=40):
            "cx0": float(np.percentile([g[0] for g in group], 10)), "cx1": float(np.percentile([g[0] for g in group], 90)),
            "cy0": float(np.percentile([g[1] for g in group], 10)), "cy1": float(np.percentile([g[1] for g in group], 90)),
            "fw": float(np.median([g[2] for g in group]))}
-    rect = _overlay_rect(np.mean(edges, axis=0), cam)
+    rect = _overlay_rect(edge_freq, cam) if edge_freq is not None else None
     if rect:
         cam["rect"] = rect
     return cam
@@ -194,10 +199,11 @@ def split_compose(frame, box, cfg):
     # keep the webcam out of the gameplay panel when a small shift is enough
     cx0, cx1 = box[0] * W, (box[0] + box[2]) * W
     if cx1 > gx and cx0 < gx + gw and box[1] * H < gy + gh:
-        if cx1 - gx < W * 0.12 and cx1 + gw <= W:
-            gx = cx1
-        elif gx + gw - cx0 < W * 0.12 and cx0 - gw >= 0:
-            gx = cx0 - gw
+        m = W * 0.01  # the detected border sits a pixel or two inside the real one
+        if cx1 - gx < W * 0.12 and cx1 + m + gw <= W:
+            gx = cx1 + m
+        elif gx + gw - cx0 < W * 0.12 and cx0 - m - gw >= 0:
+            gx = cx0 - m - gw
     gx, gy = int(gx), int(gy)
     game = frame[gy: gy + int(gh), gx: gx + int(gw)]
     bot = cv2.resize(game, (out_w, bot_h), interpolation=cv2.INTER_CUBIC if game.shape[0] < bot_h else cv2.INTER_AREA)

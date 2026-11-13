@@ -147,6 +147,11 @@ def snap(words, a, b, dur, cfg):
     return max(0.0, a), min(dur, b)
 
 
+def is_strong(c, cfg):
+    """A real moment: a clear audio spike or clear hype words. Weak windows never become clips just to fill the count."""
+    return c["audio"] >= cfg.get("min_audio_spike", 1.0) or c["hype"] >= cfg.get("min_hype", 2.0)
+
+
 def cap_length(a, b, peak, max_seconds):
     """Keep a snapped window within the length limit: ~70% before the peak, ~30% after."""
     if b - a <= max_seconds:
@@ -204,9 +209,10 @@ def claude_pick(cands, words, cfg, language):
 video, found by audio spikes (screams, laughs, explosions) and hype words. For each you get the time range, how hard
 the audio spiked, a hype-word score, and what the streamer said.
 
-Pick the {cfg['clips']} moments most likely to go viral as vertical clips (TikTok, Reels, Shorts): big reactions,
+Pick up to {cfg['clips']} moments most likely to go viral as vertical clips (TikTok, Reels, Shorts): big reactions,
 clutch plays, fails, funny moments, rage, jump scares, wholesome or absurd moments. Skip moments that only make
-sense with context or where nothing happens. Order best first.
+sense with context or where nothing happens. Fewer picks are better than weak picks: return only moments that
+genuinely work on their own. Order best first.
 
 For each pick give: id, a title for the on-screen hook (max 6 words, in the streamer's language
 ({language or 'same as transcript'}), punchy, like a clip title on Twitch or TikTok, no hashtags, no emoji),
@@ -258,14 +264,16 @@ def find_gaming_highlights(src, info, loud, hop, cfg, transcribe_fn):
         c["raw"] = float(s)
     cands.sort(key=lambda c: -c["raw"])
 
+    strong = [c for c in cands if is_strong(c, cfg)]
     picked = claude_pick(cands, words, cfg, lang)
     if picked is None:
         picked = []
-        for c in cands:
+        for c in strong:
             if all(c["end"] <= k["start"] or c["start"] >= k["end"] for k in picked):
                 picked.append(c)
             if len(picked) >= cfg["clips"]:
                 break
+    if picked and picked[0].get("picker") != "claude":
         lo, hi = min(c["raw"] for c in picked), max(c["raw"] for c in picked)
         for c in picked:
             c["hook"] = hook_from(words, c["peak"])
@@ -277,4 +285,6 @@ def find_gaming_highlights(src, info, loud, hop, cfg, transcribe_fn):
     for c in picked:
         c["text"] = " ".join(w["text"] for w in words if c["start"] <= w["start"] < c["end"])
         c["seconds"] = c["end"] - c["start"]
-    return picked, words, lang
+    summary = {"requested": cfg["clips"], "candidates": len(cands), "strong": len(strong), "picked": len(picked),
+               "picker": picked[0]["picker"] if picked else "-"}
+    return picked, words, lang, summary

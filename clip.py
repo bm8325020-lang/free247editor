@@ -47,6 +47,7 @@ def main():
     ap.add_argument("--max", type=float, dest="max_seconds")
     ap.add_argument("--picker", choices=["auto", "claude", "heuristic"])
     ap.add_argument("--language", help="force transcription language, e.g. pt")
+    ap.add_argument("--all", action="store_true", help="keep weak moments too, to always reach --clips")
     ap.add_argument("--no-captions", action="store_true")
     ap.add_argument("--no-hook", action="store_true")
     ap.add_argument("--out", help="output folder (default: outbox/)")
@@ -59,6 +60,9 @@ def main():
     from clipper.pipeline import pending_inbox, process, watch
 
     over = {k: getattr(a, k) for k in ("mode", "layout", "clips", "min_seconds", "max_seconds", "picker", "language")}
+    if a.all:
+        over["min_audio_spike"] = 0
+        over["min_hype"] = 0
     if a.no_captions:
         over["captions"] = False
     if a.no_hook:

@@ -55,9 +55,10 @@ object ClaudePicker {
 video, found by audio spikes (screams, laughs, explosions) and hype words. For each you get the time range, how hard
 the audio spiked, a hype-word score, and what the streamer said.
 
-Pick the $count moments most likely to go viral as vertical clips (TikTok, Reels, Shorts): big reactions,
+Pick up to $count moments most likely to go viral as vertical clips (TikTok, Reels, Shorts): big reactions,
 clutch plays, fails, funny moments, rage, jump scares, wholesome or absurd moments. Skip moments that only make
-sense with context or where nothing happens. Order best first.
+sense with context or where nothing happens. Fewer picks are better than weak picks: return only moments that
+genuinely work on their own. Order best first.
 
 For each pick give: id, a title for the on-screen hook (max 6 words, in the streamer's language
 (${language ?: "same as transcript"}), punchy, like a clip title on Twitch or TikTok, no hashtags, no emoji),

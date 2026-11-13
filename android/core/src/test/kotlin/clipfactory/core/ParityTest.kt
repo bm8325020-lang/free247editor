@@ -110,6 +110,22 @@ class ParityTest {
     }
 
     @Test
+    fun weakMomentsNeverFillTheCountAndTheExplanationSaysWhy() {
+        val loud = res("loud.txt").readLines().filter { it.isNotBlank() }.map { it.toFloat() }.toFloatArray()
+        val ex = Hype.audioExcitement(loud, 0.1)
+        val many = s.copy(clips = 15)
+        val ranked = Hype.rescore(Hype.audioCandidates(ex, duration, many), ex, words(), duration, many.maxSeconds)
+        val strong = ranked.count { Hype.isStrong(it, many) }
+        val picked = Hype.pick(ranked, words(), many)
+        assertTrue(picked.size in 1..strong)
+        assertTrue(strong < 15)
+        assertTrue(picked.all { Hype.isStrong(it, many) })
+        val msg = Hype.explain(15, strong, picked.size, "auto", picked.size, emptyList())
+        assertTrue(msg, msg.startsWith("Pedido: até 15 clipes. Saíram ${picked.size}.") && "momentos fortes" in msg)
+        assertEquals("Pedido: até 3 clipes. Saíram 3.", Hype.explain(3, 5, 3, "auto", 3, emptyList()))
+    }
+
+    @Test
     fun captionsGroupAndLookup() {
         val w = listOf(Word("Não", 10.0, 10.3), Word("acredito!", 10.35, 10.9), Word("olha", 11.0, 11.2),
             Word("isso", 11.25, 11.5), Word("mano", 11.55, 11.8), Word("demais", 11.85, 12.3))
