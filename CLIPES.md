@@ -47,6 +47,35 @@ O resultado sai em `outbox/<nome-do-video>-<data>/`:
 
 Depois de processado, o vídeo original vai para `streams/done/`.
 
+## Bot de lives (Twitch e YouTube)
+
+Fica ligado no PC (ou num servidor) e clipa sozinho os melhores momentos das lives **que você tem autorização
+para clipar**. Clipar sem permissão gera strike de direitos autorais e pode derrubar o seu canal. Use campanhas
+de clipping, regras de clipping publicadas pelo streamer ou acordo por escrito.
+
+1. Copie `live-canais.example.json` para `live-canais.json` e liste os canais. Cada um **precisa** do campo
+   `autorizacao` (de onde vem a permissão); sem ele, o bot recusa o canal.
+2. `python clip.py --setup` (uma vez) e depois `python live.py`. Deixe rodando; Ctrl+C para parar.
+3. Os clipes saem em `outbox/live/<canal>/<data>/`, com `index.html` para revisar.
+
+Como ele decide:
+- **Grava em loop** só os últimos 3 minutos de cada live (não lota o disco).
+- **Lê o chat** sem login e compara com o normal daquele canal: explosão de mensagens, KEKW, LUL, kkkk, "clipa",
+  "CLIP IT"... O chat é o sinal principal: é o público dizendo que foi bom.
+- **Ouve o áudio** (grito, risada, explosão) comparado com o ritmo da própria live.
+- Só dispara depois de 2 minutos de live (para conhecer o "normal") e respeita um intervalo entre clipes.
+- Corta cerca de 20 s antes e 10 s depois do momento, sem cortar frase no meio, com webcam em cima, legenda e
+  gancho.
+
+Ajustes em `live-canais.json`: `limiar` (menor = mais clipes; padrão 3), `antes`, `depois`, `intervalo_minimo`,
+`buffer_segundos`, `qualidade`.
+
+**Clipe oficial da Twitch (opcional):** com `"clip_oficial_twitch": true` e, no `.env`, `TWITCH_CLIENT_ID` e
+`TWITCH_USER_TOKEN` (token da sua conta com a permissão `clips:edit`, criado em dev.twitch.tv), o bot também cria o
+clipe oficial na Twitch no mesmo instante e mostra o link.
+
+Precisa de um computador ligado o tempo todo. No celular não funciona: o Android encerra apps em segundo plano.
+
 ## O que ele faz sozinho
 
 1. **Ouve a live inteira** e marca onde o áudio explode em relação ao próprio ritmo da live: gritos, risadas,

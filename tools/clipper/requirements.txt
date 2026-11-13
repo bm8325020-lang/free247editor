@@ -4,3 +4,6 @@ faster-whisper>=1.1
 yt-dlp>=2025.1.1
 anthropic>=0.75
 pydantic>=2.6
+streamlink>=7.0
+websocket-client>=1.8
+chat-downloader>=0.2.8

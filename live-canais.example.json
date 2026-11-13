@@ -1,0 +1,24 @@
+{
+  "canais": [
+    {
+      "plataforma": "twitch",
+      "canal": "nome_do_canal",
+      "autorizacao": "Campanha de clipping X (link) / regra de clipping publicada pelo streamer / acordo por escrito em 2026-11-13",
+      "ativo": true
+    },
+    {
+      "plataforma": "youtube",
+      "canal": "@nomedocanal",
+      "url": "https://www.youtube.com/@nomedocanal/live",
+      "autorizacao": "descreva de onde vem a permissão",
+      "ativo": false
+    }
+  ],
+  "buffer_segundos": 180,
+  "antes": 20,
+  "depois": 10,
+  "intervalo_minimo": 90,
+  "limiar": 3.0,
+  "qualidade": "best",
+  "clip_oficial_twitch": false
+}

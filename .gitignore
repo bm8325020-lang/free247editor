@@ -8,6 +8,7 @@ inbox/*
 outbox/*
 streams/*
 clipper.config.json
+live-canais.json
 my-sounds/*
 !inbox/.gitkeep
 !streams/.gitkeep

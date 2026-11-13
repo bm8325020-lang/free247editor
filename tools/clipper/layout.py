@@ -22,26 +22,39 @@ def _grab(src, t, w, h):
     return np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 3) if len(buf) == w * h * 3 else None
 
 
-def detect_facecam(src, info, samples=40):
-    """Return the facecam area {x0,x1,y0,y1,fh} in 0..1, 'big' for a full-frame face, or None."""
+_DETECTORS = {}
+
+
+def facecam_sample(src, t, info):
+    """One frame's evidence for facecam detection: (faces [(cx, cy, w, h)], steady-edge map) or None."""
     W, H = info["width"], info["height"]
     dw, dh = DETECT_W, _even(DETECT_W * H / W)
-    det = cv2.FaceDetectorYN.create(str(HERE / "models" / "face_detection_yunet_2023mar.onnx"), "", (dw, dh), 0.7,
-                                    0.3, 20)
+    if (dw, dh) not in _DETECTORS:
+        _DETECTORS[(dw, dh)] = cv2.FaceDetectorYN.create(
+            str(HERE / "models" / "face_detection_yunet_2023mar.onnx"), "", (dw, dh), 0.7, 0.3, 20)
+    frame = _grab(src, t, dw, dh)
+    if frame is None:
+        return None
+    edges = cv2.Canny(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 40, 120) > 0
+    _, found = _DETECTORS[(dw, dh)].detect(frame)
+    faces = [((float(f[0]) + float(f[2]) / 2) / dw, (float(f[1]) + float(f[3]) / 2) / dh, float(f[2]) / dw,
+              float(f[3]) / dh) for f in (found if found is not None else [])]
+    return faces, edges
+
+
+def facecam_from_samples(samples):
+    """samples: list of facecam_sample results (frames spread over time, the more spread the better)."""
+    samples = [x for x in samples if x is not None]
+    if not samples:
+        return None
+    hits = [f for faces, _ in samples for f in faces]
+    return facecam_from(hits, len(samples), np.mean([e for _, e in samples], axis=0))
+
+
+def detect_facecam(src, info, samples=40):
+    """Return the facecam area {x0,x1,y0,y1,fh} in 0..1, 'big' for a full-frame face, or None."""
     dur = info["duration"]
-    hits, n, edges = [], 0, []
-    for i in range(samples):
-        t = dur * (i + 0.5) / samples
-        frame = _grab(src, t, dw, dh)
-        if frame is None:
-            continue
-        n += 1
-        edges.append(cv2.Canny(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 40, 120) > 0)
-        _, found = det.detect(frame)
-        for f in (found if found is not None else []):
-            x, y, w, h = [float(v) for v in f[:4]]
-            hits.append(((x + w / 2) / dw, (y + h / 2) / dh, w / dw, h / dh))
-    return facecam_from(hits, n, np.mean(edges, axis=0) if edges else None)
+    return facecam_from_samples([facecam_sample(src, dur * (i + 0.5) / samples, info) for i in range(samples)])
 
 
 def facecam_from(hits, n, edge_freq):
@@ -117,13 +130,15 @@ def _overlay_rect(freq, cam):
     return (left + 1) / w, (top + 1) / h, (right - left - 1) / w, (bottom - top - 1) / h
 
 
-def choose_layout(src, info, cfg):
+def choose_layout(src, info, cfg, cam="detect"):
+    """cam: a facecam_from_samples result gathered elsewhere (the live bot samples the whole live), or "detect"."""
     want = cfg["layout"]
     if info["width"] / info["height"] <= 0.75:  # already vertical
         return {"kind": "follow"}
     if want in ("follow", "game"):
         return {"kind": want}
-    cam = detect_facecam(src, info)
+    if isinstance(cam, str) and cam == "detect":
+        cam = detect_facecam(src, info)
     if want == "split" and isinstance(cam, dict):
         return {"kind": "split", "cam": cam}
     if want == "split":
