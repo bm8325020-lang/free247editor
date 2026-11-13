@@ -225,11 +225,22 @@ object Hype {
     fun transcriptionRanges(cands: List<Clip>, duration: Double): List<Pair<Double, Double>> =
         merge(cands.map { it.start to min(duration, it.end + 6) }).map { (a, b) -> a to min(duration, b) }
 
+    /** Keep a snapped window within the length limit: ~70% before the peak, ~30% after. */
+    fun capLength(a: Double, b: Double, peak: Double, maxSeconds: Double): Pair<Double, Double> {
+        if (b - a <= maxSeconds) return a to b
+        var na = max(a, peak - maxSeconds * 0.7)
+        val nb = min(b, na + maxSeconds)
+        na = max(a, nb - maxSeconds)
+        return na to nb
+    }
+
     /** Rescore with the transcript and order best first. */
-    fun rescore(cands: List<Clip>, ex: DoubleArray, words: List<Word>, duration: Double): List<Clip> {
+    fun rescore(cands: List<Clip>, ex: DoubleArray, words: List<Word>, duration: Double,
+                maxSeconds: Double = Double.MAX_VALUE): List<Clip> {
         if (cands.isEmpty()) return cands
         for (c in cands) {
-            val (a, b) = snap(words, c.start, c.end, duration)
+            val (a0, b0) = snap(words, c.start, c.end, duration)
+            val (a, b) = capLength(a0, b0, c.peak, maxSeconds)
             c.start = a
             c.end = b
             val (h, burst, n) = hypeScore(words, a, b, c.peak)

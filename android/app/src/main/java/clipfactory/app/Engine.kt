@@ -113,7 +113,7 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
             notes.add("Sem chave do Groq: clipes escolhidos só pelo áudio e sem legendas. Coloque a chave grátis em Configurações.")
         }
 
-        val ranked = Hype.rescore(cands, ex, words, info.durationS)
+        val ranked = Hype.rescore(cands, ex, words, info.durationS, s.maxSeconds)
         var picked: List<Clip>? = null
         if (opt.claudeKey.isNotBlank()) {
             report("Claude escolhendo os melhores", 0.5)

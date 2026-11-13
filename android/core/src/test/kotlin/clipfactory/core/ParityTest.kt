@@ -96,6 +96,20 @@ class ParityTest {
     }
 
     @Test
+    fun clipsNeverExceedTheMaxLength() {
+        val loud = res("loud.txt").readLines().filter { it.isNotBlank() }.map { it.toFloat() }.toFloatArray()
+        val ex = Hype.audioExcitement(loud, 0.1)
+        val short = s.copy(maxSeconds = 20.0, targetSeconds = 20.0)
+        val cands = Hype.audioCandidates(ex, duration, short)
+        val picked = Hype.pick(Hype.rescore(cands, ex, words(), duration, 20.0), words(), short)
+        assertTrue(picked.isNotEmpty())
+        for (c in picked) {
+            assertTrue("clip ${c.seconds}s", c.seconds <= 20.0 + 1e-9)
+            assertTrue("peak inside", c.peak >= c.start && c.peak <= c.end)
+        }
+    }
+
+    @Test
     fun captionsGroupAndLookup() {
         val w = listOf(Word("Não", 10.0, 10.3), Word("acredito!", 10.35, 10.9), Word("olha", 11.0, 11.2),
             Word("isso", 11.25, 11.5), Word("mano", 11.55, 11.8), Word("demais", 11.85, 12.3))

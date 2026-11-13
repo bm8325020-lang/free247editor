@@ -147,6 +147,15 @@ def snap(words, a, b, dur, cfg):
     return max(0.0, a), min(dur, b)
 
 
+def cap_length(a, b, peak, max_seconds):
+    """Keep a snapped window within the length limit: ~70% before the peak, ~30% after."""
+    if b - a <= max_seconds:
+        return a, b
+    na = max(a, peak - max_seconds * 0.7)
+    nb = min(b, na + max_seconds)
+    return max(a, nb - max_seconds), nb
+
+
 def hook_from(words, peak):
     """The words the streamer shouted at the peak, as an on-screen hook (max 6 words)."""
     near = [w for w in words if peak - 2.5 <= w["start"] <= peak + 2.5]
@@ -237,7 +246,7 @@ def find_gaming_highlights(src, info, loud, hop, cfg, transcribe_fn):
 
     cands = []
     for p, a, b in wins:
-        a, b = snap(words, a, b, dur, cfg)
+        a, b = cap_length(*snap(words, a, b, dur, cfg), p + 0.5, cfg["max_seconds"])
         hype, burst, nwords = hype_score(words, a, b, p + 0.5)
         lo, hi = int(a), max(int(a) + 1, int(b))
         cands.append({"peak": p + 0.5, "start": a, "end": b, "audio": float(ex[p]),
