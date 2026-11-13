@@ -189,8 +189,8 @@ class MainActivity : Activity() {
         o.addView(slider({ "Duração máxima: $it s" }, 20, 60, 5, opts.maxSeconds) { opts = opts.copy(maxSeconds = it); save() })
         o.addView(text("Layout", 15f, fg).apply { setPadding(0, dp(8), 0, 0) })
         val layouts = listOf(
-            "auto" to "Automático (recomendado): webcam em cima + gameplay embaixo; sem webcam, só gameplay",
-            "split" to "Webcam em cima + gameplay embaixo (TikTok/Shorts)",
+            "auto" to "Automático (recomendado): webcam em cima, gameplay largo, legenda embaixo; sem webcam, só gameplay",
+            "split" to "Webcam em cima + gameplay em tela alta (recorte do meio do jogo)",
             "pip" to "Webcam pequena no canto",
             "game" to "Só gameplay (nunca mostrar webcam)",
             "follow" to "Seguir o rosto (just chatting)")

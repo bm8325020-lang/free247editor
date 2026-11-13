@@ -99,9 +99,12 @@ def facecam_from(hits, n, edge_freq):
                 cam["rect"] = rect
                 cam["shape"] = "rect"
     if "shape" not in cam:
-        # A face that stays put but has no steady border is not proof of a webcam: in games like GTA a cutscene
-        # character can hold still. No border, no webcam: the clip shows gameplay only.
-        return None
+        # No steady border found. A face holding still for a while is not proof of a webcam (a GTA cutscene
+        # character can do that), but a face in the same spot for most of the whole video is: that is a webcam
+        # whose edge we could not see. Below that, no webcam: the clip shows gameplay only.
+        if frames_with < 0.6 * n:
+            return None
+        cam["shape"] = "face"
     return cam
 
 
@@ -136,7 +139,9 @@ def _overlay_circle(freq, cam, min_score=0.6):
             ok = (px >= 0) & (px < w) & (py >= 0) & (py < h)
             hit = np.zeros(px.shape, bool)
             hit[ok] = tol[py[ok], px[ok]]
-            sc = hit.mean(axis=1)
+            # a webcam can touch the frame edge: judge only the visible part of the circle (at least half of it)
+            seen = ok.sum(axis=1)
+            sc = np.where(seen >= N_ANGLES // 2, hit.sum(axis=1) / np.maximum(seen, 1), 0.0)
             i = int(np.argmax(sc))
             if sc[i] > best[0]:
                 best = (float(sc[i]), float(cx), float(cy), float(radii[i]))
@@ -200,16 +205,17 @@ def choose_layout(src, info, cfg, cam="detect"):
         return {"kind": want}
     if isinstance(cam, str) and cam == "detect":
         cam = detect_facecam(src, info)
-    if want in ("split", "pip") and isinstance(cam, dict):
+    if want in ("split", "pip", "stack") and isinstance(cam, dict):
         return {"kind": want, "cam": cam}
-    if want in ("split", "pip"):
+    if want in ("split", "pip", "stack"):
         print("   No facecam found; using the gameplay layout.")
         return {"kind": "game"}
-    # auto: webcam on top across the full width, gameplay below (the TikTok/Shorts format); no webcam, gameplay only
+    # auto: webcam across the top, wide gameplay band below ("stack", for videos); no webcam, gameplay only.
+    # The live bot asks for "pip" (webcam in the corner) instead.
     if cfg["mode"] == "talk" or cam == "big":
         return {"kind": "follow"}
     if isinstance(cam, dict):
-        return {"kind": "pip" if want == "pip" else "split", "cam": cam}
+        return {"kind": want if want in ("pip", "split") else "stack", "cam": cam}
     return {"kind": "game"}
 
 
@@ -221,6 +227,13 @@ def _webcam_px(cam, info):
         cx, cy, rx, _ = cam["circle"]
         half = rx * W * 0.97 / math.sqrt(2)
         return cx * W - half, cy * H - half, cx * W + half, cy * H + half
+    if cam.get("shape") == "face":  # no border seen: a generous box around everywhere the face goes
+        fx0, fx1, fy0, fy1 = cam["x0"] * W, cam["x1"] * W, cam["y0"] * H, cam["y1"] * H
+        fh = cam["fh"] * H
+        bw = max(fx1 - fx0, fh) * 1.6
+        bh = (fy1 - fy0) + fh * 0.6
+        cx, cy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
+        return max(0, cx - bw / 2), max(0, cy - bh / 2), min(W, cx + bw / 2), min(H, cy + bh / 2)
     rx, ry, rw, rh = cam["rect"]
     return (rx + rw * 0.015) * W, (ry + rh * 0.015) * H, (rx + rw * 0.985) * W, (ry + rh * 0.985) * H
 
@@ -256,6 +269,13 @@ def cam_box(cam, info, out_w, panel_h):
 def webcam_area(cam, box):
     """The whole webcam overlay (to keep out of the gameplay panel): its border if found, else the face crop."""
     return tuple(cam["rect"]) if cam.get("rect") else tuple(box)
+
+
+def webcam_frac(cam, info):
+    """The webcam's visible area as (x, y, w, h) fractions of the source."""
+    W, H = info["width"], info["height"]
+    x0, y0, x1, y1 = _webcam_px(cam, info)
+    return x0 / W, y0 / H, (x1 - x0) / W, (y1 - y0) / H
 
 
 def split_compose(frame, box, cfg, avoid=None):
@@ -372,4 +392,52 @@ def pip_compose(frame, L, cfg):
     else:
         out[y:y + ph, x:x + pw] = cam
         cv2.rectangle(out, (x, y), (x + pw - 1, y + ph - 1), (255, 255, 255), border, cv2.LINE_AA)
+    return out
+
+
+def stack_layout(cam, info, cfg):
+    """Videos (TikTok/Shorts): webcam across the top, the gameplay as a wide band under it (much more of the game
+    than a tall crop), blurred gameplay with the captions at the bottom. A webcam sitting at a side of the source is
+    cut out of the band, so it never shows twice or half-cut.
+
+    Returns {"cam": (x, y, w, h) src fractions for the top panel, "top": px, "game": src fractions, "band_y": px,
+             "band_h": px}.
+    """
+    W, H = info["width"], info["height"]
+    out_w, out_h = cfg["width"], cfg["height"]
+    # everything the webcam covers in the source (a round webcam: its whole circle, not just the square inside)
+    ax, ay, aw, ah = cam["rect"] if cam.get("rect") else webcam_frac(cam, info)
+    # gameplay band: full height; drop the side the webcam sits on when that still leaves 70% of the width
+    gx0, gx1 = 0.0, 1.0
+    if ax < 0.25 and 1 - (ax + aw + 0.01) >= 0.7:
+        gx0 = ax + aw + 0.01
+    elif ax + aw > 0.75 and ax - 0.01 >= 0.7:
+        gx1 = ax - 0.01
+    band_h = _even(out_w * H / ((gx1 - gx0) * W))
+    top = min(panel_height(cam, info, cfg), _even(out_h * cfg["stack_cam_max"]), out_h - band_h - 300)
+    top = max(top, 2)
+    box = cam_box(cam, info, out_w, top)
+    return {"cam": box, "top": top, "game": (gx0, 0.0, gx1 - gx0, 1.0), "band_y": top, "band_h": band_h}
+
+
+def stack_compose(frame, L, cfg):
+    out_w, out_h = cfg["width"], cfg["height"]
+    H, W = frame.shape[:2]
+    gx, gy, gw, gh = L["game"]
+    game = frame[int(gy * H): int((gy + gh) * H), int(gx * W): int((gx + gw) * W)]
+    # background: the gameplay, cover-scaled, blurred and darkened
+    s = max(out_w / game.shape[1], out_h / game.shape[0])
+    small = cv2.resize(game, (max(1, int(game.shape[1] * s / 10)), max(1, int(game.shape[0] * s / 10))),
+                       interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (0, 0), 3)
+    big = cv2.resize(small, (int(game.shape[1] * s), int(game.shape[0] * s)), interpolation=cv2.INTER_LINEAR)
+    ox, oy = (big.shape[1] - out_w) // 2, (big.shape[0] - out_h) // 2
+    out = (big[oy:oy + out_h, ox:ox + out_w] * 0.5).astype(np.uint8)
+    top, by, bh = L["top"], L["band_y"], L["band_h"]
+    sx, sy, sw, sh = L["cam"]
+    camimg = frame[int(sy * H): int((sy + sh) * H), int(sx * W): int((sx + sw) * W)]
+    out[:top] = cv2.resize(camimg, (out_w, top), interpolation=cv2.INTER_AREA if camimg.shape[0] > top else cv2.INTER_CUBIC)
+    band = cv2.resize(game, (out_w, bh), interpolation=cv2.INTER_AREA if game.shape[0] > bh else cv2.INTER_CUBIC)
+    out[by:by + bh] = band[: max(0, min(bh, out_h - by))]
+    out[max(0, by - 3): by + 3] = 0  # thin seam between webcam and gameplay
     return out

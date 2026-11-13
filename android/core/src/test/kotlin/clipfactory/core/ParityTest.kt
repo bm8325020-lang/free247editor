@@ -172,16 +172,45 @@ class ParityTest {
 
     @Test
     fun aGameCharacterHoldingStillIsNotAWebcam() {
-        val faces = List(30) { listOf(Face(0.5, 0.45, 0.1, 0.18)) } + List(10) { emptyList<Face>() }
+        val faces = List(18) { listOf(Face(0.5, 0.45, 0.1, 0.18)) } + List(22) { emptyList<Face>() }
         assertEquals(null, LayoutMath.detectFacecam(faces, FloatArray(640 * 360), 640, 360))
         assertEquals(null, LayoutMath.detectFacecam(faces, null, 640, 360))
         assertTrue(LayoutMath.choose(null, 1280, 720) is Layout.Game) // no webcam: gameplay only
     }
 
     @Test
-    fun webcamOnTopIsTheDefault() {
-        assertTrue(LayoutMath.choose(loadCam(""), 1280, 720) is Layout.Split)
-        assertTrue(LayoutMath.choose(loadCam("round_"), 1280, 720) is Layout.Split)
+    fun stackedLayoutIsTheDefaultForVideosAndMatchesPython() {
+        val rows = res("expected_stack.txt").readLines().filter { it.isNotBlank() }.associate { line ->
+            val p = line.split(' '); p[0] to p.drop(1).map { it.toDouble() }
+        }
+        for ((name, cam) in listOf("rect" to loadCam(""), "round" to loadCam("round_"))) {
+            val e = rows.getValue(name)
+            val st = LayoutMath.choose(cam, 1280, 720) as Layout.Stack
+            val camBox = listOf(st.cam.x, st.cam.y, st.cam.w, st.cam.h)
+            for (i in 0..3) assertEquals("$name cam", e[i], camBox[i], 2e-5)
+            assertEquals("$name top", e[4], st.top * 1920, 0.5)
+            val game = listOf(st.game.x, st.game.y, st.game.w, st.game.h)
+            for (i in 0..3) assertEquals("$name game", e[5 + i], game[i], 2e-5)
+            assertEquals("$name band y", e[9], st.bandY * 1920, 0.5)
+            assertEquals("$name band h", e[10], st.bandH * 1920, 0.5)
+        }
+        assertTrue(LayoutMath.choose(loadCam(""), 1280, 720, force = "split") is Layout.Split)
+    }
+
+    @Test
+    fun borderlessWebcamAndRoundWebcamAtTheEdge() {
+        val steady = List(30) { listOf(Face(0.1, 0.2, 0.08, 0.15)) } + List(10) { emptyList<Face>() }
+        assertEquals("face", (LayoutMath.detectFacecam(steady, FloatArray(640 * 360), 640, 360) as Facecam).shape)
+        val w = 640; val h = 360
+        val freq = FloatArray(w * h) { i ->
+            val x = i % w; val y = i / w
+            if (Math.abs(Math.hypot(x - 50.0, y - 120.0) - 75) < 1.0) 1f else 0f
+        }
+        val faces = List(30) { listOf(Face(50.0 / w, 120.0 / h, 50.0 / w, 60.0 / h)) } + List(10) { emptyList<Face>() }
+        val cam = LayoutMath.detectFacecam(faces, freq, w, h) as Facecam
+        assertEquals("round", cam.shape)
+        assertEquals(50.0, cam.circle!![0] * w, 4.0)
+        assertEquals(75.0, cam.circle!![2] * w, 4.0)
     }
 
     @Test

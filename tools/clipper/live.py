@@ -553,6 +553,8 @@ def main(argv=None):
     if not chans:
         raise SystemExit("Nenhum canal autorizado em live-canais.json.")
     cfg = load_config({"mode": "gaming"})
+    if cfg["layout"] == "auto":
+        cfg["layout"] = "pip"  # live clips: webcam small in the corner (videos use the stacked layout)
     lock = threading.Lock()
     workers = [Channel(c, opts, cfg, lock) for c in chans]
     for w in workers:

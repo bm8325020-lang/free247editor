@@ -9,8 +9,9 @@ DEFAULTS = {
     # "gaming": streams and gameplay (picks hype peaks, facecam-over-gameplay layout, no pause cuts).
     # "talk": podcasts and talking heads (picks complete thoughts, follows the speaker, cuts pauses).
     "mode": "gaming",
-    # Layout: "auto" (gaming: webcam on top + gameplay below if a webcam is found, else gameplay only; talk:
-    # follow), "split" (same as auto with a webcam), "pip" (webcam small in a corner), "game", "follow".
+    # Layout: "auto" = "stack" for videos with a webcam (webcam across the top, wide gameplay band, captions below),
+    # gameplay only without one; talk mode follows the face. Also "split" (webcam on top, tall gameplay crop),
+    # "pip" (webcam small in a corner; the live bot's default), "game", "follow".
     "layout": "auto",
     # "pip" (default with a webcam): the streamer's whole webcam, in its own shape (square or round), small in the
     # top-left corner over full-screen gameplay. pip_width = share of the frame width.
@@ -18,6 +19,7 @@ DEFAULTS = {
     "pip_margin": 36,
     "pip_top": 0.06,
     # split: the whole webcam across the full width on top; its panel takes cam_min..cam_max of the height
+    "stack_cam_max": 0.36,  # stack (videos): webcam share of the height at most, leaving room for captions
     "cam_min": 0.30,
     "cam_max": 0.45,
     "game_zoom": 1.30,  # "game" layout: how far to zoom into the gameplay (1.0 = whole frame, letterboxed)

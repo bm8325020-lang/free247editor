@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .captions import Timeline, build_ass
 from .config import HERE
-from .layout import cam_box, panel_height, pip_compose, pip_layout, split_compose, webcam_area
+from .layout import cam_box, panel_height, pip_compose, pip_layout, split_compose, stack_compose, stack_layout, webcam_area
 from .media import run
 from .reframe import _frames, camera_at, crop_frame, plan_camera, track_faces
 
@@ -67,6 +67,12 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
         box = cam_box(layout["cam"], info, W, cfg["_panel_h"])
         avoid = webcam_area(layout["cam"], box)
 
+    elif kind == "stack":
+        stack = stack_layout(layout["cam"], info, cfg)
+        cfg = dict(cfg)
+        below = stack["band_y"] + stack["band_h"]  # the free space under the gameplay band
+        cfg["hook_y"] = below / H + 0.015
+        cfg["caption_y"] = (below + (H - below) * 0.62) / H
     elif kind == "pip":
         pip = pip_layout(layout["cam"], info, cfg)
         cfg = dict(cfg)
@@ -110,7 +116,9 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
                 break
             if t < ranges[ri][0]:
                 continue
-            if kind == "pip":
+            if kind == "stack":
+                out = stack_compose(frame, stack, cfg)
+            elif kind == "pip":
                 out = pip_compose(frame, pip, cfg)
             elif kind == "split":
                 out = split_compose(frame, box, cfg, avoid)

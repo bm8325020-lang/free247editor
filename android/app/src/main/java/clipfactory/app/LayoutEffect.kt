@@ -47,6 +47,10 @@ class LayoutEffect(private val layout: Layout, private val srcW: Int, private va
             var pip = floatArrayOf(0f, 0f, 0f, 0f)
             var round = 0f
             when (layout) {
+                is Layout.Stack -> {
+                    mode = 4f; cam = vec(layout.cam); game = vec(layout.game); panel = layout.top.toFloat()
+                    pip = floatArrayOf(layout.bandY.toFloat(), layout.bandH.toFloat(), 0f, 0f)
+                }
                 is Layout.Pip -> {
                     mode = 3f; cam = vec(layout.src); game = vec(layout.game); pip = vec(layout.dst)
                     round = if (layout.round) 1f else 0f
@@ -143,7 +147,7 @@ void main() {
     }
   } else if (uMode < 2.5) {
     col = img(uCam.xy + o * uCam.zw);
-  } else {
+  } else if (uMode < 3.5) {
     // picture-in-picture: full-screen gameplay, the whole webcam small in the corner, in its own shape
     col = img(uGame.xy + o * uGame.zw);
     vec2 q = (o - uPip.xy) / uPip.zw;
@@ -163,6 +167,19 @@ void main() {
         col = edge < bw ? vec4(1.0) : cam;
       }
     }
+  } else {
+    // stacked (videos): webcam across the top, wide gameplay band (uPip.x = band top, uPip.y = band height),
+    // blurred gameplay underneath for the captions
+    if (o.y < uPanel) {
+      col = img(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
+    } else if (o.y >= uPip.x && o.y < uPip.x + uPip.y) {
+      col = img(uGame.xy + vec2(o.x, (o.y - uPip.x) / uPip.y) * uGame.zw);
+    } else {
+      float gAspect = (uGame.z * uSrcAspect) / uGame.w;
+      vec2 p = vec2(0.5 + (o.x - 0.5) * uOutAspect / gAspect, o.y);
+      col = vec4(blurred(uGame.xy + p * uGame.zw).rgb * 0.5, 1.0);
+    }
+    if (abs(o.y - uPanel) < 3.0 / 1920.0) col = vec4(0.0, 0.0, 0.0, 1.0);
   }
   gl_FragColor = vec4(col.rgb, 1.0);
 }

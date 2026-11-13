@@ -33,6 +33,12 @@ sealed class Layout {
      */
     data class Pip(val src: Box, val round: Boolean, val dst: Box, val game: Box) : Layout()
 
+    /**
+     * Videos: webcam across the top (cam: source box), a wide gameplay band under it (game: source box), blurred
+     * gameplay with the captions below. top, bandY, bandH are fractions of the output height.
+     */
+    data class Stack(val cam: Box, val top: Double, val game: Box, val bandY: Double, val bandH: Double) : Layout()
+
     /** Big face (just chatting): a 9:16 crop that follows the face. */
     data class Follow(val crop: Box) : Layout()
 }
@@ -79,7 +85,12 @@ object LayoutMath {
         }
         // A face that stays put but has no steady border is not proof of a webcam: in games like GTA a cutscene
         // character can hold still. No border, no webcam: the clip shows gameplay only.
-        return if (cam.shape == "unknown") null else cam
+        if (cam.shape == "unknown") {
+            // no steady border: only a face in the same spot for most of the whole video counts (a borderless
+            // webcam); a game character holding still for a while does not
+            return if (group.size >= 0.6 * n) cam.copy(shape = "face") else null
+        }
+        return cam
     }
 
     val BIG = Any()
@@ -114,12 +125,17 @@ object LayoutMath {
             while (cx <= fcx + span + 1e-9) {
                 for (r in radii) {
                     var hit = 0
+                    var seen = 0
                     for (k in 0 until n) {
                         val px = Math.rint(cx + r * cos[k]).toInt()
                         val py = Math.rint(cy + r * sin[k]).toInt()
-                        if (px in 0 until w && py in 0 until h && tol[py * w + px]) hit++
+                        if (px in 0 until w && py in 0 until h) {
+                            seen++
+                            if (tol[py * w + px]) hit++
+                        }
                     }
-                    val sc = hit.toDouble() / n
+                    // a webcam can touch the frame edge: judge only the visible part (at least half of the circle)
+                    val sc = if (seen >= n / 2) hit.toDouble() / seen else 0.0
                     if (sc > best[0]) best = doubleArrayOf(sc, cx, cy, r)
                 }
                 cx += 2.0
@@ -239,6 +255,15 @@ object LayoutMath {
             val half = c[2] * W * 0.97 / Math.sqrt(2.0)
             return doubleArrayOf(c[0] * W - half, c[1] * H - half, c[0] * W + half, c[1] * H + half)
         }
+        if (cam.shape == "face") { // no border seen: a generous box around everywhere the face goes
+            val fx0 = cam.x0 * W; val fx1 = cam.x1 * W; val fy0 = cam.y0 * H; val fy1 = cam.y1 * H
+            val fh = cam.fh * H
+            val bw = max(fx1 - fx0, fh) * 1.6
+            val bh = (fy1 - fy0) + fh * 0.6
+            val cx = (fx0 + fx1) / 2
+            val cy = (fy0 + fy1) / 2
+            return doubleArrayOf(max(0.0, cx - bw / 2), max(0.0, cy - bh / 2), min(W, cx + bw / 2), min(H, cy + bh / 2))
+        }
         val r = cam.rect!!
         return doubleArrayOf((r.x + r.w * 0.015) * W, (r.y + r.h * 0.015) * H, (r.x + r.w * 0.985) * W, (r.y + r.h * 0.985) * H)
     }
@@ -273,6 +298,26 @@ object LayoutMath {
             bh = nbh
         }
         return Box(x0 / W, y0 / H, bw / W, bh / H)
+    }
+
+    /** Stacked layout for videos (see Layout.Stack); same rules as the Python engine. */
+    fun stackLayout(cam: Facecam, srcW: Int, srcH: Int, camMax: Double = 0.36): Layout.Stack {
+        val W = srcW.toDouble()
+        val H = srcH.toDouble()
+        val r = cam.rect
+        val a = if (r != null) doubleArrayOf(r.x, r.w) else webcamPx(cam, srcW, srcH).let { doubleArrayOf(it[0] / W, (it[2] - it[0]) / W) }
+        val ax = a[0]
+        val aw = a[1]
+        var gx0 = 0.0
+        var gx1 = 1.0
+        if (ax < 0.25 && 1 - (ax + aw + 0.01) >= 0.7) gx0 = ax + aw + 0.01
+        else if (ax + aw > 0.75 && ax - 0.01 >= 0.7) gx1 = ax - 0.01
+        val bandH = even(OUT_W * H / ((gx1 - gx0) * W))
+        val panelPx = Math.round(panelFraction(cam, srcW, srcH) * OUT_H).toInt()
+        val top = max(2, minOf(panelPx, even(OUT_H * camMax), OUT_H - bandH - 300))
+        val box = camBox(cam, srcW, srcH, top.toDouble() / OUT_H)
+        return Layout.Stack(box, top.toDouble() / OUT_H, Box(gx0, 0.0, gx1 - gx0, 1.0),
+            top.toDouble() / OUT_H, bandH.toDouble() / OUT_H)
     }
 
     /** The whole webcam overlay, to keep out of the gameplay panel: its border if found, else the face crop. */
@@ -323,6 +368,7 @@ object LayoutMath {
         if (force == "game") return Layout.Game(1.3)
         val cam = det as? Facecam
         if (cam != null && force == "pip") return pipLayout(cam, srcW, srcH)
+        if (cam != null && force != "follow" && force != "split") return stackLayout(cam, srcW, srcH)
         if (cam != null && force != "follow") {
             val panel = panelFraction(cam, srcW, srcH)
             val box = camBox(cam, srcW, srcH, panel)

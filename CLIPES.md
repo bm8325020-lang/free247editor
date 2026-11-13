@@ -93,10 +93,13 @@ Precisa de um computador ligado o tempo todo. No celular não funciona: o Androi
 4. **Escolhe os melhores sem sobreposição** e ajusta o começo e o fim para não cortar no meio de uma frase.
    Cerca de 70% do clipe fica antes do pico (o contexto) e 30% depois (a reação).
 5. **Monta o vertical**:
-   - **Com webcam** (formato TikTok/Shorts, padrão): a **webcam inteira em cima, na largura toda**, e o gameplay
-     embaixo. Detecta se a webcam é quadrada/retangular ou redonda; nada do jogo entra no painel da webcam.
-     Para ter certeza de que é uma webcam, ele exige rosto parado **e** uma borda fixa em volta: personagem de
-     jogo parado numa cena (GTA, por exemplo) não vira webcam. Webcam pequena no canto: `--layout pip`.
+   - **Com webcam (vídeos, padrão):** a **webcam em cima**, ocupando o espaço de cima; o **gameplay largo** no
+     meio (bem mais do jogo do que um recorte vertical); embaixo, fundo desfocado com a legenda. Se a webcam fica
+     na lateral do vídeo, essa lateral sai do gameplay, para a webcam não aparecer duplicada nem cortada.
+     Detecta webcam quadrada, redonda (inclusive encostada na borda da tela) e webcam sem moldura (rosto no mesmo
+     lugar em 60%+ do vídeo). Personagem de jogo parado numa cena não vira webcam.
+   - **Clipes de live (bot):** webcam pequena no canto (`pip`). Outras opções: `--layout split` (webcam em cima e
+     recorte alto do jogo) e `--layout pip`.
    - **Sem webcam**: gameplay ampliado no meio, com fundo desfocado em cima e embaixo.
    - **Câmera grande** (just chatting): segue o rosto de quem está falando.
 6. **Legenda palavra por palavra** com a palavra atual destacada, e um **título de gancho** nos primeiros 3 segundos.

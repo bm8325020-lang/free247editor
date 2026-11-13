@@ -6,7 +6,8 @@ from conftest import FIXTURES
 
 from clipper.captions import Timeline, build_ass, clean
 from clipper.config import load_config
-from clipper.layout import cam_box, facecam_from, panel_height, pip_compose, pip_layout, split_compose, webcam_area
+from clipper.layout import (cam_box, facecam_from, panel_height, pip_compose, pip_layout, split_compose, stack_compose,
+                            stack_layout, webcam_area)
 from clipper.render import keep_ranges, quantize
 
 INFO = {"width": 1280, "height": 720, "duration": 276.0}
@@ -57,10 +58,29 @@ def test_split_shows_the_whole_webcam_on_top_full_width_and_nothing_leaks():
 
 
 def test_a_game_character_holding_still_is_not_a_webcam():
-    # GTA cutscene: a face in the same place in most frames, but no steady webcam border around it
-    faces = [(0.5, 0.45, 0.1, 0.18)] * 30
+    # GTA cutscene: a face in the same place for a good part of the video, but no steady webcam border around it
+    faces = [(0.5, 0.45, 0.1, 0.18)] * 18  # 18 of 40 sampled frames
     assert facecam_from(faces, 40, np.zeros((360, 640), np.float32)) is None
     assert facecam_from(faces, 40, None) is None
+
+
+def test_a_face_in_the_same_spot_for_most_of_the_video_is_a_borderless_webcam():
+    faces = [(0.1, 0.2, 0.08, 0.15)] * 30  # 30 of 40 frames, no border visible
+    cam = facecam_from(faces, 40, np.zeros((360, 640), np.float32))
+    assert cam["shape"] == "face"
+
+
+def test_a_round_webcam_touching_the_frame_edge_is_still_found():
+    h, w = 360, 640
+    freq = np.zeros((h, w), np.float32)
+    yy, xx = np.mgrid[0:h, 0:w]
+    d = np.hypot(xx - 50, yy - 120)
+    freq[np.abs(d - 75) < 1.0] = 1.0  # circle centre 50 px from the left edge, radius 75: a quarter is off-screen
+    faces = [(50 / w, 120 / h, 50 / w, 60 / h)] * 30
+    cam = facecam_from(faces, 40, freq)
+    assert cam["shape"] == "round"
+    cx, cy, rx, _ = cam["circle"]
+    assert abs(cx * w - 50) < 4 and abs(cy * h - 120) < 4 and abs(rx * w - 75) < 4
 
 
 def test_round_webcam_on_top_shows_only_what_is_inside_the_circle():
@@ -168,3 +188,20 @@ def test_pip_shows_the_whole_webcam_small_in_the_corner_with_nothing_leaking(rou
     rest = out.copy()
     rest[: y + ph + 8, : x + pw + 8] = 0
     assert ((rest[:, :, 0] > 200) & (rest[:, :, 2] > 200)).sum() == 0, "webcam inside the gameplay"
+
+
+@pytest.mark.parametrize("round_cam", [True, False])
+def test_stack_webcam_on_top_wide_gameplay_band_and_no_webcam_in_the_band(round_cam):
+    cam = round_facecam() if round_cam else facecam()
+    cfg = load_config()
+    L = stack_layout(cam, INFO, cfg)
+    assert L["top"] <= 0.36 * 1920 + 2 and L["band_y"] == L["top"]
+    assert L["game"][2] >= 0.7  # the band shows at least 70% of the game's width (a tall crop shows ~32%)
+    assert L["band_y"] + L["band_h"] <= 1920 - 300  # room left for the captions
+    out = stack_compose(_pip_frame(round_cam), L, cfg)
+    assert out.shape == (1920, 1080, 3)
+    band = out[L["band_y"] + 4: L["band_y"] + L["band_h"]]
+    assert ((band[:, :, 0] > 200) & (band[:, :, 2] > 200)).sum() == 0, "webcam inside the gameplay band"
+    top = out[: L["top"] - 4]
+    if not round_cam:  # a square webcam fills the top with webcam only
+        assert ((top[:, :, 1] > 200) & (top[:, :, 0] < 60)).sum() == 0, "gameplay inside the webcam panel"
