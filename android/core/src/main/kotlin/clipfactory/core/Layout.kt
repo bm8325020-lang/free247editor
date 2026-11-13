@@ -110,57 +110,47 @@ object LayoutMath {
 
     private fun even(x: Double) = max(2, (Math.round(x / 2) * 2).toInt())
 
-    /** Facecam panel height (fraction of the output height). */
-    fun panelFraction(cam: Facecam, srcW: Int, srcH: Int, default: Double = 0.36): Double {
-        val r = cam.rect ?: return even(OUT_H * default).toDouble() / OUT_H
-        val aspect = (r.w * srcW) / (r.h * srcH)
-        val frac = OUT_W / aspect / OUT_H
-        return even(OUT_H * frac.coerceIn(0.28, 0.45)).toDouble() / OUT_H
-    }
+    /** Webcam panel height (fraction of the output height): a fixed, small share of the frame (default 28%). */
+    fun panelFraction(cam: Facecam, srcW: Int, srcH: Int, share: Double = 0.28): Double =
+        even(OUT_H * share.coerceIn(0.18, 0.40)).toDouble() / OUT_H
 
-    /** Box to show in the webcam panel, with the panel's aspect ratio. */
+    /** Crop for the webcam panel: tight on the face, never outside the webcam (so no gameplay gets in). */
     fun camBox(cam: Facecam, srcW: Int, srcH: Int, panel: Double): Box {
-        val aspect = OUT_W / (panel * OUT_H)
         val W = srcW.toDouble()
         val H = srcH.toDouble()
-        cam.rect?.let { r0 ->
-            var x = r0.x
-            var y = r0.y
-            var rw = r0.w
-            var rh = r0.h
-            val bw = rw * W
-            val bh = rh * H
-            if (bw / bh > aspect) {
-                val nbw = bh * aspect
-                x += (bw - nbw) / 2 / W
-                rw = nbw / W
-            } else {
-                val nbh = bw / aspect
-                val fy = (cam.y0 + cam.y1) / 2 * H
-                val y0 = min(max(fy - nbh / 2, y * H), y * H + bh - nbh)
-                y = y0 / H
-                rh = nbh / H
-            }
-            return Box(x, y, rw, rh)
-        }
+        val aspect = OUT_W / (panel * OUT_H)
+        val fx0 = cam.x0 * W
+        val fx1 = cam.x1 * W
+        val fy0 = cam.y0 * H
+        val fy1 = cam.y1 * H
+        val fcx = (fx0 + fx1) / 2
+        val fcy = (fy0 + fy1) / 2
         val fh = cam.fh * H
-        val cx = (cam.x0 + cam.x1) / 2 * W
-        val cy = (cam.y0 + cam.y1) / 2 * H + fh * 0.1
-        var bh = max(fh * 2.2, (cam.y1 - cam.y0) * H * 1.2)
-        var bw = max(bh * aspect, (cam.x1 - cam.x0) * W * 1.25)
-        bh = bw / aspect
-        if (bw > W * 0.6) {
-            bw = W * 0.6
-            bh = bw / aspect
+        val ax0: Double
+        val ay0: Double
+        val ax1: Double
+        val ay1: Double
+        val r = cam.rect
+        if (r != null) { // the webcam's own border, pulled in 2% so its frame line stays out too
+            val mx = r.w * W * 0.02
+            val my = r.h * H * 0.02
+            ax0 = r.x * W + mx; ay0 = r.y * H + my; ax1 = (r.x + r.w) * W - mx; ay1 = (r.y + r.h) * H - my
+        } else { // no border found: stay close around the face, where only the webcam can be
+            val uw = max(fx1 - fx0, fh)
+            ax0 = max(0.0, fcx - uw); ax1 = min(W, fcx + uw)
+            ay0 = max(0.0, fy0 - fh * 0.3); ay1 = min(H, fy1 + fh * 0.3)
         }
-        if (bh > H) {
-            bh = H
-            bw = bh * aspect
-        }
-        val x0 = min(max(cx - bw / 2, 0.0), W - bw)
-        val y0 = min(max(cy - bh / 2, 0.0), H - bh)
+        var bh = max(fh * 1.5, (fy1 - fy0) * 1.1)
+        var bw = bh * aspect
+        if (bw > ax1 - ax0) { bw = ax1 - ax0; bh = bw / aspect }
+        if (bh > ay1 - ay0) { bh = ay1 - ay0; bw = bh * aspect }
+        val x0 = min(max(fcx - bw / 2, ax0), ax1 - bw)
+        val y0 = min(max(fcy - bh * 0.48, ay0), ay1 - bh) // face a touch above the middle
         return Box(x0 / W, y0 / H, bw / W, bh / H)
     }
+
+    /** The whole webcam overlay, to keep out of the gameplay panel: its border if found, else the face crop. */
+    fun webcamArea(cam: Facecam, box: Box): Box = cam.rect ?: box
 
     /** Gameplay area for the lower panel, nudged so the webcam stays out of it when a small shift is enough. */
     fun gameBox(cam: Box, srcW: Int, srcH: Int, panel: Double, zoom: Double = 1.0): Box {
@@ -209,7 +199,7 @@ object LayoutMath {
         if (cam != null && force != "follow") {
             val panel = panelFraction(cam, srcW, srcH)
             val box = camBox(cam, srcW, srcH, panel)
-            return Layout.Split(box, panel, gameBox(box, srcW, srcH, panel))
+            return Layout.Split(box, panel, gameBox(webcamArea(cam, box), srcW, srcH, panel))
         }
         if (force == "follow" || isBigFace(det)) return Layout.Follow(followCrop(followFace, srcW, srcH))
         return Layout.Game(1.3)

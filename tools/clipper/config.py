@@ -11,7 +11,7 @@ DEFAULTS = {
     "mode": "gaming",
     # Layout: "auto" (gaming: split if a facecam is found, else game; talk: follow), "split", "game", "follow".
     "layout": "auto",
-    "cam_height": 0.36,  # facecam panel height as a fraction of the vertical frame (split layout)
+    "cam_height": 0.28,  # webcam panel height as a fraction of the vertical frame (split layout); 0.18-0.40
     "game_zoom": 1.30,  # "game" layout: how far to zoom into the gameplay (1.0 = whole frame, letterboxed)
     "split_game_zoom": 1.0,  # split layout: >1 crops the gameplay tighter
     # How many clips to make from one long video, and how long each may be (seconds, after cuts).

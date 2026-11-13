@@ -2,7 +2,8 @@
 
 ## Pedidos do usuário (anotados, ainda não implementados)
 
-### Layout webcam + gameplay (anotado em 2026-11-13)
+### Layout webcam + gameplay (anotado em 2026-11-13; FEITO na versão 1.2.0: painel de 28%, recorte só no rosto
+e dentro da webcam, gameplay com 72%. Ainda falta: mostrar mais largura do jogo e posição/tamanho ajustáveis no app)
 Pedido, nas palavras do usuário: "na parte da web cam deixar só o rosto do cara, literalmente só a web cam, e mais
 partes da gameplay; diminuir o tamanho da web cam e aumentar o tamanho da tela da gameplay".
 

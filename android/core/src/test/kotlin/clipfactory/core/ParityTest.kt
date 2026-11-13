@@ -79,7 +79,12 @@ class ParityTest {
         val layout = LayoutMath.choose(cam, 1280, 720)
         assertTrue(layout is Layout.Split)
         val game = (layout as Layout.Split).game
-        assertTrue("webcam must not overlap the gameplay crop", game.x >= box.x + box.w - 1e-6)
+        val webcam = cam.rect!!
+        assertTrue("webcam must not overlap the gameplay crop", game.x >= webcam.x + webcam.w - 1e-6)
+        // the face crop stays inside the webcam: no gameplay in the webcam panel
+        assertTrue(box.x >= webcam.x && box.y >= webcam.y)
+        assertTrue(box.x + box.w <= webcam.x + webcam.w + 1e-9 && box.y + box.h <= webcam.y + webcam.h + 1e-9)
+        assertEquals(538, Math.round(panel * LayoutMath.OUT_H).toInt()) // 28% of 1920
     }
 
     @Test

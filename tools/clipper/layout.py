@@ -156,51 +156,47 @@ def choose_layout(src, info, cfg, cam="detect"):
 
 
 def panel_height(cam, info, cfg):
-    """Facecam panel height: fit the whole webcam when its border was found, within sane limits."""
-    if cam.get("rect"):
-        _, _, rw, rh = cam["rect"]
-        aspect = (rw * info["width"]) / (rh * info["height"])
-        frac = cfg["width"] / aspect / cfg["height"]
-        return _even(cfg["height"] * min(max(frac, 0.28), 0.45))
-    return _even(cfg["height"] * cfg["cam_height"])
+    """Webcam panel height in pixels: a fixed, small share of the frame (cam_height, default 28%)."""
+    return _even(cfg["height"] * min(max(cfg["cam_height"], 0.18), 0.40))
 
 
 def cam_box(cam, info, out_w, panel_h):
-    """Pixel box (as 0..1 fractions) with the panel's aspect ratio: the webcam overlay, or the area around the face."""
-    if cam.get("rect"):
-        x, y, rw, rh = cam["rect"]
-        W, H = info["width"], info["height"]
-        aspect = out_w / panel_h
-        bw, bh = rw * W, rh * H
-        if bw / bh > aspect:  # trim the sides
-            nbw = bh * aspect
-            x, rw = x + (bw - nbw) / 2 / W, nbw / W
-        else:  # trim top and bottom, keep the face
-            nbh = bw / aspect
-            fy = (cam["y0"] + cam["y1"]) / 2 * H
-            y0 = min(max(fy - nbh / 2, y * H), y * H + bh - nbh)
-            y, rh = y0 / H, nbh / H
-        return x, y, rw, rh
+    """Crop for the webcam panel: tight on the face, never outside the webcam (so no gameplay gets in).
+
+    Returns (x, y, w, h) as fractions of the source frame, with the panel's aspect ratio.
+    """
     W, H = info["width"], info["height"]
     aspect = out_w / panel_h
+    fx0, fx1, fy0, fy1 = cam["x0"] * W, cam["x1"] * W, cam["y0"] * H, cam["y1"] * H  # where the face moves
+    fcx, fcy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
     fh = cam["fh"] * H
-    cx = (cam["x0"] + cam["x1"]) / 2 * W
-    cy = ((cam["y0"] + cam["y1"]) / 2) * H + fh * 0.1
-    bh = max(fh * 2.2, (cam["y1"] - cam["y0"]) * H * 1.2)
-    bw = max(bh * aspect, (cam["x1"] - cam["x0"]) * W * 1.25)
-    bh = bw / aspect
-    if bw > W * 0.6:
-        bw = W * 0.6
+    if cam.get("rect"):  # the webcam's own border, pulled in 2% so its frame line stays out too
+        rx, ry, rw, rh = cam["rect"]
+        mx, my = rw * W * 0.02, rh * H * 0.02
+        ax0, ay0, ax1, ay1 = rx * W + mx, ry * H + my, (rx + rw) * W - mx, (ry + rh) * H - my
+    else:  # no border found: stay close around the face, where only the webcam can be
+        uw = max(fx1 - fx0, fh)
+        ax0, ax1 = max(0, fcx - uw), min(W, fcx + uw)
+        ay0, ay1 = max(0, fy0 - fh * 0.3), min(H, fy1 + fh * 0.3)
+    bh = max(fh * 1.5, (fy1 - fy0) * 1.1)
+    bw = bh * aspect
+    if bw > ax1 - ax0:
+        bw = ax1 - ax0
         bh = bw / aspect
-    if bh > H:
-        bh = H
+    if bh > ay1 - ay0:
+        bh = ay1 - ay0
         bw = bh * aspect
-    x0 = min(max(cx - bw / 2, 0), W - bw)
-    y0 = min(max(cy - bh / 2, 0), H - bh)
+    x0 = min(max(fcx - bw / 2, ax0), ax1 - bw)
+    y0 = min(max(fcy - bh * 0.48, ay0), ay1 - bh)  # face a touch above the middle
     return x0 / W, y0 / H, bw / W, bh / H
 
 
-def split_compose(frame, box, cfg):
+def webcam_area(cam, box):
+    """The whole webcam overlay (to keep out of the gameplay panel): its border if found, else the face crop."""
+    return tuple(cam["rect"]) if cam.get("rect") else tuple(box)
+
+
+def split_compose(frame, box, cfg, avoid=None):
     out_w, out_h = cfg["width"], cfg["height"]
     top_h = cfg["_panel_h"]
     bot_h = out_h - top_h
@@ -215,8 +211,9 @@ def split_compose(frame, box, cfg):
         gw, gh = W, W / ga
     gx, gy = (W - gw) / 2, (H - gh) / 2
     # keep the webcam out of the gameplay panel when a small shift is enough
-    cx0, cx1 = box[0] * W, (box[0] + box[2]) * W
-    if cx1 > gx and cx0 < gx + gw and box[1] * H < gy + gh:
+    av = avoid or box
+    cx0, cx1 = av[0] * W, (av[0] + av[2]) * W
+    if cx1 > gx and cx0 < gx + gw and av[1] * H < gy + gh:
         m = W * 0.01  # the detected border sits a pixel or two inside the real one
         if cx1 - gx < W * 0.12 and cx1 + m + gw <= W:
             gx = cx1 + m
