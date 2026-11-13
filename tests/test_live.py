@@ -45,3 +45,25 @@ def test_channels_without_authorization_are_refused(tmp_path, monkeypatch, capsy
     assert [c["canal"] for c in chans] == ["com_permissao"]
     assert opts["limiar"] == 2.5 and opts["antes"] == 20
     assert "sem 'autorizacao'" in capsys.readouterr().err
+
+
+def test_onset_finds_when_the_chat_started_reacting_not_when_it_was_detected():
+    rng = np.random.default_rng(3)
+    series = list(rng.poisson(2, 280).astype(float))
+    # the chat starts reacting 7 seconds ago, ramps up, and is detected only now
+    series += [6, 9, 14, 20, 30, 40, 45, 50]
+    # never later than the real start (that would cut the scene); a noisy second before it may add a little
+    assert 7 <= live.chat_onset(series) <= 9
+
+
+def test_onset_ignores_a_single_quiet_second_inside_the_burst():
+    series = [2.0] * 280 + [20, 25, 2, 30, 40, 50]  # one dip in the middle
+    assert live.chat_onset(series) == 5
+
+
+def test_no_burst_means_no_extra_going_back():
+    assert live.chat_onset([2.0] * 300) == 0
+
+
+def test_default_goes_back_three_seconds_and_is_configurable():
+    assert live.DEFAULTS["volta_segundos"] == 3

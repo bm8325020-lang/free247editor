@@ -39,7 +39,6 @@ from .transcribe import transcribe_ranges
 
 SEG = 10  # seconds per recorded segment
 HOP = 0.1
-REACTION = 3.0  # chat reacts ~3 s after viewers see the moment
 EMOTES = {  # extra weight per message; matched case-insensitively as whole tokens
     "kekw": 1.5, "lul": 1.0, "lol": 1.0, "omegalul": 2.0, "lmao": 1.5, "icant": 1.5, "pog": 1.0, "pogchamp": 1.0,
     "pogu": 1.0, "poggers": 1.0, "monkas": 1.0, "monkaw": 1.5, "w": 0.5, "wwww": 1.0, "clip": 3.0, "clipa": 3.0,
@@ -53,6 +52,9 @@ DEFAULTS = {
     "antes": 20,
     "depois": 10,
     "intervalo_minimo": 90,
+    # when the chat fires, go back this many seconds from the moment the chat STARTED reacting,
+    # so the whole scene is in the clip even though the chat types after it happens
+    "volta_segundos": 3,
     "limiar": 3.0,
     "qualidade": "best",
     "clip_oficial_twitch": False,
@@ -138,6 +140,29 @@ class YouTubeChat(threading.Thread):
             except Exception as e:
                 log("youtube", f"chat reconnecting ({type(e).__name__}: {str(e)[:80]})")
                 time.sleep(10)
+
+
+def chat_onset(series, window=240, max_back=20):
+    """Seconds ago that the current chat burst began: walk back while the chat stays above its normal level.
+
+    series: weighted messages per second, oldest -> newest. Short dips of one second don't end the burst.
+    """
+    x = np.asarray(series, dtype=float)
+    if len(x) < 30:
+        return 0
+    base = x[-window - 15:-15] if len(x) > window + 15 else x[:-15]
+    med = float(np.median(base))
+    scale = max(float(np.median(np.abs(base - med))) * 1.4826, math.sqrt(max(med, 0.0)), 1.0)
+    above = x > med + scale
+    onset, dips = 0, 0
+    for back in range(1, min(max_back, len(x)) + 1):
+        if above[-back]:
+            onset, dips = back - 1, 0
+        else:
+            dips += 1
+            if dips > 1:
+                break
+    return onset
 
 
 def _smooth3(x):
@@ -252,7 +277,7 @@ class Channel(threading.Thread):
             if self.seg_count % 3 == 1:  # every ~30 s
                 try:
                     info = probe(seg["path"])
-                    self.cam_samples.append(facecam_sample(seg["path"], info["duration"] / 2, info))
+                    self.cam_samples.append(facecam_sample(seg["path"], info["duration"] / 2, info, exact=True))
                     self.seg_info = info
                 except Exception:
                     pass
@@ -290,15 +315,19 @@ class Channel(threading.Thread):
     def chat_sink(self, wall, weight, text):
         self.chat.append((wall, weight, text))
 
-    def scores(self):
-        """(chat z, audio z, stream time of the audio peak). Needs 2 minutes of history before it fires."""
+    def chat_series(self):
+        """Weighted chat messages per second over the last 5 minutes (oldest -> newest) and seconds of history."""
         now = time.time()
         sec = collections.Counter()
         for w, wt, _ in self.chat:
             if w >= now - 300:
                 sec[int(now - w)] += wt
         history = now - self.chat[0][0] if self.chat else 0
-        chat_series = [sec.get(i, 0.0) for i in range(300, -1, -1)][-int(min(history, 300)) - 1:]
+        return [sec.get(i, 0.0) for i in range(300, -1, -1)][-int(min(history, 300)) - 1:], history
+
+    def scores(self):
+        """(chat z, audio z, stream time of the audio peak). Needs 2 minutes of history before it fires."""
+        chat_series, history = self.chat_series()
         cz = robust_z(chat_series, 240) if history >= 120 else 0.0
         az, at = 0.0, None
         per = int(1 / HOP)
@@ -331,11 +360,20 @@ class Channel(threading.Thread):
         strong = cz >= 6 or az >= 5
         cooled = time.time() - self.last_clip >= self.opts["intervalo_minimo"]
         if (score >= self.opts["limiar"] or strong) and cooled:
-            # chat reacts a few seconds after the moment; audio says exactly when it was loud
-            peak = at if (az >= cz and at is not None) else sn - REACTION
+            if az >= cz and at is not None:
+                # audio says exactly when it got loud
+                scene, back = at, 0.0
+            else:
+                # the chat types AFTER the scene: find when the burst started, then go back further
+                onset = chat_onset(self.chat_series()[0])
+                back = onset + self.opts["volta_segundos"]
+                scene = sn - back
             self.last_clip = time.time()
-            self.pending.append({"peak": peak, "chat_z": cz, "audio_z": az, "wall": time.time()})
-            log(self.name, f"MOMENTO detectado (chat {cz:.1f}σ, áudio {az:.1f}σ) — cortando quando a reação terminar")
+            # the clip must still run past the reaction we just saw
+            self.pending.append({"peak": scene, "end": max(scene, sn) + self.opts["depois"], "back": back,
+                                 "chat_z": cz, "audio_z": az, "wall": time.time()})
+            log(self.name, f"MOMENTO detectado (chat {cz:.1f}σ, áudio {az:.1f}σ); a cena começa {back:.0f} s antes "
+                           f"da detecção; cortando quando a reação terminar")
             if self.opts.get("clip_oficial_twitch") and self.platform == "twitch":
                 threading.Thread(target=self.official_clip, daemon=True).start()
 
@@ -363,13 +401,13 @@ class Channel(threading.Thread):
         if sn is None:
             return
         for p in list(self.pending):
-            if sn >= p["peak"] + self.opts["depois"] + SEG + 2:
+            if sn >= p["end"] + SEG + 2:
                 self.pending.remove(p)
                 threading.Thread(target=self.cut, args=(p,), daemon=True).start()
 
     def cut(self, p):
         a = p["peak"] - self.opts["antes"] - 4  # room for snapping to a pause
-        b = p["peak"] + self.opts["depois"] + 4
+        b = p["end"] + 4
         segs = [s for s in list(self.segments) if s["end"] > a and s["start"] < b and s["path"].exists()]
         if not segs:
             log(self.name, "corte perdido: os segmentos já tinham saído do buffer")
@@ -401,9 +439,12 @@ class Channel(threading.Thread):
         info = probe(src)
         cfg = dict(self.cfg)
         peak = p["peak"] - offset
-        a0, b0 = max(0.0, peak - self.opts["antes"]), min(info["duration"], peak + self.opts["depois"])
+        end = p["end"] - offset
+        a0, b0 = max(0.0, peak - self.opts["antes"]), min(info["duration"], end)
         words = transcribe_ranges(src, [(0.0, info["duration"])], cfg, work / f"words-{stamp}.json")["words"]
-        a, b = cap_length(*snap(words, a0, b0, info["duration"], cfg), peak, self.opts["antes"] + self.opts["depois"] + 5)
+        # snapping may extend to finish a sentence, but never drop the scene start or the reaction
+        a, b = snap(words, a0, b0, info["duration"], cfg)
+        a, b = cap_length(a, b, peak, (b0 - a0) + 6)
         # webcam: judged from frames spread over the live so far (a 35 s clip alone is too little evidence);
         # re-judged every 10 minutes as more samples arrive
         if self.layout is None or time.time() - self.layout_at > 600:

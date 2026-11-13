@@ -15,8 +15,11 @@ from .config import HERE
 from .reframe import DETECT_W, _even
 
 
-def _grab(src, t, w, h):
-    cmd = ["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1", "-an",
+def _grab(src, t, w, h, exact=False):
+    """One frame at t seconds. exact=True decodes from the start of the file: needed for live segments, which do
+    not begin on a keyframe and break fast seeking; fine for short files only."""
+    seek = ["-i", str(src), "-ss", f"{t:.2f}"] if exact else ["-ss", f"{t:.2f}", "-i", str(src)]
+    cmd = ["ffmpeg", "-v", "error", *seek, "-frames:v", "1", "-an",
            "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
     buf = subprocess.run(cmd, capture_output=True).stdout
     return np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 3) if len(buf) == w * h * 3 else None
@@ -25,14 +28,14 @@ def _grab(src, t, w, h):
 _DETECTORS = {}
 
 
-def facecam_sample(src, t, info):
+def facecam_sample(src, t, info, exact=False):
     """One frame's evidence for facecam detection: (faces [(cx, cy, w, h)], steady-edge map) or None."""
     W, H = info["width"], info["height"]
     dw, dh = DETECT_W, _even(DETECT_W * H / W)
     if (dw, dh) not in _DETECTORS:
         _DETECTORS[(dw, dh)] = cv2.FaceDetectorYN.create(
             str(HERE / "models" / "face_detection_yunet_2023mar.onnx"), "", (dw, dh), 0.7, 0.3, 20)
-    frame = _grab(src, t, dw, dh)
+    frame = _grab(src, t, dw, dh, exact)
     if frame is None:
         return None
     edges = cv2.Canny(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 40, 120) > 0

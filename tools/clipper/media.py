@@ -41,7 +41,9 @@ def probe(path):
         w, h = h, w
     num, den = (v.get("avg_frame_rate") or "30/1").split("/")
     fps = float(num) / float(den) if float(den) else 30.0
-    return {"width": w, "height": h, "fps": fps or 30.0, "duration": float(info["format"]["duration"])}
+    return {"width": w, "height": h, "fps": fps or 30.0, "duration": float(info["format"]["duration"]),
+            # live segments keep the stream clock, so they do not start at 0
+            "start": float(info["format"].get("start_time") or 0.0)}
 
 
 def slugify(text):

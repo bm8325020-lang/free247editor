@@ -64,10 +64,13 @@ Como ele decide:
   "CLIP IT"... O chat é o sinal principal: é o público dizendo que foi bom.
 - **Ouve o áudio** (grito, risada, explosão) comparado com o ritmo da própria live.
 - Só dispara depois de 2 minutos de live (para conhecer o "normal") e respeita um intervalo entre clipes.
-- Corta cerca de 20 s antes e 10 s depois do momento, sem cortar frase no meio, com webcam em cima, legenda e
-  gancho.
+- O chat digita **depois** que a cena acontece. Por isso, quando ele dispara, o bot acha o segundo em que o chat
+  **começou** a reagir e volta mais `volta_segundos` (padrão 3) a partir dali: esse é o início da cena.
+- Corta cerca de 20 s antes da cena e vai até 10 s depois da reação, sem cortar frase no meio, com webcam em
+  cima, legenda e gancho.
 
-Ajustes em `live-canais.json`: `limiar` (menor = mais clipes; padrão 3), `antes`, `depois`, `intervalo_minimo`,
+Ajustes em `live-canais.json`: `limiar` (menor = mais clipes; padrão 3), `volta_segundos` (quanto voltar antes
+do chat reagir; padrão 3), `antes`, `depois`, `intervalo_minimo`,
 `buffer_segundos`, `qualidade`.
 
 **Clipe oficial da Twitch (opcional):** com `"clip_oficial_twitch": true` e, no `.env`, `TWITCH_CLIENT_ID` e
