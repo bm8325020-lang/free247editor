@@ -159,31 +159,58 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
         root.addView(d)
 
         ui.launch {
-            LibraryStore.videos.collect { list -> renderDownloads(list); delay(500) } // StateFlow keeps only the latest: at most 2 redraws per second
+            LibraryStore.videos.collect { list ->
+                renderDownloads(list)
+                oneButtons.forEach { (id, b) -> refreshOne(b, id) } // "Na fila" turns into "Baixado" when done
+                delay(500)
+            } // StateFlow keeps only the latest: at most 2 redraws per second
         }
         return ScrollView(a).apply { setBackgroundColor(bg); addView(root) }
     }
 
+    private val checks = ArrayList<CheckBox>()
+    private val oneButtons = HashMap<String, Button>() // search result id -> its "Baixar" button
+
     private fun searchPacks(query: String) {
         if (query.isBlank()) return
-        hitsStatus.text = "Buscando…"; hitsBox.removeAllViews(); chosen.clear(); downloadAll.visibility = View.GONE
+        hitsStatus.text = "Buscando…"; hitsBox.removeAllViews(); chosen.clear(); checks.clear(); oneButtons.clear()
+        downloadAll.visibility = View.GONE
         ui.launch {
             val r = withContext(Dispatchers.IO) { runCatching { Downloader.search(a, query) } }
             r.onFailure { hitsStatus.text = "A busca falhou: ${it.message?.take(120)}. Tente \"Atualizar o baixador\"." }
             r.onSuccess { hits ->
-                hitsStatus.text = if (hits.isEmpty()) "Nada encontrado." else "${hits.size} vídeos. Desmarque o que não quiser."
+                hitsStatus.text = if (hits.isEmpty()) "Nada encontrado."
+                else "${hits.size} vídeos. Toque em Baixar no que quiser, ou marque vários."
+                if (hits.isNotEmpty()) hitsBox.addView(Button(a).apply {
+                    text = "Marcar todos"; isAllCaps = false; textSize = 13f; setTextColor(fg)
+                    background = GradientDrawable().apply { setColor(Color.rgb(40, 43, 50)); cornerRadius = dp(8).toFloat() }
+                    layoutParams = LinearLayout.LayoutParams(-2, dp(36)).apply { topMargin = dp(6) }
+                    setOnClickListener {
+                        val all = checks.any { !it.isChecked }
+                        checks.forEach { it.isChecked = all }
+                        text = if (all) "Desmarcar todos" else "Marcar todos"
+                    }
+                })
                 for (h in hits) {
-                    chosen[h.id] = h
                     val rowV = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, 0) }
                     val cb = CheckBox(a).apply {
-                        isChecked = true; buttonTintList = ColorStateList.valueOf(accent)
+                        isChecked = false; buttonTintList = ColorStateList.valueOf(accent)
                         setOnCheckedChangeListener { _, on -> if (on) chosen[h.id] = h else chosen.remove(h.id); updateDownloadButton() }
                     }
-                    val iv = thumbView(dp(112), dp(63)); loadThumb(iv, h.thumbUrl)
-                    val col = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, 0, 0); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
+                    checks.add(cb)
+                    val iv = thumbView(dp(104), dp(58)); loadThumb(iv, h.thumbUrl)
+                    val col = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(6), 0); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
                     col.addView(text(h.title, 14f, fg, true).apply { maxLines = 2 })
                     col.addView(text("${mmss(h.durationS)} · ${h.channel}", 12f, muted))
-                    rowV.addView(cb); rowV.addView(iv); rowV.addView(col)
+                    // download just this one
+                    val one = Button(a).apply {
+                        isAllCaps = false; textSize = 13f; setPadding(dp(10), 0, dp(10), 0)
+                        layoutParams = LinearLayout.LayoutParams(-2, dp(38))
+                        setOnClickListener { if (isEnabled) { enqueue(listOf(h)); refreshOne(this, h.id) } }
+                    }
+                    refreshOne(one, h.id)
+                    oneButtons[h.id] = one
+                    rowV.addView(cb); rowV.addView(iv); rowV.addView(col); rowV.addView(one)
                     hitsBox.addView(rowV)
                 }
                 updateDownloadButton()
@@ -191,16 +218,36 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
         }
     }
 
+    /** "Baixar" / "Na fila" / "Baixado" for one search result, so the same video is not downloaded twice. */
+    private fun refreshOne(b: Button, id: String) {
+        val v = LibraryStore.get(id)
+        val (label, enabled) = when (v?.status) {
+            null, "failed", "canceled" -> "Baixar" to true
+            "ready" -> "Baixado" to false
+            else -> "Na fila" to false
+        }
+        b.text = label; b.isEnabled = enabled
+        b.setTextColor(if (enabled) Color.BLACK else muted)
+        b.background = GradientDrawable().apply { setColor(if (enabled) accent else Color.rgb(40, 43, 50)); cornerRadius = dp(10).toFloat() }
+    }
+
     private fun updateDownloadButton() {
         downloadAll.visibility = if (chosen.isEmpty()) View.GONE else View.VISIBLE
-        downloadAll.text = "Baixar tudo (${chosen.size}) no app"
+        downloadAll.text = "Baixar selecionados (${chosen.size})"
+    }
+
+    private fun enqueue(hits: List<SearchHit>) {
+        val retry = hits.mapNotNull { h -> LibraryStore.get(h.id)?.takeIf { it.status in setOf("failed", "canceled") } }
+        retry.forEach { v -> LibraryStore.update(a, v.id) { it.copy(status = "queued", error = "") } }
+        LibraryStore.add(a, hits.map { LibVideo(it.id, it.title, it.channel, it.url, it.durationS, it.thumbUrl) })
+        LibraryService.kick(a)
+        Toast.makeText(a, if (hits.size == 1) "Baixando \"${hits[0].title.take(40)}\". O progresso fica em Downloads."
+            else "${hits.size} na fila. Pode sair do app: o progresso fica na notificação.", Toast.LENGTH_LONG).show()
     }
 
     private fun downloadChosen() {
-        val add = chosen.values.map { LibVideo(it.id, it.title, it.channel, it.url, it.durationS, it.thumbUrl) }
-        LibraryStore.add(a, add)
-        LibraryService.kick(a)
-        Toast.makeText(a, "${add.size} na fila. Pode sair do app: o progresso fica na notificação.", Toast.LENGTH_LONG).show()
+        enqueue(chosen.values.toList())
+        checks.forEach { it.isChecked = false }
     }
 
     private fun renderDownloads(list: List<LibVideo>) {
