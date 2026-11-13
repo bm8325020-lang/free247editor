@@ -12,7 +12,11 @@ Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o 
 2. (Recomendado) Cole a chave grátis do Groq em **Chaves**. Sem ela, os clipes saem sem legenda e são escolhidos
    só pelo áudio.
 3. Toque em **CRIAR CLIPES**. Pode bloquear a tela: o progresso fica na notificação.
-4. Os clipes aparecem no app (Assistir / Compartilhar) e na galeria, pasta `Movies/Clipes`.
+4. Os clipes aparecem no app e na galeria, pasta `Movies/Clipes`.
+5. **Postar com um toque:** cada clipe tem botões **TikTok, Shorts, Reels, Kwai e Outros**. O botão copia a legenda
+   pronta (título + "Créditos: @streamer" + hashtags, configurados em **4. Postagem**) e abre o app com o vídeo
+   carregado: é só colar a legenda e publicar. Postar 100% automático exige a API oficial de cada rede; a do
+   TikTok só publica vídeos privados até o app passar por uma auditoria deles.
 
 O código do app está em `android/`.
 

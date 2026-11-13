@@ -26,6 +26,8 @@ object Prefs {
             groqKey = secret(ctx, "groqKey"),
             claudeKey = secret(ctx, "claudeKey"),
             language = p.getString("language", "") ?: "",
+            credit = p.getString("credit", "") ?: "",
+            hashtags = p.getString("hashtags", "#cortes #clips") ?: "",
         )
     }
 
@@ -37,6 +39,7 @@ object Prefs {
             .putString("claudeKey_enc", SecureKeys.encrypt(o.claudeKey.trim()))
             .remove("groqKey").remove("claudeKey")
             .putString("language", o.language.trim())
+            .putString("credit", o.credit.trim()).putString("hashtags", o.hashtags.trim())
             .apply()
     }
 }

@@ -35,6 +35,8 @@ data class Options(
     val groqKey: String = "",
     val claudeKey: String = "",
     val language: String = "",
+    val credit: String = "",
+    val hashtags: String = "",
 )
 
 data class ClipResult(

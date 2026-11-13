@@ -30,6 +30,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
+import clipfactory.core.PostText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -239,6 +240,14 @@ class MainActivity : Activity() {
         k.addView(field("Idioma da live (ex.: pt). Vazio = detectar", opts.language, false) { opts = opts.copy(language = it); save() })
         root.addView(k)
 
+        val post = box()
+        post.addView(text("4. Postagem", 17f, fg, true))
+        post.addView(text("Vai junto na legenda de cada clipe. Dar crédito ao streamer é o mínimo; postar cortes sem a " +
+            "permissão dele pode derrubar seu canal.", 13f, muted))
+        post.addView(field("Crédito do streamer (ex.: @nomedocanal)", opts.credit, false) { opts = opts.copy(credit = it); save() })
+        post.addView(field("Hashtags (ex.: #gta6 #cortes)", opts.hashtags, false) { opts = opts.copy(hashtags = it); save() })
+        root.addView(post)
+
         go = button("CRIAR CLIPES", primary = true) { start() }.apply { textSize = 18f; typeface = Typeface.DEFAULT_BOLD }
         root.addView(go)
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -375,13 +384,23 @@ class MainActivity : Activity() {
                 startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
             }
         })
-        actions.addView(small("Compartilhar") {
-            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                type = "video/mp4"; putExtra(Intent.EXTRA_STREAM, uri); putExtra(Intent.EXTRA_TEXT, c.title)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }, "Postar clipe"))
-        })
         col.addView(actions)
+        // post with one tap: copies the post text and opens the platform's app with the clip
+        val postRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (pf in listOf(PostText.Platform.TIKTOK, PostText.Platform.SHORTS, PostText.Platform.REELS,
+                          PostText.Platform.KWAI, PostText.Platform.OTHER)) {
+            postRow.addView(Button(this).apply {
+                text = when (pf) {
+                    PostText.Platform.TIKTOK -> "TikTok"; PostText.Platform.SHORTS -> "Shorts"
+                    PostText.Platform.REELS -> "Reels"; PostText.Platform.KWAI -> "Kwai"; else -> "Outros"
+                }
+                isAllCaps = false; textSize = 11f; setTextColor(fg); setPadding(0, 0, 0, 0)
+                background = GradientDrawable().apply { setColor(Color.rgb(40, 43, 50)); cornerRadius = dp(8).toFloat() }
+                layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginEnd = dp(4); topMargin = dp(6) }
+                setOnClickListener { Poster.post(this@MainActivity, uri, c.title, opts, pf) }
+            })
+        }
+        col.addView(postRow)
         row.addView(thumb)
         row.addView(col)
         return row
