@@ -98,7 +98,10 @@ def facecam_from(hits, n, edge_freq):
             if rect:
                 cam["rect"] = rect
                 cam["shape"] = "rect"
-    cam.setdefault("shape", "unknown")
+    if "shape" not in cam:
+        # A face that stays put but has no steady border is not proof of a webcam: in games like GTA a cutscene
+        # character can hold still. No border, no webcam: the clip shows gameplay only.
+        return None
     return cam
 
 
@@ -202,47 +205,51 @@ def choose_layout(src, info, cfg, cam="detect"):
     if want in ("split", "pip"):
         print("   No facecam found; using the gameplay layout.")
         return {"kind": "game"}
-    # auto: the streamer's webcam, small in the corner, over full-screen gameplay ("pip"); "split" stacks them
+    # auto: webcam on top across the full width, gameplay below (the TikTok/Shorts format); no webcam, gameplay only
     if cfg["mode"] == "talk" or cam == "big":
         return {"kind": "follow"}
     if isinstance(cam, dict):
-        return {"kind": "split" if want == "split" else "pip", "cam": cam}
+        return {"kind": "pip" if want == "pip" else "split", "cam": cam}
     return {"kind": "game"}
 
 
+def _webcam_px(cam, info):
+    """The webcam's visible area in source pixels (x0, y0, x1, y1), a hair inside its border so the frame line
+    and the game around it stay out. A round webcam gives the square inscribed in its circle."""
+    W, H = info["width"], info["height"]
+    if cam.get("shape") == "round":
+        cx, cy, rx, _ = cam["circle"]
+        half = rx * W * 0.97 / math.sqrt(2)
+        return cx * W - half, cy * H - half, cx * W + half, cy * H + half
+    rx, ry, rw, rh = cam["rect"]
+    return (rx + rw * 0.015) * W, (ry + rh * 0.015) * H, (rx + rw * 0.985) * W, (ry + rh * 0.985) * H
+
+
 def panel_height(cam, info, cfg):
-    """Webcam panel height in pixels: a fixed, small share of the frame (cam_height, default 28%)."""
-    return _even(cfg["height"] * min(max(cfg["cam_height"], 0.18), 0.40))
+    """Webcam panel height: the whole webcam across the full width, within cam_min..cam_max of the frame."""
+    x0, y0, x1, y1 = _webcam_px(cam, info)
+    aspect = (x1 - x0) / (y1 - y0)
+    frac = cfg["width"] / aspect / cfg["height"]
+    return _even(cfg["height"] * min(max(frac, cfg["cam_min"]), cfg["cam_max"]))
 
 
 def cam_box(cam, info, out_w, panel_h):
-    """Crop for the webcam panel: tight on the face, never outside the webcam (so no gameplay gets in).
-
-    Returns (x, y, w, h) as fractions of the source frame, with the panel's aspect ratio.
-    """
+    """The whole webcam, filling the top panel edge to edge. If the shapes differ a little, the extra is trimmed
+    from the sides (centred on the face) or from top and bottom (keeping the face)."""
     W, H = info["width"], info["height"]
+    x0, y0, x1, y1 = _webcam_px(cam, info)
+    bw, bh = x1 - x0, y1 - y0
     aspect = out_w / panel_h
-    fx0, fx1, fy0, fy1 = cam["x0"] * W, cam["x1"] * W, cam["y0"] * H, cam["y1"] * H  # where the face moves
-    fcx, fcy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
-    fh = cam["fh"] * H
-    if cam.get("rect"):  # the webcam's own border, pulled in 2% so its frame line stays out too
-        rx, ry, rw, rh = cam["rect"]
-        mx, my = rw * W * 0.02, rh * H * 0.02
-        ax0, ay0, ax1, ay1 = rx * W + mx, ry * H + my, (rx + rw) * W - mx, (ry + rh) * H - my
-    else:  # no border found: stay close around the face, where only the webcam can be
-        uw = max(fx1 - fx0, fh)
-        ax0, ax1 = max(0, fcx - uw), min(W, fcx + uw)
-        ay0, ay1 = max(0, fy0 - fh * 0.3), min(H, fy1 + fh * 0.3)
-    bh = max(fh * 1.5, (fy1 - fy0) * 1.1)
-    bw = bh * aspect
-    if bw > ax1 - ax0:
-        bw = ax1 - ax0
-        bh = bw / aspect
-    if bh > ay1 - ay0:
-        bh = ay1 - ay0
-        bw = bh * aspect
-    x0 = min(max(fcx - bw / 2, ax0), ax1 - bw)
-    y0 = min(max(fcy - bh * 0.48, ay0), ay1 - bh)  # face a touch above the middle
+    fcx = (cam["cx0"] + cam["cx1"]) / 2 * W
+    fcy = (cam["cy0"] + cam["cy1"]) / 2 * H
+    if bw / bh > aspect:  # webcam wider than the panel: trim the sides
+        nbw = bh * aspect
+        x0 = min(max(fcx - nbw / 2, x0), x1 - nbw)
+        bw = nbw
+    else:  # webcam taller: trim top and bottom, face a touch above the middle
+        nbh = bw / aspect
+        y0 = min(max(fcy - nbh * 0.45, y0), y1 - nbh)
+        bh = nbh
     return x0 / W, y0 / H, bw / W, bh / H
 
 

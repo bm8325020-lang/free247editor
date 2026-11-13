@@ -22,6 +22,10 @@ HYPE = {
     "mds": 1.5, "corre": 1.2, "ajuda": 1.0, "cuidado": 1.0, "toma": 1.2, "tomaaa": 2.0, "chora": 1.5, "lixo": 1.0,
     "como assim": 1.5, "não não não": 2.5, "nao nao nao": 2.5, "vai vai": 1.5, "sim sim": 1.5, "mano": 0.5,
     "foi de base": 2.0, "amassou": 1.5, "rushou": 1.0, "clipa": 2.5, "clipa isso": 3.0, "clip it": 3.0,
+    # GTA
+    "wasted": 2.0, "busted": 2.0, "mission passed": 1.5, "missão concluída": 1.5, "cinco estrelas": 2.0,
+    "5 estrelas": 2.0, "five stars": 2.0, "polícia": 1.0, "policia": 1.0, "fuga": 1.0, "perseguição": 1.5,
+    "atropelou": 1.5, "explodiu": 1.5, "capotou": 1.5, "roubei": 1.0,
     # en
     "let's go": 2.0, "lets go": 2.0, "no way": 2.5, "oh my god": 2.0, "oh my gosh": 1.5, "what the": 1.5, "holy": 1.5,
     "clutch": 2.0, "ace": 1.0, "headshot": 1.5, "one tap": 1.5, "oh no": 1.5, "no no no": 2.5, "yes yes": 1.5,

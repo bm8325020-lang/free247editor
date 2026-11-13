@@ -43,7 +43,7 @@ EMOTES = {  # extra weight per message; matched case-insensitively as whole toke
     "kekw": 1.5, "lul": 1.0, "lol": 1.0, "omegalul": 2.0, "lmao": 1.5, "icant": 1.5, "pog": 1.0, "pogchamp": 1.0,
     "pogu": 1.0, "poggers": 1.0, "monkas": 1.0, "monkaw": 1.5, "w": 0.5, "wwww": 1.0, "clip": 3.0, "clipa": 3.0,
     "clipped": 2.0, "kkkk": 1.5, "kkkkk": 1.5, "kkkkkk": 2.0, "omg": 1.0, "wtf": 1.0, "nooo": 1.0, "????": 1.0,
-    "aaaa": 1.0, "sadge": 0.5, "pepelaugh": 1.5, "kappa": 0.3,
+    "aaaa": 1.0, "sadge": 0.5, "pepelaugh": 1.5, "kappa": 0.3, "wasted": 2.0, "busted": 2.0, "gg": 0.5,
 }
 TOKEN = re.compile(r"[\wÀ-ÿ?!]+", re.UNICODE)
 

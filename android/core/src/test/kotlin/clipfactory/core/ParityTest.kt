@@ -85,7 +85,8 @@ class ParityTest {
         // the face crop stays inside the webcam: no gameplay in the webcam panel
         assertTrue(box.x >= webcam.x && box.y >= webcam.y)
         assertTrue(box.x + box.w <= webcam.x + webcam.w + 1e-9 && box.y + box.h <= webcam.y + webcam.h + 1e-9)
-        assertEquals(538, Math.round(panel * LayoutMath.OUT_H).toInt()) // 28% of 1920
+        // the whole webcam on top: the box covers (almost) all of the webcam, not a face crop
+        assertTrue(box.w >= webcam.w * 0.95 && box.h >= webcam.h * 0.9)
     }
 
     @Test
@@ -160,13 +161,27 @@ class ParityTest {
         }
         for ((name, cam) in listOf("rect" to loadCam(""), "round" to loadCam("round_"))) {
             val e = rows.getValue(name).map { it.toDouble() }
-            val pip = LayoutMath.choose(cam, 1280, 720) as Layout.Pip
+            val pip = LayoutMath.choose(cam, 1280, 720, force = "pip") as Layout.Pip
             assertEquals("$name src", e.subList(0, 4), listOf(pip.src.x, pip.src.y, pip.src.w, pip.src.h).map { Math.round(it * 1e5) / 1e5 })
             assertEquals(name == "round", pip.round)
             assertEquals(e[4] == 1.0, pip.round)
             assertEquals("$name dst", e.subList(5, 9), listOf(pip.dst.x * 1080, pip.dst.y * 1920, pip.dst.w * 1080, pip.dst.h * 1920).map { Math.round(it).toDouble() })
             for (i in 0..3) assertEquals("$name game", e[9 + i], listOf(pip.game.x, pip.game.y, pip.game.w, pip.game.h)[i], 2e-5)
         }
+    }
+
+    @Test
+    fun aGameCharacterHoldingStillIsNotAWebcam() {
+        val faces = List(30) { listOf(Face(0.5, 0.45, 0.1, 0.18)) } + List(10) { emptyList<Face>() }
+        assertEquals(null, LayoutMath.detectFacecam(faces, FloatArray(640 * 360), 640, 360))
+        assertEquals(null, LayoutMath.detectFacecam(faces, null, 640, 360))
+        assertTrue(LayoutMath.choose(null, 1280, 720) is Layout.Game) // no webcam: gameplay only
+    }
+
+    @Test
+    fun webcamOnTopIsTheDefault() {
+        assertTrue(LayoutMath.choose(loadCam(""), 1280, 720) is Layout.Split)
+        assertTrue(LayoutMath.choose(loadCam("round_"), 1280, 720) is Layout.Split)
     }
 
     @Test

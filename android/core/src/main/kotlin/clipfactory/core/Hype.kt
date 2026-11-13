@@ -54,6 +54,10 @@ object Hype {
         "lixo" to 1.0, "como assim" to 1.5, "não não não" to 2.5, "nao nao nao" to 2.5, "vai vai" to 1.5,
         "sim sim" to 1.5, "mano" to 0.5, "foi de base" to 2.0, "amassou" to 1.5, "rushou" to 1.0, "clipa" to 2.5,
         "clipa isso" to 3.0, "clip it" to 3.0,
+        // GTA
+        "wasted" to 2.0, "busted" to 2.0, "mission passed" to 1.5, "missão concluída" to 1.5, "cinco estrelas" to 2.0,
+        "5 estrelas" to 2.0, "five stars" to 2.0, "polícia" to 1.0, "policia" to 1.0, "fuga" to 1.0,
+        "perseguição" to 1.5, "atropelou" to 1.5, "explodiu" to 1.5, "capotou" to 1.5, "roubei" to 1.0,
         // en
         "let's go" to 2.0, "lets go" to 2.0, "no way" to 2.5, "oh my god" to 2.0, "oh my gosh" to 1.5,
         "what the" to 1.5, "holy" to 1.5, "clutch" to 2.0, "ace" to 1.0, "headshot" to 1.5, "one tap" to 1.5,

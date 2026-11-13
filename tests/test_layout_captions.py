@@ -40,28 +40,37 @@ def synthetic_frame():
     return frame
 
 
-def test_webcam_panel_is_small_and_shows_no_gameplay_and_gameplay_shows_no_webcam():
+def test_split_shows_the_whole_webcam_on_top_full_width_and_nothing_leaks():
     cam = facecam()
     cfg = load_config()
     ph = panel_height(cam, INFO, cfg)
-    assert ph == round(1920 * 0.28 / 2) * 2  # 28% of the height
+    assert 0.30 * 1920 <= ph <= 0.45 * 1920
     box = cam_box(cam, INFO, 1080, ph)
+    # the whole webcam (316x252 px in the test video) is shown, not a face crop
+    wx, wy, ww, wh = cam["rect"]
+    assert box[2] >= ww * 0.95 and box[3] >= wh * 0.9
     out = split_compose(synthetic_frame(), box, dict(cfg, _panel_h=ph), webcam_area(cam, box))
     assert out.shape == (1920, 1080, 3)
     top, bottom = out[: ph - 4], out[ph + 4:]
-    green = (top[:, :, 1] > 200) & (top[:, :, 0] < 60)
-    white = (bottom[:, :, 0] > 200) & (bottom[:, :, 2] > 200)
-    assert green.sum() == 0, "gameplay leaked into the webcam panel"
-    assert white.sum() == 0, "webcam leaked into the gameplay panel"
+    assert ((top[:, :, 1] > 200) & (top[:, :, 0] < 60)).sum() == 0, "gameplay leaked into the webcam panel"
+    assert ((bottom[:, :, 0] > 200) & (bottom[:, :, 2] > 200)).sum() == 0, "webcam leaked into the gameplay panel"
 
 
-def test_webcam_crop_is_tight_on_the_face():
-    cam = facecam()
-    box = cam_box(cam, INFO, 1080, 538)
-    face_h = cam["fh"]
-    assert face_h * 0.8 <= box[3] <= face_h * 1.6  # the face, not the whole webcam
-    face_cx, face_cy = (cam["cx0"] + cam["cx1"]) / 2, (cam["cy0"] + cam["cy1"]) / 2
-    assert box[0] <= face_cx <= box[0] + box[2] and box[1] <= face_cy <= box[1] + box[3]
+def test_a_game_character_holding_still_is_not_a_webcam():
+    # GTA cutscene: a face in the same place in most frames, but no steady webcam border around it
+    faces = [(0.5, 0.45, 0.1, 0.18)] * 30
+    assert facecam_from(faces, 40, np.zeros((360, 640), np.float32)) is None
+    assert facecam_from(faces, 40, None) is None
+
+
+def test_round_webcam_on_top_shows_only_what_is_inside_the_circle():
+    cam = round_facecam()
+    ph = panel_height(cam, INFO, load_config())
+    box = cam_box(cam, INFO, 1080, ph)
+    cx, cy, rx, ry = cam["circle"]
+    for px, py in ((box[0], box[1]), (box[0] + box[2], box[1]), (box[0], box[1] + box[3]),
+                   (box[0] + box[2], box[1] + box[3])):
+        assert ((px - cx) * 1280) ** 2 + ((py - cy) * 720) ** 2 <= (rx * 1280) ** 2  # corners inside the circle
 
 
 def test_no_webcam_and_big_face_are_told_apart():
