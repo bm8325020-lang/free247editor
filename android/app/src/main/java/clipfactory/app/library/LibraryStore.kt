@@ -18,6 +18,7 @@ data class LibVideo(
     val status: String = "queued", // queued | downloading | scanning | describing | ready | failed | canceled
     val progress: Double = 0.0, val error: String = "", val file: String = "",
     val scenes: List<LibScene> = emptyList(), val addedAt: Long = System.currentTimeMillis(),
+    val info: String = "",
 )
 
 /** The app's download folder and scene index. Everything lives in the app's own storage. */
@@ -80,7 +81,7 @@ object LibraryStore {
     private fun toJson(v: LibVideo) = JSONObject().apply {
         put("id", v.id); put("title", v.title); put("channel", v.channel); put("url", v.url)
         put("durationS", v.durationS); put("thumbUrl", v.thumbUrl); put("status", v.status)
-        put("progress", v.progress); put("error", v.error); put("file", v.file); put("addedAt", v.addedAt)
+        put("progress", v.progress); put("error", v.error); put("file", v.file); put("addedAt", v.addedAt); put("info", v.info)
         put("scenes", JSONArray().apply {
             v.scenes.forEach { s ->
                 put(JSONObject().apply {
@@ -103,6 +104,7 @@ object LibraryStore {
                     s.optString("desc"), s.optString("speech"))
             },
             o.optLong("addedAt", System.currentTimeMillis()),
+            o.optString("info"),
         )
     }
 }

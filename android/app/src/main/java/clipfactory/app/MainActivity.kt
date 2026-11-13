@@ -58,13 +58,15 @@ class MainActivity : Activity() {
     private lateinit var stage: TextView
     private lateinit var results: LinearLayout
     private lateinit var opts: Options
+    private lateinit var library: clipfactory.app.library.LibraryScreen
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         opts = Prefs.options(this)
-        setContentView(tabs(build(), clipfactory.app.library.LibraryScreen(this, ui).build()))
+        library = clipfactory.app.library.LibraryScreen(this, ui)
+        setContentView(tabs(build(), library.build()))
         if (intent?.getStringExtra("tab") == "library") showTab(1)
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -310,6 +312,11 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == clipfactory.app.library.LibraryScreen.IMPORT_REQUEST && resultCode == RESULT_OK && data != null) {
+            val uris = data.clipData?.let { c -> (0 until c.itemCount).map { c.getItemAt(it).uri } } ?: listOfNotNull(data.data)
+            library.onImport(uris)
+            return
+        }
         if (requestCode == 1 && resultCode == RESULT_OK) data?.data?.let {
             try {
                 contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)

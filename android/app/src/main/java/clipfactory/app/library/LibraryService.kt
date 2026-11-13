@@ -89,21 +89,29 @@ class LibraryService : Service() {
             var file = v.file.takeIf { it.isNotEmpty() && File(it).exists() }?.let { File(it) }
             if (file == null) {
                 set(id, "downloading", 0.0, "Baixando: $short")
-                val pid = "dl-$id"
-                currentProcess = pid
-                file = Downloader.download(this, v.url, id, pid) { p ->
-                    LibraryStore.update(this, id) { it.copy(progress = p) }
-                    nm().notify(ID, notification("Baixando: $short", (p * 100).toInt()))
+                if (v.url.startsWith("content://")) {
+                    file = importFile(android.net.Uri.parse(v.url), id) { p ->
+                        LibraryStore.update(this, id) { it.copy(progress = p) }
+                    }
+                } else {
+                    val pid = "dl-$id"
+                    currentProcess = pid
+                    file = Downloader.download(this, v.url, id, pid) { p ->
+                        LibraryStore.update(this, id) { it.copy(progress = p) }
+                        nm().notify(ID, notification("Baixando: $short", (p * 100).toInt()))
+                    }
+                    currentProcess = null
                 }
-                currentProcess = null
                 LibraryStore.update(this, id) { it.copy(file = file.path) }
             }
             if (LibraryStore.get(id)?.status == "canceled") return
             // 2. scenes
             set(id, "scanning", 0.0, "Separando cenas: $short")
-            val cuts = SceneScanner.scan(file.path) { p ->
+            val scan = SceneScanner.scan(file.path) { p ->
                 LibraryStore.update(this, id) { it.copy(progress = p * 0.8) }
             }
+            val cuts = scan.cuts
+            LibraryStore.update(this, id) { it.copy(info = "${scan.frames} quadros analisados") }
             val thumbs = SceneScanner.thumbnails(file.path, cuts, File(LibraryStore.dir(this), "thumbs/$id"))
             var scenes = cuts.mapIndexed { i, c -> LibScene(i, c.start, c.end, thumbs[i]) }
             LibraryStore.update(this, id) { it.copy(scenes = scenes, progress = 0.9) }
@@ -137,11 +145,32 @@ class LibraryService : Service() {
             Log.e("Library", "failed: ${v.url}", e)
             val canceled = LibraryStore.get(id)?.status == "canceled"
             LibraryStore.update(this, id) {
-                it.copy(status = if (canceled) "canceled" else "failed", error = (e.message ?: e.javaClass.simpleName).take(200))
+                it.copy(status = if (canceled) "canceled" else "failed", error = Downloader.explain(e))
             }
         } finally {
             currentProcess = null
         }
+    }
+
+    /** Copies a video picked from the phone into the library folder (so it stays even if the original is moved). */
+    private fun importFile(uri: android.net.Uri, id: String, onProgress: (Double) -> Unit): File {
+        val dir = File(LibraryStore.dir(this), "videos").apply { mkdirs() }
+        val out = File(dir, "$id.mp4")
+        val total = contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize }?.takeIf { it > 0 } ?: -1L
+        contentResolver.openInputStream(uri)!!.use { inp ->
+            out.outputStream().use { o ->
+                val buf = ByteArray(1 shl 20)
+                var done = 0L
+                while (true) {
+                    val n = inp.read(buf)
+                    if (n < 0) break
+                    o.write(buf, 0, n)
+                    done += n
+                    if (total > 0) onProgress(done.toDouble() / total)
+                }
+            }
+        }
+        return out
     }
 
     private fun transcribe(file: File, key: String, language: String): List<Word> {

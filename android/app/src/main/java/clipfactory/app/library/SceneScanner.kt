@@ -18,7 +18,9 @@ object SceneScanner {
     private const val TH = 18
 
     /** Per-frame difference and brightness of a 32x18 luma thumbnail, decoded with MediaCodec (hardware). */
-    fun scan(path: String, onProgress: (Double) -> Unit): List<SceneCut> {
+    class Result(val cuts: List<SceneCut>, val frames: Int)
+
+    fun scan(path: String, onProgress: (Double) -> Unit): Result {
         val ex = MediaExtractor()
         ex.setDataSource(path)
         var track = -1
@@ -29,6 +31,7 @@ object SceneScanner {
         ex.selectTrack(track)
         val fmt = ex.getTrackFormat(track)
         val durUs = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) else 1L
+        val fps = if (fmt.containsKey(MediaFormat.KEY_FRAME_RATE)) fmt.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() else 30.0
         fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
         val codec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!)
         codec.configure(fmt, null, null, 0)
@@ -87,10 +90,14 @@ object SceneScanner {
         } finally {
             codec.stop(); codec.release(); ex.release()
         }
+        // some decoders report no usable timestamps: then use the frame number and the frame rate
+        val distinct = times.toSet().size
+        if (times.size > 10 && distinct < times.size / 2) for (i in times.indices) times[i] = i / fps.coerceAtLeast(1.0)
         // decoders may emit frames slightly out of order: sort by time first
         val order = times.indices.sortedBy { times[it] }
-        return SceneDetect.cuts(order.map { times[it] }.toDoubleArray(), order.map { diffs[it] }.toDoubleArray(),
-            order.map { lumas[it] }.toDoubleArray(), durUs / 1e6)
+        val dur = maxOf(durUs / 1e6, times.maxOrNull() ?: 0.0)
+        return Result(SceneDetect.cuts(order.map { times[it] }.toDoubleArray(), order.map { diffs[it] }.toDoubleArray(),
+            order.map { lumas[it] }.toDoubleArray(), dur), times.size)
     }
 
     /** A JPEG thumbnail from the middle of each scene. */

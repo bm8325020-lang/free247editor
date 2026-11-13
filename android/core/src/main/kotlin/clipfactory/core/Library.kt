@@ -65,7 +65,9 @@ object SceneSearch {
                     t.length >= 4 && words.any { it.startsWith(t) || (it.length >= 4 && t.startsWith(it)) } -> { score += 1.0; matched++ }
                 }
             }
-            if (matched == 0) null else key to (score + matched.toDouble() / q.size * 3)
+            // most of what was typed must match: one common word ("parada", "cena") is not a match
+            val needed = if (q.size <= 2) 1 else (q.size + 1) / 2
+            if (matched < needed) null else key to (score + matched.toDouble() / q.size * 3)
         }
         return scored.sortedByDescending { it.second }.take(limit).map { it.first }
     }

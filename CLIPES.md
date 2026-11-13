@@ -32,6 +32,11 @@ O código do app está em `android/`.
    **Buscar** é instantânea e grátis; **Busca inteligente** usa o Claude e entende sinônimos, gírias e erros de
    digitação. Toque numa cena para ver e **Salvar na galeria** (Movies/Cenas), ou salve todas de uma vez.
 4. Se o YouTube parar de baixar, toque em **Atualizar o baixador**.
+5. **Importar vídeos do celular:** desde novembro de 2025 o YouTube exige que o yt-dlp resolva um desafio em JavaScript,
+   e o app não traz esse motor; por isso muitos downloads do YouTube falham. Baixe o scenepack com o app que preferir
+   e use **Importar**: o vídeo entra na Biblioteca e é cortado em cenas e descrito do mesmo jeito.
+6. **Achar cena** procura só nos vídeos que você tem. Se não estiver lá, **Procurar esse momento na internet**: o
+   Claude diz de onde é a cena e busca no YouTube.
 
 Os vídeos ficam guardados na pasta do app; apagar um vídeo na lista apaga o arquivo. Use para as suas edits e respeite
 as regras de quem publicou o scenepack.

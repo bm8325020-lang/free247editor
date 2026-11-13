@@ -59,6 +59,15 @@ class LibraryTest {
     }
 
     @Test
+    fun aLongDescriptionDoesNotMatchAnUnrelatedVideoOnOneWord() {
+        // the user's real case: a quote from Hercules searched in a library that only had a Jujutsu Kaisen video
+        val docs = mapOf("jjk#0" to "Jujutsu Kaisen reaction to Satoru Gojo's sacrifice  parada")
+        val q = "o cara que tinha tudo, velocidade nos pés, aguentava qualquer parada, mas aquela droga de calcanhar do filme Hércules"
+        assertEquals(emptyList<String>(), SceneSearch.search(q, docs))
+        assertEquals(listOf("jjk#0"), SceneSearch.search("gojo sacrifice", docs))
+    }
+
+    @Test
     fun realVideoSignalSplitsWhereTheClipsChange() {
         // measured on a real test video: clips change at 4 s and 7 s, then black from 12.0 to 12.3 s, ends at 16.3 s
         val rows = javaClass.classLoader!!.getResource("cut_signal.tsv")!!.readText().lines().filter { it.isNotBlank() }

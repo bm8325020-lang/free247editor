@@ -61,6 +61,22 @@ object Downloader {
 
     fun cancel(processId: String) = runCatching { YoutubeDL.destroyProcessById(processId) }
 
+    /** The real reason a download failed, in plain Portuguese (yt-dlp puts warnings before the error). */
+    fun explain(e: Throwable): String {
+        val raw = e.message ?: e.javaClass.simpleName
+        val err = raw.lines().map { it.trim() }.lastOrNull { it.startsWith("ERROR:") } ?: raw.lines().lastOrNull { it.isNotBlank() } ?: raw
+        val low = err.lowercase()
+        return when {
+            "sign in to confirm" in low || "bot" in low ->
+                "O YouTube pediu verificação de robô e bloqueou o download. Baixe por outro app e use Importar."
+            "challenge" in low || "signature" in low || "javascript" in low || "403" in low || "requested format is not available" in low ->
+                "O YouTube bloqueou este download (proteção anti-download). Baixe por outro app e use Importar."
+            "private" in low || "unavailable" in low -> "Vídeo privado ou indisponível."
+            "no space" in low -> "Sem espaço no celular."
+            else -> err.removePrefix("ERROR:").trim().take(160)
+        }
+    }
+
     fun update(ctx: Context): String {
         init(ctx)
         val status = YoutubeDL.updateYoutubeDL(ctx, YoutubeDL.UpdateChannel.STABLE)

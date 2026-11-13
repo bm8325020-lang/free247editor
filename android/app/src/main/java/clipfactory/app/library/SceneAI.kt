@@ -107,4 +107,32 @@ Search: $query"""),
             null
         }
     }
+
+    private val webSchema = schema(mapOf("query" to mapOf("type" to "string"), "guess" to mapOf("type" to "string")),
+        listOf("query", "guess"))
+
+    /**
+     * The user describes a moment ("o cara que tinha tudo... aquela droga de calcanhar"). Claude says where it is
+     * from (guess, in Portuguese) and writes a short YouTube search for that scene. Null if unavailable.
+     */
+    fun webQuery(key: String, description: String): Pair<String, String>? = try {
+        val params = MessageCreateParams.builder().model(MODEL).maxTokens(2000L)
+            .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW)
+                .format(JsonOutputFormat.builder().schema(webSchema).build()).build())
+            .addUserMessage("""Someone who makes video edits wants this scene but does not know where it is from.
+Identify the film, series or anime and the moment if you can. Return "guess": one short sentence in Brazilian
+Portuguese saying what you think it is (or that you are not sure), and "query": a short YouTube search (5-8 words,
+the language most likely to find the clip; add "scene" or "cena") to find that exact moment.
+Description: $description""")
+            .build()
+        val msg = client(key).messages().create(params)
+        if (msg.stopReason().orElse(null) == StopReason.REFUSAL) null
+        else {
+            val o = JSONObject(msg.content().mapNotNull { it.text().orElse(null)?.text() }.joinToString(""))
+            o.getString("query") to o.getString("guess")
+        }
+    } catch (e: Exception) {
+        Log.w("SceneAI", "web query failed", e)
+        null
+    }
 }

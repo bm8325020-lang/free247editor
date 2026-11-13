@@ -50,6 +50,8 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
     private val cache = LruCache<String, Bitmap>(120)
     private fun dp(v: Int) = (v * a.resources.displayMetrics.density).toInt()
 
+    private lateinit var packQuery: EditText
+    private lateinit var webFind: Button
     private lateinit var hitsBox: LinearLayout
     private lateinit var hitsStatus: TextView
     private lateinit var downloadAll: Button
@@ -115,13 +117,18 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
         root.addView(text("Biblioteca de scenepacks", 24f, fg, true))
         root.addView(text("Busque, baixe tudo de uma vez e ache a cena exata para a sua edit.", 14f, muted))
 
-        // 1. search scene packs
+        // 1. search scene packs / import
         val s = box()
-        s.addView(text("1. Buscar scenepacks", 17f, fg, true))
-        lateinit var q: EditText
-        q = input("ex.: gojo scenepack 4k") { searchPacks(q.text.toString()) }
-        s.addView(q)
-        s.addView(button("Buscar no YouTube", primary = true) { searchPacks(q.text.toString()) })
+        s.addView(text("1. Buscar e baixar", 17f, fg, true))
+        packQuery = input("ex.: gojo scenepack 4k") { searchPacks(packQuery.text.toString()) }
+        s.addView(packQuery)
+        s.addView(button("Buscar no YouTube", primary = true) { searchPacks(packQuery.text.toString()) })
+        s.addView(button("Importar vídeos do celular") {
+            a.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE); type = "video/*"; putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }, IMPORT_REQUEST)
+        })
+        s.addView(text("Se o YouTube bloquear um download, baixe por outro app e use Importar: a busca de cenas funciona igual.", 12f, muted))
         hitsStatus = text("", 13f, muted); s.addView(hitsStatus)
         hitsBox = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }; s.addView(hitsBox)
         downloadAll = button("Baixar selecionados", primary = true) { downloadChosen() }.apply { visibility = View.GONE }
@@ -130,8 +137,8 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
 
         // 2. find a scene
         val f = box()
-        f.addView(text("2. Achar cena", 17f, fg, true))
-        f.addView(text("Escreva do seu jeito: \"gojo tirando a venda\", \"close nos olhos\", \"fala que é fraco\".", 13f, muted))
+        f.addView(text("2. Achar cena nos seus vídeos", 17f, fg, true))
+        f.addView(text("Procura dentro do que você já baixou ou importou. Escreva do seu jeito: \"gojo tirando a venda\", \"close nos olhos\", \"fala que é fraco\".", 13f, muted))
         lateinit var sq: EditText
         sq = input("o que acontece na cena?") { findScenes(sq.text.toString(), smart = false) }
         f.addView(sq)
@@ -140,6 +147,8 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
         row.addView(button("Busca inteligente (Claude)", weight = true) { findScenes(sq.text.toString(), smart = true) })
         f.addView(row)
         sceneStatus = text("", 13f, muted); f.addView(sceneStatus)
+        webFind = button("Procurar esse momento na internet") { findOnWeb(sq.text.toString()) }.apply { visibility = View.GONE }
+        f.addView(webFind)
         sceneGrid = GridLayout(a).apply { columnCount = 2 }; f.addView(sceneGrid)
         exportAll = button("Salvar todas na galeria") { exportMany(lastScenes) }.apply { visibility = View.GONE }
         f.addView(exportAll)
@@ -269,6 +278,7 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
                 else -> "Falhou: ${v.error}"
             }
             col.addView(text(st, 12f, if (v.status == "failed") Color.rgb(255, 120, 110) else muted))
+            if (v.status == "ready" && v.info.isNotBlank()) col.addView(text(v.info, 11f, muted))
             if (v.status in setOf("downloading", "scanning", "describing")) {
                 col.addView(ProgressBar(a, null, android.R.attr.progressBarStyleHorizontal).apply {
                     max = 100; progress = (v.progress * 100).toInt(); progressTintList = ColorStateList.valueOf(accent)
@@ -305,13 +315,16 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
     private fun findScenes(query: String, smart: Boolean) {
         if (query.isBlank()) return
         val scenes = allScenes()
-        if (scenes.isEmpty()) { sceneStatus.text = "Baixe algum scenepack primeiro."; return }
+        if (scenes.isEmpty()) {
+            sceneStatus.text = "Sua biblioteca está vazia. Procure na internet ou importe vídeos."
+            webFind.visibility = View.VISIBLE; return
+        }
         val byKey = scenes.associateBy { (v, s) -> "${v.id}#${s.idx}" }
         if (!smart) {
             val docs = byKey.mapValues { (_, p) -> "${p.first.title} ${p.second.desc} ${p.second.speech}" }
             val keys = SceneSearch.search(query, docs)
             showScenes(keys.mapNotNull { byKey[it] },
-                if (keys.isEmpty()) "Nada. Tente a busca inteligente, ou descreva com outras palavras." else "${keys.size} cenas")
+                if (keys.isEmpty()) "Nada nos seus vídeos. Tente a busca inteligente ou procure na internet." else "${keys.size} cenas")
             return
         }
         val key = Prefs.options(a).claudeKey
@@ -334,6 +347,7 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
 
     private fun showScenes(list: List<Pair<LibVideo, LibScene>>, status: String) {
         lastScenes = list
+        webFind.visibility = View.VISIBLE
         sceneStatus.text = status
         sceneGrid.removeAllViews()
         val w = (a.resources.displayMetrics.widthPixels - dp(64)) / 2
@@ -387,5 +401,44 @@ class LibraryScreen(private val a: Activity, private val ui: CoroutineScope) {
             sceneStatus.text = "$ok de ${list.size} cenas salvas em Movies/Cenas."
             Toast.makeText(a, sceneStatus.text, Toast.LENGTH_LONG).show()
         }
+    }
+
+    /** Not in the library: Claude says where the moment is from and searches YouTube for it (section 1). */
+    private fun findOnWeb(description: String) {
+        if (description.isBlank()) return
+        val key = Prefs.options(a).claudeKey
+        if (key.isBlank()) { packQuery.setText(description); searchPacks(description); hitsStatus.text = "Buscando o que você escreveu…"; return }
+        sceneStatus.text = "Claude identificando de onde é essa cena…"
+        ui.launch {
+            val r = withContext(Dispatchers.IO) { SceneAI.webQuery(key, description) }
+            val query = r?.first ?: description
+            sceneStatus.text = r?.second ?: "Não consegui identificar; buscando o que você escreveu."
+            packQuery.setText(query)
+            searchPacks(query)
+            Toast.makeText(a, "Resultados na seção 1 (role para cima).", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Videos picked from the phone: copied into the library and split into scenes like downloads. */
+    fun onImport(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val vids = uris.map { u ->
+            runCatching { a.contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            val name = a.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "vídeo"
+            val dur = runCatching {
+                android.media.MediaMetadataRetriever().use { r -> r.setDataSource(a, u)
+                    (r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) / 1000.0 }
+            }.getOrDefault(0.0)
+            LibVideo("imp" + Integer.toHexString(u.toString().hashCode()), name.substringBeforeLast('.'), "importado", u.toString(), dur)
+        }
+        LibraryStore.add(a, vids)
+        vids.forEach { v -> if (LibraryStore.get(v.id)?.status in setOf("failed", "canceled")) LibraryStore.update(a, v.id) { it.copy(status = "queued") } }
+        LibraryService.kick(a)
+        Toast.makeText(a, "${vids.size} vídeo(s) importado(s); separando as cenas.", Toast.LENGTH_LONG).show()
+    }
+
+    companion object {
+        const val IMPORT_REQUEST = 7
     }
 }
