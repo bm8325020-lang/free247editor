@@ -40,8 +40,8 @@ def main():
     ap.add_argument("--watch", action="store_true", help="keep watching streams/ and clip new videos")
     ap.add_argument("--setup", action="store_true", help="install requirements")
     ap.add_argument("--mode", choices=["gaming", "talk"], help="gaming (default) or talk (podcasts, talking heads)")
-    ap.add_argument("--layout", choices=["auto", "split", "game", "follow"],
-                    help="split = facecam on top; game = gameplay only; follow = track the face")
+    ap.add_argument("--layout", choices=["auto", "pip", "split", "game", "follow"],
+                    help="pip = webcam small in the corner (default); split = webcam strip on top; game = gameplay only; follow = track the face")
     ap.add_argument("--clips", type=int, dest="clips")
     ap.add_argument("--min", type=float, dest="min_seconds")
     ap.add_argument("--max", type=float, dest="max_seconds")

@@ -77,7 +77,7 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
         val det = LayoutMath.detectFacecam(samples.faces, samples.edgeFreq, samples.w, samples.h)
         val bigFace = samples.faces.flatten().maxByOrNull { it.h }
         val layout = LayoutMath.choose(det, info.width, info.height, opt.layout, bigFace)
-        if (opt.layout == "split" && det !is Facecam) notes.add("Não achei webcam; usei o layout só de gameplay.")
+        if (opt.layout in setOf("split", "pip") && det !is Facecam) notes.add("Não achei webcam; usei o layout só de gameplay.")
         coroutineContext.ensureActive()
 
         report("Achando os momentos de hype", 0.33)
@@ -177,6 +177,7 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
     }
 
     private fun layoutName(l: Layout) = when (l) {
+        is Layout.Pip -> if (l.round) "webcam redonda no canto" else "webcam no canto"
         is Layout.Split -> "webcam + gameplay"
         is Layout.Game -> "gameplay"
         is Layout.Follow -> "rosto"
@@ -184,6 +185,7 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
 
     /** Caption and hook positions (fractions of the height) for each layout. */
     private fun textPositions(l: Layout, w: Int, h: Int): Pair<Double, Double> = when (l) {
+        is Layout.Pip -> 0.70 to (l.dst.y + l.dst.h + 0.03) // hook just under the webcam, never over the face
         is Layout.Split -> l.panel to 0.80
         is Layout.Game -> {
             val band = min(1.0, l.zoom * LayoutMath.OUT_W / w * h / LayoutMath.OUT_H)

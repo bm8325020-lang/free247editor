@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .captions import Timeline, build_ass
 from .config import HERE
-from .layout import cam_box, panel_height, split_compose, webcam_area
+from .layout import cam_box, panel_height, pip_compose, pip_layout, split_compose, webcam_area
 from .media import run
 from .reframe import _frames, camera_at, crop_frame, plan_camera, track_faces
 
@@ -67,6 +67,12 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
         box = cam_box(layout["cam"], info, W, cfg["_panel_h"])
         avoid = webcam_area(layout["cam"], box)
 
+    elif kind == "pip":
+        pip = pip_layout(layout["cam"], info, cfg)
+        cfg = dict(cfg)
+        cfg["caption_y"] = 0.70
+        cfg["hook_y"] = (pip["dst"][1] + pip["dst"][3]) / H + 0.03  # just under the webcam, never over the face
+
     if kind == "game":  # gameplay band sits in the middle: text goes on the blurred bands above and below
         band = min(1.0, cfg["game_zoom"] * W / info["width"] * info["height"] / H)
         cfg = dict(cfg)
@@ -104,7 +110,9 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
                 break
             if t < ranges[ri][0]:
                 continue
-            if kind == "split":
+            if kind == "pip":
+                out = pip_compose(frame, pip, cfg)
+            elif kind == "split":
                 out = split_compose(frame, box, cfg, avoid)
             elif kind == "game":
                 out = crop_frame(frame, "fit", 0.5, 0.5, 0.3, cfg["game_zoom"] * zooms[ri], W, H)

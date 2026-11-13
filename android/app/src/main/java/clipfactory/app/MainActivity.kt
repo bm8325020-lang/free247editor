@@ -187,7 +187,8 @@ class MainActivity : Activity() {
         o.addView(slider({ "Quantidade de clipes: $it" }, 3, 15, 1, opts.clips) { opts = opts.copy(clips = it); save() })
         o.addView(slider({ "Duração máxima: $it s" }, 20, 60, 5, opts.maxSeconds) { opts = opts.copy(maxSeconds = it); save() })
         o.addView(text("Layout", 15f, fg).apply { setPadding(0, dp(8), 0, 0) })
-        val layouts = listOf("auto" to "Automático (recomendado)", "split" to "Webcam em cima + gameplay",
+        val layouts = listOf("auto" to "Automático (recomendado): webcam pequena no canto",
+            "pip" to "Webcam pequena no canto (quadrada ou redonda)", "split" to "Webcam em faixa em cima + gameplay",
             "game" to "Só gameplay", "follow" to "Seguir o rosto (just chatting)")
         val rg = RadioGroup(this)
         layouts.forEachIndexed { i, (key, label) ->

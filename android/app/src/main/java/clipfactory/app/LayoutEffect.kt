@@ -44,7 +44,13 @@ class LayoutEffect(private val layout: Layout, private val srcW: Int, private va
             var game = floatArrayOf(0f, 0f, 1f, 1f)
             var panel = 0.36f
             var zoom = 1.3f
+            var pip = floatArrayOf(0f, 0f, 0f, 0f)
+            var round = 0f
             when (layout) {
+                is Layout.Pip -> {
+                    mode = 3f; cam = vec(layout.src); game = vec(layout.game); pip = vec(layout.dst)
+                    round = if (layout.round) 1f else 0f
+                }
                 is Layout.Split -> {
                     mode = 0f; cam = vec(layout.cam); game = vec(layout.game); panel = layout.panel.toFloat()
                 }
@@ -64,6 +70,8 @@ class LayoutEffect(private val layout: Layout, private val srcW: Int, private va
             program.setFloatUniform("uZoom", zoom)
             program.setFloatUniform("uSrcAspect", srcAspect)
             program.setFloatUniform("uOutAspect", outAspect)
+            program.setFloatsUniform("uPip", pip)
+            program.setFloatUniform("uRound", round)
             program.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
@@ -94,6 +102,8 @@ uniform float uPanel;
 uniform float uZoom;
 uniform float uSrcAspect;
 uniform float uOutAspect;
+uniform vec4 uPip;   // webcam window in the output (fractions, origin top-left)
+uniform float uRound;
 varying vec2 vTexSamplingCoord;
 
 // p: source image coordinates, origin top-left
@@ -131,8 +141,28 @@ void main() {
       vec2 p = vec2(0.5 + (o.x - 0.5) * uOutAspect / uSrcAspect, o.y);
       col = vec4(blurred(p).rgb * 0.55, 1.0);
     }
-  } else {
+  } else if (uMode < 2.5) {
     col = img(uCam.xy + o * uCam.zw);
+  } else {
+    // picture-in-picture: full-screen gameplay, the whole webcam small in the corner, in its own shape
+    col = img(uGame.xy + o * uGame.zw);
+    vec2 q = (o - uPip.xy) / uPip.zw;
+    if (q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
+      vec2 size = uPip.zw * vec2(1080.0, 1920.0);          // window size in output pixels
+      float bw = max(3.0, floor(size.x / 90.0));            // white border
+      vec4 cam = img(uCam.xy + q * uCam.zw);
+      if (uRound > 0.5) {
+        float rad = min(size.x, size.y) * 0.5;
+        float d = length((q - 0.5) * size);
+        col = mix(col, cam, clamp(rad - d, 0.0, 1.0));      // anti-aliased circle
+        float ring = clamp(bw * 0.5 - abs(d - (rad - bw * 0.5)), 0.0, 1.0);
+        col = mix(col, vec4(1.0), ring);
+      } else {
+        vec2 px = q * size;
+        float edge = min(min(px.x, size.x - px.x), min(px.y, size.y - px.y));
+        col = edge < bw ? vec4(1.0) : cam;
+      }
+    }
   }
   gl_FragColor = vec4(col.rgb, 1.0);
 }

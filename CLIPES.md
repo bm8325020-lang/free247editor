@@ -89,8 +89,11 @@ Precisa de um computador ligado o tempo todo. No celular não funciona: o Androi
 4. **Escolhe os melhores sem sobreposição** e ajusta o começo e o fim para não cortar no meio de uma frase.
    Cerca de 70% do clipe fica antes do pico (o contexto) e 30% depois (a reação).
 5. **Monta o vertical**:
-   - **Com webcam**: acha a webcam sozinho, inclusive a borda do overlay, e coloca a webcam em cima e o
-     gameplay embaixo, sem a webcam aparecer duplicada no gameplay.
+   - **Com webcam**: acha a webcam sozinho e descobre se ela é **quadrada/retangular ou redonda**. O gameplay
+     ocupa a tela toda e a webcam aparece **inteira, pequena, no canto superior esquerdo**, no mesmo formato da
+     live (redonda continua redonda), com uma borda branca e sem cortar nada do rosto. Tamanho: `pip_width` no
+     `clipper.config.json` (padrão 0.40 = 40% da largura). Quem preferir a webcam em faixa em cima usa
+     `--layout split`.
    - **Sem webcam**: gameplay ampliado no meio, com fundo desfocado em cima e embaixo.
    - **Câmera grande** (just chatting): segue o rosto de quem está falando.
 6. **Legenda palavra por palavra** com a palavra atual destacada, e um **título de gancho** nos primeiros 3 segundos.

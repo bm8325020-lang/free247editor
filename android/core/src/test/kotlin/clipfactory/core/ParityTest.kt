@@ -76,7 +76,8 @@ class ParityTest {
         val eb = exp[2].split(' ').map { it.toDouble() }
         assertEquals(eb[0], box.x, 2e-3); assertEquals(eb[1], box.y, 2e-3)
         assertEquals(eb[2], box.w, 2e-3); assertEquals(eb[3], box.h, 2e-3)
-        val layout = LayoutMath.choose(cam, 1280, 720)
+        assertEquals("rect", cam.shape)
+        val layout = LayoutMath.choose(cam, 1280, 720, force = "split")
         assertTrue(layout is Layout.Split)
         val game = (layout as Layout.Split).game
         val webcam = cam.rect!!
@@ -128,6 +129,44 @@ class ParityTest {
         val msg = Hype.explain(15, strong, picked.size, "auto", picked.size, emptyList())
         assertTrue(msg, msg.startsWith("Pedido: até 15 clipes. Saíram ${picked.size}.") && "momentos fortes" in msg)
         assertEquals("Pedido: até 3 clipes. Saíram 3.", Hype.explain(3, 5, 3, "auto", 3, emptyList()))
+    }
+
+    private fun loadCam(prefix: String): Facecam {
+        val lines = res("${prefix}faces.txt").readLines()
+        val faces = lines.map { line ->
+            if (line.isBlank()) emptyList() else line.split(';').map { f ->
+                val v = f.split(',').map { it.toDouble() }
+                Face(v[0], v[1], v[2], v[3])
+            }
+        }
+        val (w, h) = res("${prefix}edgefreq.dim").readText().trim().split(' ').map { it.toInt() }
+        val fb = ByteBuffer.wrap(res("${prefix}edgefreq.f32").readBytes()).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+        val freq = FloatArray(fb.remaining()).also { fb.get(it) }
+        return LayoutMath.detectFacecam(faces, freq, w, h) as Facecam
+    }
+
+    @Test
+    fun roundWebcamIsDetectedLikePython() {
+        val cam = loadCam("round_")
+        assertEquals("round", cam.shape)
+        val exp = res("expected_round.txt").readText().trim().split(' ').map { it.toDouble() }
+        for (i in 0..3) assertEquals(exp[i], cam.circle!![i], 2e-3)
+    }
+
+    @Test
+    fun pipLayoutMatchesPythonForSquareAndRoundWebcams() {
+        val rows = res("expected_pip.txt").readLines().filter { it.isNotBlank() }.associate { line ->
+            val p = line.split(' '); p[0] to p.drop(1)
+        }
+        for ((name, cam) in listOf("rect" to loadCam(""), "round" to loadCam("round_"))) {
+            val e = rows.getValue(name).map { it.toDouble() }
+            val pip = LayoutMath.choose(cam, 1280, 720) as Layout.Pip
+            assertEquals("$name src", e.subList(0, 4), listOf(pip.src.x, pip.src.y, pip.src.w, pip.src.h).map { Math.round(it * 1e5) / 1e5 })
+            assertEquals(name == "round", pip.round)
+            assertEquals(e[4] == 1.0, pip.round)
+            assertEquals("$name dst", e.subList(5, 9), listOf(pip.dst.x * 1080, pip.dst.y * 1920, pip.dst.w * 1080, pip.dst.h * 1920).map { Math.round(it).toDouble() })
+            for (i in 0..3) assertEquals("$name game", e[9 + i], listOf(pip.game.x, pip.game.y, pip.game.w, pip.game.h)[i], 2e-5)
+        }
     }
 
     @Test

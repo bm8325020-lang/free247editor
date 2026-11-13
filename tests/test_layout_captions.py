@@ -1,10 +1,12 @@
 """Facecam detection, vertical layout geometry, caption timing and pause cutting."""
+import cv2
 import numpy as np
+import pytest
 from conftest import FIXTURES
 
 from clipper.captions import Timeline, build_ass, clean
 from clipper.config import load_config
-from clipper.layout import cam_box, facecam_from, panel_height, split_compose, webcam_area
+from clipper.layout import cam_box, facecam_from, panel_height, pip_compose, pip_layout, split_compose, webcam_area
 from clipper.render import keep_ranges, quantize
 
 INFO = {"width": 1280, "height": 720, "duration": 276.0}
@@ -94,3 +96,66 @@ def test_talk_mode_cuts_long_pauses_and_gaming_keeps_everything():
     assert keep_ranges(words, clip, load_config()) == [(1.0, 3.4)]
     q = quantize([(1.0, 1.6), (2.9, 3.75)], 1.0, 30)
     assert all(abs((b - a) * 30 - round((b - a) * 30)) < 1e-6 for a, b in q)
+
+
+# ---------- picture-in-picture webcam (whole webcam, its own shape, small in the corner) ----------
+
+def round_facecam():
+    faces = []
+    lines = (FIXTURES / "round_faces.txt").read_text().splitlines()
+    for line in lines:
+        if line.strip():
+            faces += [tuple(float(v) for v in f.split(",")) for f in line.split(";")]
+    w, h = (int(x) for x in (FIXTURES / "round_edgefreq.dim").read_text().split())
+    freq = np.fromfile(FIXTURES / "round_edgefreq.f32", dtype=np.float32).reshape(h, w)
+    return facecam_from(faces, len(lines), freq)
+
+
+def test_round_and_square_webcams_are_told_apart():
+    rnd = round_facecam()
+    assert rnd["shape"] == "round"
+    # the test video's round webcam: centre (170, 550), radius 139 px in 1280x720
+    cx, cy, rx, ry = rnd["circle"]
+    assert abs(cx * 1280 - 170) < 5 and abs(cy * 720 - 550) < 5 and abs(rx * 1280 - 139) < 5
+    np.testing.assert_allclose(rnd["circle"], [float(v) for v in (FIXTURES / "expected_round.txt").read_text().split()],
+                               atol=2e-3)
+    assert facecam()["shape"] == "rect"
+
+
+def _pip_frame(round_cam):
+    frame = np.zeros((720, 1280, 3), np.uint8)
+    frame[:, :] = (0, 255, 0)  # gameplay: green
+    if round_cam:
+        cv2.circle(frame, (170, 550), 139, (255, 255, 255), -1)  # webcam: white
+    else:
+        frame[440:696, 24:344] = (255, 255, 255)
+    return frame
+
+
+@pytest.mark.parametrize("round_cam", [True, False])
+def test_pip_shows_the_whole_webcam_small_in_the_corner_with_nothing_leaking(round_cam):
+    cam = round_facecam() if round_cam else facecam()
+    cfg = load_config()
+    L = pip_layout(cam, INFO, cfg)
+    x, y, pw, ph = L["dst"]
+    assert x < 100 and y < 200 and pw == round(1080 * cfg["pip_width"] / 2) * 2  # small, top-left
+    # the face is never cut: everywhere the face goes (inside the webcam) is inside the crop
+    sx, sy, sw, sh = L["src"]
+    wx, wy, ww, wh = cam["rect"]
+    fx0, fy0 = max(cam["x0"], wx), max(cam["y0"], wy)
+    fx1, fy1 = min(cam["x1"], wx + ww), min(cam["y1"], wy + wh)
+    tol = 0.02 * max(ww, wh)  # the crop sits 1.5-3% inside the webcam edge to keep its frame line out
+    assert sx <= fx0 + tol and sy <= fy0 + tol and sx + sw >= fx1 - tol and sy + sh >= fy1 - tol
+    out = pip_compose(_pip_frame(round_cam), L, cfg)
+    assert out.shape == (1920, 1080, 3) and L["round"] == round_cam
+    inner = out[y + 8: y + ph - 8, x + 8: x + pw - 8]
+    if round_cam:  # only look inside the circle
+        yy, xx = np.mgrid[0:inner.shape[0], 0:inner.shape[1]]
+        keep = np.hypot(xx - inner.shape[1] / 2, yy - inner.shape[0] / 2) < min(inner.shape[:2]) / 2 - 4
+        inner = inner[keep]
+    else:
+        inner = inner.reshape(-1, 3)
+    assert ((inner[:, 1] > 200) & (inner[:, 0] < 60)).sum() == 0, "gameplay inside the webcam"
+    rest = out.copy()
+    rest[: y + ph + 8, : x + pw + 8] = 0
+    assert ((rest[:, :, 0] > 200) & (rest[:, :, 2] > 200)).sum() == 0, "webcam inside the gameplay"

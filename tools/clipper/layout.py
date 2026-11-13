@@ -5,6 +5,7 @@
 - game:   no facecam: gameplay zoomed in over a blurred copy of itself.
 - follow: a big face fills the frame (just chatting, podcasts): crop to 9:16 and follow whoever talks.
 """
+import math
 import subprocess
 from collections import Counter
 
@@ -85,10 +86,64 @@ def facecam_from(hits, n, edge_freq):
            "cx0": float(np.percentile([g[0] for g in group], 10)), "cx1": float(np.percentile([g[0] for g in group], 90)),
            "cy0": float(np.percentile([g[1] for g in group], 10)), "cy1": float(np.percentile([g[1] for g in group], 90)),
            "fw": float(np.median([g[2] for g in group]))}
-    rect = _overlay_rect(edge_freq, cam) if edge_freq is not None else None
-    if rect:
-        cam["rect"] = rect
+    if edge_freq is not None:
+        circle = _overlay_circle(edge_freq, cam)
+        if circle:  # a round webcam: a steady circle around the face
+            cam["circle"] = circle
+            cx, cy, rx, ry = circle
+            cam["rect"] = (cx - rx, cy - ry, 2 * rx, 2 * ry)  # its bounding square
+            cam["shape"] = "round"
+        else:
+            rect = _overlay_rect(edge_freq, cam)
+            if rect:
+                cam["rect"] = rect
+                cam["shape"] = "rect"
+    cam.setdefault("shape", "unknown")
     return cam
+
+
+N_ANGLES = 72
+
+
+def _overlay_circle(freq, cam, min_score=0.6):
+    """Find a round webcam: the circle around the face whose outline stays put while the game changes.
+
+    Brute-force search over centres near the face and radii from a little bigger than the face up to ~2.6x,
+    scoring the share of points on the circle that are steady edges (1 px tolerance). Returns
+    (cx, cy, r/width, r/height) as fractions, or None.
+    """
+    h, w = freq.shape
+    p = freq > 0.45
+    tol = p.copy()  # 1 px tolerance
+    tol[1:, :] |= p[:-1, :]
+    tol[:-1, :] |= p[1:, :]
+    tol[:, 1:] |= p[:, :-1]
+    tol[:, :-1] |= p[:, 1:]
+    fcx, fcy = (cam["cx0"] + cam["cx1"]) / 2 * w, (cam["cy0"] + cam["cy1"]) / 2 * h
+    fh = cam["fh"] * h
+    ang = np.arange(N_ANGLES) * 2 * np.pi / N_ANGLES
+    cos, sin = np.cos(ang), np.sin(ang)
+    radii = np.arange(0.75 * fh, 2.6 * fh, 1.0)
+    best = (0.0, 0.0, 0.0, 0.0)
+    span = 0.6 * fh
+    for cy in np.arange(fcy - span, fcy + span + 1e-9, 2.0):
+        for cx in np.arange(fcx - span, fcx + span + 1e-9, 2.0):
+            px = np.rint(cx + radii[:, None] * cos[None, :]).astype(int)
+            py = np.rint(cy + radii[:, None] * sin[None, :]).astype(int)
+            ok = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+            hit = np.zeros(px.shape, bool)
+            hit[ok] = tol[py[ok], px[ok]]
+            sc = hit.mean(axis=1)
+            i = int(np.argmax(sc))
+            if sc[i] > best[0]:
+                best = (float(sc[i]), float(cx), float(cy), float(radii[i]))
+    score, cx, cy, r = best
+    if score < min_score:
+        return None
+    # the whole face must be inside the circle
+    if math.hypot(fcx - cx, fcy - cy) + 0.45 * fh > r:
+        return None
+    return (cx / w, cy / h, r / w, r / h)
 
 
 def _overlay_rect(freq, cam):
@@ -142,16 +197,16 @@ def choose_layout(src, info, cfg, cam="detect"):
         return {"kind": want}
     if isinstance(cam, str) and cam == "detect":
         cam = detect_facecam(src, info)
-    if want == "split" and isinstance(cam, dict):
-        return {"kind": "split", "cam": cam}
-    if want == "split":
+    if want in ("split", "pip") and isinstance(cam, dict):
+        return {"kind": want, "cam": cam}
+    if want in ("split", "pip"):
         print("   No facecam found; using the gameplay layout.")
         return {"kind": "game"}
-    # auto
+    # auto: the streamer's webcam, small in the corner, over full-screen gameplay ("pip"); "split" stacks them
     if cfg["mode"] == "talk" or cam == "big":
         return {"kind": "follow"}
     if isinstance(cam, dict):
-        return {"kind": "split", "cam": cam}
+        return {"kind": "split" if want == "split" else "pip", "cam": cam}
     return {"kind": "game"}
 
 
@@ -224,4 +279,90 @@ def split_compose(frame, box, cfg, avoid=None):
     bot = cv2.resize(game, (out_w, bot_h), interpolation=cv2.INTER_CUBIC if game.shape[0] < bot_h else cv2.INTER_AREA)
     out = np.vstack([top, bot])
     out[top_h - 3: top_h + 3] = 0  # thin seam
+    return out
+
+
+def pip_layout(cam, info, cfg):
+    """Picture-in-picture: the streamer's whole webcam, in its own shape, small in the top-left corner over a
+    full-screen gameplay crop. Nothing of the face is cut.
+
+    Returns {"src": (x, y, w, h) fractions of the source, "round": bool, "dst": (x, y, w, h) output pixels,
+             "game": (x, y, w, h) fractions of the source}.
+    """
+    W, H = info["width"], info["height"]
+    out_w, out_h = cfg["width"], cfg["height"]
+    fx0, fx1, fy0, fy1 = cam["x0"] * W, cam["x1"] * W, cam["y0"] * H, cam["y1"] * H
+    fh = cam["fh"] * H
+    rnd = cam.get("shape") == "round"
+    if rnd:  # the circle, a hair inside so the game around it never shows
+        cx, cy, rx, _ = cam["circle"]
+        r = rx * W * 0.97
+        x0, y0, bw, bh = cx * W - r, cy * H - r, 2 * r, 2 * r
+    elif cam.get("rect"):  # the rectangle, inset 1.5% so its frame line and the game stay out
+        rx, ry, rw, rh = cam["rect"]
+        x0, y0, bw, bh = (rx + rw * 0.015) * W, (ry + rh * 0.015) * H, rw * W * 0.97, rh * H * 0.97
+    else:  # no border found: a generous box around the face, so nothing of it is cut
+        fcx, fcy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
+        bw = max(fx1 - fx0, fh) * 1.8
+        bh = (fy1 - fy0) + fh * 0.8
+        x0, y0 = fcx - bw / 2, fcy - bh / 2
+    x1, y1 = x0 + bw, y0 + bh
+    if not (rnd or cam.get("rect")):
+        # no border known: grow the box to contain everywhere the face goes, so nothing of it is cut.
+        # (With a known border the whole webcam is shown; a face box poking past it is detector overshoot.)
+        x1, y1 = max(x1, fx1), max(y1, fy1)
+        x0, y0 = min(x0, fx0), min(y0, fy0)
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
+    bw, bh = x1 - x0, y1 - y0
+    # small, in the top-left corner
+    pw = out_w * cfg["pip_width"]
+    ph = pw * bh / bw
+    if ph > out_h * 0.3:
+        ph = out_h * 0.3
+        pw = ph * bw / bh
+    m = cfg["pip_margin"]
+    dst = (int(m), int(out_h * cfg["pip_top"]), int(round(pw / 2) * 2), int(round(ph / 2) * 2))
+    # gameplay fills the frame (9:16 crop), steering clear of the webcam when a small shift does it
+    ga = out_w / out_h
+    gh = H / cfg["split_game_zoom"]
+    gw = gh * ga
+    if gw > W:
+        gw, gh = W, W / ga
+    gx, gy = (W - gw) / 2, (H - gh) / 2
+    if x1 > gx and x0 < gx + gw:
+        mg = W * 0.01
+        if x1 - gx < W * 0.12 and x1 + mg + gw <= W:
+            gx = x1 + mg
+        elif gx + gw - x0 < W * 0.12 and x0 - mg - gw >= 0:
+            gx = x0 - mg - gw
+    return {"src": (x0 / W, y0 / H, bw / W, bh / H), "round": rnd, "dst": dst,
+            "game": (gx / W, gy / H, gw / W, gh / H)}
+
+
+_MASKS = {}
+
+
+def pip_compose(frame, L, cfg):
+    out_w, out_h = cfg["width"], cfg["height"]
+    H, W = frame.shape[:2]
+    gx, gy, gw, gh = L["game"]
+    game = frame[int(gy * H): int((gy + gh) * H), int(gx * W): int((gx + gw) * W)]
+    out = cv2.resize(game, (out_w, out_h), interpolation=cv2.INTER_CUBIC if game.shape[0] < out_h else cv2.INTER_AREA)
+    sx, sy, sw, sh = L["src"]
+    cam = frame[int(sy * H): int((sy + sh) * H), int(sx * W): int((sx + sw) * W)]
+    x, y, pw, ph = L["dst"]
+    cam = cv2.resize(cam, (pw, ph), interpolation=cv2.INTER_AREA if cam.shape[0] > ph else cv2.INTER_CUBIC)
+    border = max(3, pw // 90)
+    if L["round"]:
+        if (pw, ph) not in _MASKS:  # anti-aliased circle
+            yy, xx = np.mgrid[0:ph, 0:pw]
+            d = np.hypot(xx - (pw - 1) / 2, yy - (ph - 1) / 2)
+            _MASKS[(pw, ph)] = np.clip(min(pw, ph) / 2 - d, 0, 1)[..., None]
+        a = _MASKS[(pw, ph)]
+        roi = out[y:y + ph, x:x + pw]
+        out[y:y + ph, x:x + pw] = (cam * a + roi * (1 - a)).astype(np.uint8)
+        cv2.circle(out, (x + pw // 2, y + ph // 2), min(pw, ph) // 2, (255, 255, 255), border, cv2.LINE_AA)
+    else:
+        out[y:y + ph, x:x + pw] = cam
+        cv2.rectangle(out, (x, y), (x + pw - 1, y + ph - 1), (255, 255, 255), border, cv2.LINE_AA)
     return out

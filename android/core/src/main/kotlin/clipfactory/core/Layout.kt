@@ -15,6 +15,9 @@ data class Facecam(
     val x0: Double, val x1: Double, val y0: Double, val y1: Double, val fh: Double,
     val cx0: Double, val cx1: Double, val cy0: Double, val cy1: Double, val fw: Double,
     val rect: Box? = null,
+    /** round webcam: centre x, centre y, radius / width, radius / height (fractions) */
+    val circle: DoubleArray? = null,
+    val shape: String = "unknown", // round | rect | unknown
 )
 
 sealed class Layout {
@@ -23,6 +26,12 @@ sealed class Layout {
 
     /** Gameplay only: zoomed band in the middle over a blurred copy. */
     data class Game(val zoom: Double) : Layout()
+
+    /**
+     * The streamer's whole webcam, in its own shape, small in the top-left corner over full-screen gameplay.
+     * src and game are fractions of the source frame; dst is a fraction of the output frame.
+     */
+    data class Pip(val src: Box, val round: Boolean, val dst: Box, val game: Box) : Layout()
 
     /** Big face (just chatting): a 9:16 crop that follows the face. */
     data class Follow(val crop: Box) : Layout()
@@ -60,13 +69,122 @@ object LayoutMath {
             cy0 = pct(group.map { it.cy }, 10.0), cy1 = pct(group.map { it.cy }, 90.0),
             fw = Stats.median(group.map { it.w }.toDoubleArray()),
         )
-        if (edgeFreq != null) overlayRect(edgeFreq, ew, eh, cam)?.let { cam = cam.copy(rect = it) }
+        if (edgeFreq != null) {
+            val c = overlayCircle(edgeFreq, ew, eh, cam)
+            cam = if (c != null) {
+                cam.copy(circle = c, rect = Box(c[0] - c[2], c[1] - c[3], 2 * c[2], 2 * c[3]), shape = "round")
+            } else {
+                overlayRect(edgeFreq, ew, eh, cam)?.let { cam.copy(rect = it, shape = "rect") } ?: cam
+            }
+        }
         return cam
     }
 
     val BIG = Any()
 
     fun isBigFace(r: Any?) = r === BIG
+
+    /**
+     * A round webcam: the circle around the face whose outline stays put while the game changes. Same brute-force
+     * search as the Python engine (centres near the face, radii 0.75x-2.6x the face, 72 points, 1 px tolerance).
+     */
+    fun overlayCircle(freq: FloatArray, w: Int, h: Int, cam: Facecam, minScore: Double = 0.6): DoubleArray? {
+        val p = BooleanArray(freq.size) { freq[it] > 0.45f }
+        val tol = p.copyOf()
+        for (y in 0 until h) for (x in 0 until w) {
+            val i = y * w + x
+            if (p[i]) continue
+            if ((y > 0 && p[i - w]) || (y < h - 1 && p[i + w]) || (x > 0 && p[i - 1]) || (x < w - 1 && p[i + 1])) tol[i] = true
+        }
+        val fcx = (cam.cx0 + cam.cx1) / 2 * w
+        val fcy = (cam.cy0 + cam.cy1) / 2 * h
+        val fh = cam.fh * h
+        val n = 72
+        val cos = DoubleArray(n) { Math.cos(it * 2 * Math.PI / n) }
+        val sin = DoubleArray(n) { Math.sin(it * 2 * Math.PI / n) }
+        val radii = ArrayList<Double>()
+        run { var r = 0.75 * fh; while (r < 2.6 * fh) { radii.add(r); r += 1.0 } }
+        val span = 0.6 * fh
+        var best = doubleArrayOf(0.0, 0.0, 0.0, 0.0)
+        var cy = fcy - span
+        while (cy <= fcy + span + 1e-9) {
+            var cx = fcx - span
+            while (cx <= fcx + span + 1e-9) {
+                for (r in radii) {
+                    var hit = 0
+                    for (k in 0 until n) {
+                        val px = Math.rint(cx + r * cos[k]).toInt()
+                        val py = Math.rint(cy + r * sin[k]).toInt()
+                        if (px in 0 until w && py in 0 until h && tol[py * w + px]) hit++
+                    }
+                    val sc = hit.toDouble() / n
+                    if (sc > best[0]) best = doubleArrayOf(sc, cx, cy, r)
+                }
+                cx += 2.0
+            }
+            cy += 2.0
+        }
+        val (score, bx, by, br) = best.toList()
+        if (score < minScore) return null
+        if (Math.hypot(fcx - bx, fcy - by) + 0.45 * fh > br) return null
+        return doubleArrayOf(bx / w, by / h, br / w, br / h)
+    }
+
+    /** Picture-in-picture: the whole webcam (its own shape), small in the top-left corner, nothing of the face cut. */
+    fun pipLayout(cam: Facecam, srcW: Int, srcH: Int, pipWidth: Double = 0.40, margin: Int = 36, top: Double = 0.06): Layout.Pip {
+        val W = srcW.toDouble()
+        val H = srcH.toDouble()
+        val fx0 = cam.x0 * W
+        val fx1 = cam.x1 * W
+        val fy0 = cam.y0 * H
+        val fy1 = cam.y1 * H
+        val fh = cam.fh * H
+        val round = cam.shape == "round" && cam.circle != null
+        var x0: Double
+        var y0: Double
+        var bw: Double
+        var bh: Double
+        val r0 = cam.rect
+        if (round) {
+            val c = cam.circle!!
+            val r = c[2] * W * 0.97
+            x0 = c[0] * W - r; y0 = c[1] * H - r; bw = 2 * r; bh = 2 * r
+        } else if (r0 != null) {
+            x0 = (r0.x + r0.w * 0.015) * W; y0 = (r0.y + r0.h * 0.015) * H; bw = r0.w * W * 0.97; bh = r0.h * H * 0.97
+        } else {
+            val fcx = (fx0 + fx1) / 2
+            val fcy = (fy0 + fy1) / 2
+            bw = max(fx1 - fx0, fh) * 1.8
+            bh = (fy1 - fy0) + fh * 0.8
+            x0 = fcx - bw / 2; y0 = fcy - bh / 2
+        }
+        var x1 = x0 + bw
+        var y1 = y0 + bh
+        if (!(round || r0 != null)) { // no border known: contain everywhere the face goes
+            x1 = max(x1, fx1); y1 = max(y1, fy1); x0 = min(x0, fx0); y0 = min(y0, fy0)
+        }
+        x0 = max(0.0, x0); y0 = max(0.0, y0); x1 = min(W, x1); y1 = min(H, y1)
+        bw = x1 - x0; bh = y1 - y0
+        var pw = OUT_W * pipWidth
+        var ph = pw * bh / bw
+        if (ph > OUT_H * 0.3) { ph = OUT_H * 0.3; pw = ph * bw / bh }
+        val dw = Math.round(pw / 2) * 2.0
+        val dh = Math.round(ph / 2) * 2.0
+        val dst = Box(margin.toDouble() / OUT_W, Math.floor(OUT_H * top) / OUT_H, dw / OUT_W, dh / OUT_H)
+        // gameplay fills the frame, steering clear of the webcam when a small shift does it
+        val ga = OUT_W.toDouble() / OUT_H
+        var gh = H
+        var gw = gh * ga
+        if (gw > W) { gw = W; gh = W / ga }
+        var gx = (W - gw) / 2
+        val gy = (H - gh) / 2
+        if (x1 > gx && x0 < gx + gw) {
+            val mg = W * 0.01
+            if (x1 - gx < W * 0.12 && x1 + mg + gw <= W) gx = x1 + mg
+            else if (gx + gw - x0 < W * 0.12 && x0 - mg - gw >= 0) gx = x0 - mg - gw
+        }
+        return Layout.Pip(Box(x0 / W, y0 / H, bw / W, bh / H), round, dst, Box(gx / W, gy / H, gw / W, gh / H))
+    }
 
     /** The webcam overlay's border: straight edges that stay put while the game changes around them. */
     fun overlayRect(freq: FloatArray, w: Int, h: Int, cam: Facecam): Box? {
@@ -196,6 +314,7 @@ object LayoutMath {
         if (srcW.toDouble() / srcH <= 0.75) return Layout.Follow(followCrop(followFace, srcW, srcH))
         if (force == "game") return Layout.Game(1.3)
         val cam = det as? Facecam
+        if (cam != null && force != "follow" && force != "split") return pipLayout(cam, srcW, srcH)
         if (cam != null && force != "follow") {
             val panel = panelFraction(cam, srcW, srcH)
             val box = camBox(cam, srcW, srcH, panel)
