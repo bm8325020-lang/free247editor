@@ -22,12 +22,18 @@ import clipfactory.core.LayoutMath
  * Image coordinates in uniforms have their origin at the top-left; GL textures have it at the bottom-left.
  */
 @OptIn(UnstableApi::class)
-class LayoutEffect(private val layout: Layout, private val srcW: Int, private val srcH: Int) : GlEffect {
+class LayoutEffect(
+    private val layout: Layout, private val srcW: Int, private val srcH: Int,
+    /** stacked layout: webcam on screen, one value per half second of the clip (null = always) */
+    private val camOn: BooleanArray? = null,
+) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        Program(layout, srcW.toFloat() / srcH, useHdr)
+        Program(layout, srcW.toFloat() / srcH, camOn, useHdr)
 
-    private class Program(private val layout: Layout, private val srcAspect: Float, useHdr: Boolean) :
-        BaseGlShaderProgram(useHdr, 1) {
+    private class Program(
+        private val layout: Layout, private val srcAspect: Float, private val camOn: BooleanArray?, useHdr: Boolean,
+    ) : BaseGlShaderProgram(useHdr, 1) {
+        private var baseUs = Long.MIN_VALUE
 
         private val program = GlProgram(VERTEX, FRAGMENT).also {
             it.setBufferAttribute("aFramePosition", GlUtil.getNormalizedCoordinateBounds(), GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE)
@@ -74,6 +80,10 @@ class LayoutEffect(private val layout: Layout, private val srcW: Int, private va
             program.setFloatUniform("uZoom", zoom)
             program.setFloatUniform("uSrcAspect", srcAspect)
             program.setFloatUniform("uOutAspect", outAspect)
+            if (baseUs == Long.MIN_VALUE) baseUs = presentationTimeUs
+            val idx = ((presentationTimeUs - baseUs) / 500_000L).toInt()
+            val on = camOn == null || camOn.isEmpty() || camOn[idx.coerceIn(0, camOn.size - 1)]
+            program.setFloatUniform("uCamOn", if (on) 1f else 0f)
             program.setFloatsUniform("uPip", pip)
             program.setFloatUniform("uRound", round)
             program.bindAttributesAndUniforms()
@@ -108,6 +118,7 @@ uniform float uSrcAspect;
 uniform float uOutAspect;
 uniform vec4 uPip;   // webcam window in the output (fractions, origin top-left)
 uniform float uRound;
+uniform float uCamOn;  // stacked layout: 0 while the webcam is off screen (the top keeps the blurred background)
 varying vec2 vTexSamplingCoord;
 
 // p: source image coordinates, origin top-left
@@ -170,7 +181,7 @@ void main() {
   } else {
     // stacked (videos): webcam across the top, wide gameplay band (uPip.x = band top, uPip.y = band height),
     // blurred gameplay underneath for the captions
-    if (o.y < uPanel) {
+    if (o.y < uPanel && uCamOn > 0.5) {
       col = img(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
     } else if (o.y >= uPip.x && o.y < uPip.x + uPip.y) {
       col = img(uGame.xy + vec2(o.x, (o.y - uPip.x) / uPip.y) * uGame.zw);
@@ -179,7 +190,7 @@ void main() {
       vec2 p = vec2(0.5 + (o.x - 0.5) * uOutAspect / gAspect, o.y);
       col = vec4(blurred(uGame.xy + p * uGame.zw).rgb * 0.5, 1.0);
     }
-    if (abs(o.y - uPanel) < 3.0 / 1920.0) col = vec4(0.0, 0.0, 0.0, 1.0);
+    if (uCamOn > 0.5 && abs(o.y - uPanel) < 3.0 / 1920.0) col = vec4(0.0, 0.0, 0.0, 1.0);
   }
   gl_FragColor = vec4(col.rgb, 1.0);
 }

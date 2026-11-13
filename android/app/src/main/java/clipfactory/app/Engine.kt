@@ -144,12 +144,17 @@ class Engine(private val ctx: Context, private val uri: Uri, private val name: S
             val overlay = if (events.isNotEmpty() || (opt.hook && c.hook.isNotBlank()))
                 CaptionOverlay(ctx, events, if (opt.hook) c.hook else "", 3.0, cy, hy) else null
             val out = File(work, "clip-%02d.mp4".format(i + 1))
+            // stacked layout: when the webcam leaves the screen, the top keeps the background instead of game
+            val camOn = if (layout is Layout.Stack && det is Facecam) {
+                report("Conferindo a webcam no clipe ${i + 1}", base)
+                runCatching { frames.presence(det, info, c.start, c.end) }.getOrNull()
+            } else null
             try {
                 // a busy phone can fail to start the video encoder; try twice more before giving up on this clip
                 var attempt = 0
                 while (true) {
                     try {
-                        Renderer.render(ctx, uri, c, layout, info.width, info.height, overlay, gainFor(loud, c), out) {
+                        Renderer.render(ctx, uri, c, layout, info.width, info.height, overlay, gainFor(loud, c), out, camOn) {
                             report("Renderizando clipe ${i + 1} de ${clips.size}", base + span * it)
                         }
                         break

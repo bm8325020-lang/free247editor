@@ -214,6 +214,13 @@ class ParityTest {
     }
 
     @Test
+    fun webcamPresenceOnlyFlipsAfterASecond() {
+        val raw = listOf(true, false, true, false, false, false, true, true, true)
+        assertEquals(listOf(true, true, true, true, false, false, false, true, true),
+            LayoutMath.steadyPresence(raw).toList())
+    }
+
+    @Test
     fun captionsGroupAndLookup() {
         val w = listOf(Word("Não", 10.0, 10.3), Word("acredito!", 10.35, 10.9), Word("olha", 11.0, 11.2),
             Word("isso", 11.25, 11.5), Word("mano", 11.55, 11.8), Word("demais", 11.85, 12.3))

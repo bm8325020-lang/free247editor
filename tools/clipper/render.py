@@ -6,7 +6,8 @@ from pathlib import Path
 
 from .captions import Timeline, build_ass
 from .config import HERE
-from .layout import cam_box, panel_height, pip_compose, pip_layout, split_compose, stack_compose, stack_layout, webcam_area
+from .layout import (WebcamPresence, cam_box, panel_height, pip_compose, pip_layout, split_compose, stack_compose,
+                     stack_layout, webcam_area)
 from .media import run
 from .reframe import _frames, camera_at, crop_frame, plan_camera, track_faces
 
@@ -69,6 +70,7 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
 
     elif kind == "stack":
         stack = stack_layout(layout["cam"], info, cfg)
+        presence = WebcamPresence(layout["cam"], info, fps)
         cfg = dict(cfg)
         below = stack["band_y"] + stack["band_h"]  # the free space under the gameplay band
         cfg["hook_y"] = below / H + 0.015
@@ -117,7 +119,7 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
             if t < ranges[ri][0]:
                 continue
             if kind == "stack":
-                out = stack_compose(frame, stack, cfg)
+                out = stack_compose(frame, stack, cfg, presence.visible(frame))
             elif kind == "pip":
                 out = pip_compose(frame, pip, cfg)
             elif kind == "split":

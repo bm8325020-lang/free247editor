@@ -98,6 +98,9 @@ Precisa de um computador ligado o tempo todo. No celular não funciona: o Androi
      na lateral do vídeo, essa lateral sai do gameplay, para a webcam não aparecer duplicada nem cortada.
      Detecta webcam quadrada, redonda (inclusive encostada na borda da tela) e webcam sem moldura (rosto no mesmo
      lugar em 60%+ do vídeo). Personagem de jogo parado numa cena não vira webcam.
+     Em cima aparece **só a webcam, em tela cheia** (nada de jogo em volta). Se a webcam **some** do vídeo
+     (corte de edição, cena sem câmera), a parte de cima fica com o fundo escuro, sem jogo, e o rosto volta quando a
+     webcam volta. A troca só acontece depois de 1 segundo, para não piscar quando o streamer vira a cabeça.
    - **Clipes de live (bot):** webcam pequena no canto (`pip`). Outras opções: `--layout split` (webcam em cima e
      recorte alto do jogo) e `--layout pip`.
    - **Sem webcam**: gameplay ampliado no meio, com fundo desfocado em cima e embaixo.

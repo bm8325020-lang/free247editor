@@ -227,11 +227,11 @@ def _webcam_px(cam, info):
         cx, cy, rx, _ = cam["circle"]
         half = rx * W * 0.97 / math.sqrt(2)
         return cx * W - half, cy * H - half, cx * W + half, cy * H + half
-    if cam.get("shape") == "face":  # no border seen: a generous box around everywhere the face goes
+    if cam.get("shape") == "face":  # no border seen: tight around where the face goes, so no game shows
         fx0, fx1, fy0, fy1 = cam["x0"] * W, cam["x1"] * W, cam["y0"] * H, cam["y1"] * H
         fh = cam["fh"] * H
-        bw = max(fx1 - fx0, fh) * 1.6
-        bh = (fy1 - fy0) + fh * 0.6
+        bw = max(fx1 - fx0, fh) * 1.15
+        bh = (fy1 - fy0) + fh * 0.25
         cx, cy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
         return max(0, cx - bw / 2), max(0, cy - bh / 2), min(W, cx + bw / 2), min(H, cy + bh / 2)
     rx, ry, rw, rh = cam["rect"]
@@ -269,6 +269,22 @@ def cam_box(cam, info, out_w, panel_h):
 def webcam_area(cam, box):
     """The whole webcam overlay (to keep out of the gameplay panel): its border if found, else the face crop."""
     return tuple(cam["rect"]) if cam.get("rect") else tuple(box)
+
+
+def webcam_extent(cam, info):
+    """Everything the webcam may cover in the source, as (x, y, w, h) fractions, to keep it out of the gameplay.
+    With a border that is the border; without one, webcams are usually 2-3x as wide as the face, so take that."""
+    if cam.get("rect"):
+        return tuple(cam["rect"])
+    W, H = info["width"], info["height"]
+    fx0, fx1, fy0, fy1 = cam["x0"] * W, cam["x1"] * W, cam["y0"] * H, cam["y1"] * H
+    fh = cam["fh"] * H
+    bw = max(fx1 - fx0, fh) * 2.6
+    bh = (fy1 - fy0) + fh * 1.6
+    cx, cy = (fx0 + fx1) / 2, (fy0 + fy1) / 2
+    x0, y0 = max(0, cx - bw / 2), max(0, cy - bh / 2)
+    x1, y1 = min(W, cx + bw / 2), min(H, cy + bh / 2)
+    return x0 / W, y0 / H, (x1 - x0) / W, (y1 - y0) / H
 
 
 def webcam_frac(cam, info):
@@ -406,12 +422,12 @@ def stack_layout(cam, info, cfg):
     W, H = info["width"], info["height"]
     out_w, out_h = cfg["width"], cfg["height"]
     # everything the webcam covers in the source (a round webcam: its whole circle, not just the square inside)
-    ax, ay, aw, ah = cam["rect"] if cam.get("rect") else webcam_frac(cam, info)
-    # gameplay band: full height; drop the side the webcam sits on when that still leaves 70% of the width
+    ax, ay, aw, ah = webcam_extent(cam, info)
+    # gameplay band: full height; drop the side the webcam sits on when that still leaves 60% of the width
     gx0, gx1 = 0.0, 1.0
-    if ax < 0.25 and 1 - (ax + aw + 0.01) >= 0.7:
+    if ax < 0.25 and 1 - (ax + aw + 0.01) >= 0.6:
         gx0 = ax + aw + 0.01
-    elif ax + aw > 0.75 and ax - 0.01 >= 0.7:
+    elif ax + aw > 0.75 and ax - 0.01 >= 0.6:
         gx1 = ax - 0.01
     band_h = _even(out_w * H / ((gx1 - gx0) * W))
     top = min(panel_height(cam, info, cfg), _even(out_h * cfg["stack_cam_max"]), out_h - band_h - 300)
@@ -420,7 +436,67 @@ def stack_layout(cam, info, cfg):
     return {"cam": box, "top": top, "game": (gx0, 0.0, gx1 - gx0, 1.0), "band_y": top, "band_h": band_h}
 
 
-def stack_compose(frame, L, cfg):
+class WebcamPresence:
+    """Is the webcam on screen right now? Checked every half second on the webcam area: a face there, or (for a
+    webcam with a border) its border line still there. The answer only flips after it holds for a second, so a
+    head turn does not make the panel blink."""
+
+    def __init__(self, cam, info, fps):
+        self.cam, self.info = cam, info
+        self.every = max(1, int(round(fps / 2)))
+        self.state, self.pending, self.n = True, 0, 0
+        W, H = info["width"], info["height"]
+        ex, ey, ew, eh = webcam_extent(cam, info)
+        self.area = (ex, ey, ew, eh)
+        self.det = None
+
+    def _seen(self, frame):
+        H, W = frame.shape[:2]
+        ex, ey, ew, eh = self.area
+        x0, y0, x1, y1 = int(ex * W), int(ey * H), int((ex + ew) * W), int((ey + eh) * H)
+        crop = frame[y0:y1, x0:x1]
+        if crop.size == 0:
+            return True
+        scale = 320 / max(crop.shape[:2])
+        small = cv2.resize(crop, (max(8, int(crop.shape[1] * scale)), max(8, int(crop.shape[0] * scale))))
+        if self.det is None or self.det_size != (small.shape[1], small.shape[0]):
+            self.det_size = (small.shape[1], small.shape[0])
+            self.det = cv2.FaceDetectorYN.create(str(HERE / "models" / "face_detection_yunet_2023mar.onnx"), "",
+                                                 self.det_size, 0.6, 0.3, 20)
+        _, found = self.det.detect(small)
+        if found is not None and len(found):
+            return True
+        if self.cam.get("shape") in ("rect", "round"):  # the border line is still there
+            g = cv2.Canny(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), 40, 120) > 0
+            h, w = g.shape
+            if self.cam["shape"] == "rect":
+                ring = np.concatenate([g[:3].ravel(), g[-3:].ravel(), g[:, :3].ravel(), g[:, -3:].ravel()])
+                return ring.mean() > 0.25
+            cx, cy, rx, ry = self.cam["circle"]
+            px = (cx - ex) / ew * w
+            py = (cy - ey) / eh * h
+            r = rx * W * scale
+            ang = np.arange(72) * 2 * np.pi / 72
+            xs = np.clip(np.rint(px + r * np.cos(ang)).astype(int), 0, w - 1)
+            ys = np.clip(np.rint(py + r * np.sin(ang)).astype(int), 0, h - 1)
+            near = g[ys, xs] | g[np.clip(ys + 1, 0, h - 1), xs] | g[ys, np.clip(xs + 1, 0, w - 1)]
+            return near.mean() > 0.45
+        return False
+
+    def visible(self, frame):
+        if self.n % self.every == 0:
+            seen = self._seen(frame)
+            if seen != self.state:
+                self.pending += 1
+                if self.pending >= 2:  # held for a second
+                    self.state, self.pending = seen, 0
+            else:
+                self.pending = 0
+        self.n += 1
+        return self.state
+
+
+def stack_compose(frame, L, cfg, cam_visible=True):
     out_w, out_h = cfg["width"], cfg["height"]
     H, W = frame.shape[:2]
     gx, gy, gw, gh = L["game"]
@@ -434,10 +510,13 @@ def stack_compose(frame, L, cfg):
     ox, oy = (big.shape[1] - out_w) // 2, (big.shape[0] - out_h) // 2
     out = (big[oy:oy + out_h, ox:ox + out_w] * 0.5).astype(np.uint8)
     top, by, bh = L["top"], L["band_y"], L["band_h"]
-    sx, sy, sw, sh = L["cam"]
-    camimg = frame[int(sy * H): int((sy + sh) * H), int(sx * W): int((sx + sw) * W)]
-    out[:top] = cv2.resize(camimg, (out_w, top), interpolation=cv2.INTER_AREA if camimg.shape[0] > top else cv2.INTER_CUBIC)
+    if cam_visible:  # webcam full width on top; when it is off screen the top keeps the blurred background
+        sx, sy, sw, sh = L["cam"]
+        camimg = frame[int(sy * H): int((sy + sh) * H), int(sx * W): int((sx + sw) * W)]
+        out[:top] = cv2.resize(camimg, (out_w, top),
+                               interpolation=cv2.INTER_AREA if camimg.shape[0] > top else cv2.INTER_CUBIC)
     band = cv2.resize(game, (out_w, bh), interpolation=cv2.INTER_AREA if game.shape[0] > bh else cv2.INTER_CUBIC)
     out[by:by + bh] = band[: max(0, min(bh, out_h - by))]
-    out[max(0, by - 3): by + 3] = 0  # thin seam between webcam and gameplay
+    if cam_visible:
+        out[max(0, by - 3): by + 3] = 0  # thin seam between webcam and gameplay
     return out

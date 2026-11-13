@@ -75,7 +75,7 @@ object Renderer {
     /** Export one vertical clip to [out]. [onProgress] gets 0..1. */
     suspend fun render(
         context: Context, uri: Uri, clip: Clip, layout: Layout, srcW: Int, srcH: Int,
-        overlay: CaptionOverlay?, gain: Float, out: File, onProgress: (Double) -> Unit,
+        overlay: CaptionOverlay?, gain: Float, out: File, camOn: BooleanArray? = null, onProgress: (Double) -> Unit,
     ) = withContext(Dispatchers.Main) {
         val item = MediaItem.Builder()
             .setUri(uri)
@@ -87,7 +87,7 @@ object Renderer {
             )
             .build()
         val video = ArrayList<androidx.media3.common.Effect>()
-        video.add(LayoutEffect(layout, srcW, srcH))
+        video.add(LayoutEffect(layout, srcW, srcH, camOn))
         if (overlay != null) video.add(OverlayEffect(ImmutableList.of<androidx.media3.effect.TextureOverlay>(overlay)))
         val edited = EditedMediaItem.Builder(item)
             .setEffects(Effects(listOf(GainProcessor(gain)), video))

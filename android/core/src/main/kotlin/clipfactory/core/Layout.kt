@@ -255,11 +255,11 @@ object LayoutMath {
             val half = c[2] * W * 0.97 / Math.sqrt(2.0)
             return doubleArrayOf(c[0] * W - half, c[1] * H - half, c[0] * W + half, c[1] * H + half)
         }
-        if (cam.shape == "face") { // no border seen: a generous box around everywhere the face goes
+        if (cam.shape == "face") { // no border seen: tight around where the face goes, so no game shows
             val fx0 = cam.x0 * W; val fx1 = cam.x1 * W; val fy0 = cam.y0 * H; val fy1 = cam.y1 * H
             val fh = cam.fh * H
-            val bw = max(fx1 - fx0, fh) * 1.6
-            val bh = (fy1 - fy0) + fh * 0.6
+            val bw = max(fx1 - fx0, fh) * 1.15
+            val bh = (fy1 - fy0) + fh * 0.25
             val cx = (fx0 + fx1) / 2
             val cy = (fy0 + fy1) / 2
             return doubleArrayOf(max(0.0, cx - bw / 2), max(0.0, cy - bh / 2), min(W, cx + bw / 2), min(H, cy + bh / 2))
@@ -300,18 +300,54 @@ object LayoutMath {
         return Box(x0 / W, y0 / H, bw / W, bh / H)
     }
 
+    /**
+     * Everything the webcam may cover in the source (fractions), to keep it out of the gameplay: its border when
+     * found; without one, webcams are usually 2-3x as wide as the face, so take that.
+     */
+    fun webcamExtent(cam: Facecam, srcW: Int, srcH: Int): Box {
+        cam.rect?.let { return it }
+        val W = srcW.toDouble()
+        val H = srcH.toDouble()
+        val fx0 = cam.x0 * W; val fx1 = cam.x1 * W; val fy0 = cam.y0 * H; val fy1 = cam.y1 * H
+        val fh = cam.fh * H
+        val bw = max(fx1 - fx0, fh) * 2.6
+        val bh = (fy1 - fy0) + fh * 1.6
+        val cx = (fx0 + fx1) / 2
+        val cy = (fy0 + fy1) / 2
+        val x0 = max(0.0, cx - bw / 2); val y0 = max(0.0, cy - bh / 2)
+        val x1 = min(W, cx + bw / 2); val y1 = min(H, cy + bh / 2)
+        return Box(x0 / W, y0 / H, (x1 - x0) / W, (y1 - y0) / H)
+    }
+
+    /**
+     * Webcam on screen or not, per check (every half second): flips only after two checks in a row disagree
+     * (a second), so a head turn does not make the top panel blink. Starts as "on screen".
+     */
+    fun steadyPresence(raw: List<Boolean>): BooleanArray {
+        val out = BooleanArray(raw.size)
+        var state = true
+        var pending = 0
+        for ((i, seen) in raw.withIndex()) {
+            if (seen != state) {
+                pending++
+                if (pending >= 2) { state = seen; pending = 0 }
+            } else pending = 0
+            out[i] = state
+        }
+        return out
+    }
+
     /** Stacked layout for videos (see Layout.Stack); same rules as the Python engine. */
     fun stackLayout(cam: Facecam, srcW: Int, srcH: Int, camMax: Double = 0.36): Layout.Stack {
         val W = srcW.toDouble()
         val H = srcH.toDouble()
-        val r = cam.rect
-        val a = if (r != null) doubleArrayOf(r.x, r.w) else webcamPx(cam, srcW, srcH).let { doubleArrayOf(it[0] / W, (it[2] - it[0]) / W) }
-        val ax = a[0]
-        val aw = a[1]
+        val ext = webcamExtent(cam, srcW, srcH)
+        val ax = ext.x
+        val aw = ext.w
         var gx0 = 0.0
         var gx1 = 1.0
-        if (ax < 0.25 && 1 - (ax + aw + 0.01) >= 0.7) gx0 = ax + aw + 0.01
-        else if (ax + aw > 0.75 && ax - 0.01 >= 0.7) gx1 = ax - 0.01
+        if (ax < 0.25 && 1 - (ax + aw + 0.01) >= 0.6) gx0 = ax + aw + 0.01
+        else if (ax + aw > 0.75 && ax - 0.01 >= 0.6) gx1 = ax - 0.01
         val bandH = even(OUT_W * H / ((gx1 - gx0) * W))
         val panelPx = Math.round(panelFraction(cam, srcW, srcH) * OUT_H).toInt()
         val top = max(2, minOf(panelPx, even(OUT_H * camMax), OUT_H - bandH - 300))
