@@ -673,7 +673,8 @@ addEventListener('mousemove', (e) => {
   const s = .0022; P.yaw -= e.movementX * s; P.pitch = clamp(P.pitch - e.movementY * s, -1.35, 1.35);
 });
 document.addEventListener('pointerlockchange', () => { if (!TOUCH && document.pointerLockElement !== canvas && G.started && !G.dead && !G.won && !G.readingNote) pause(true); });
-function pause(v) { G.paused = v; $('pause').classList.toggle('on', v); }
+function pause(v) { G.paused = v; $('pause').classList.toggle('on', v); try { if (AU.ctx) v ? AU.ctx.suspend() : AU.ctx.resume(); } catch (e) { } }
+window.__pauseGame = () => { if (G.started && !G.dead && !G.won && !G.paused) pause(true); };
 $('pause').addEventListener('click', () => { pause(false); if (!TOUCH) canvas.requestPointerLock?.(); });
 
 // =====================================================================

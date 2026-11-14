@@ -17,3 +17,13 @@ WASD andar · Mouse olhar · Shift correr · C agachar · F lanterna · **Botão
 
 ## Balanceamento
 Todos os números ficam no objeto `CFG` no topo de `game.js`.
+
+## Android (APK)
+`santa-lucia.apk` vem pronto. Para instalar, envie o arquivo ao celular, abra-o e permita "instalar apps desconhecidos". Se já houver uma versão instalada assinada com outra chave, desinstale-a antes.
+Joga offline, em paisagem e tela cheia. O botão Voltar pausa o jogo.
+
+Para gerar de novo após mudar o jogo:
+```bash
+ANDROID_SDK=/caminho/do/sdk ./android/build-apk.sh
+```
+Requer JDK, `platforms;android-34` e `build-tools;34.0.0`. Assina com `android/debug.keystore` (chave de **teste**, senha `android`). Para publicar na Play Store, gere uma chave própria e passe `KEYSTORE=...`.
