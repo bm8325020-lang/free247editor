@@ -749,7 +749,7 @@ addEventListener('mousedown', (e) => { if (e.button === 2) mouseR = true; if (G.
 addEventListener('mouseup', (e) => { if (e.button === 2) mouseR = false; });
 let dragging = false; addEventListener('mousedown', e => { if (e.button === 0) dragging = true; }); addEventListener('mouseup', e => { if (e.button === 0) dragging = false; });
 addEventListener('mousemove', (e) => {
-  if (!G.started || G.paused || G.dead) return; const locked = document.pointerLockElement === canvas; if (!locked && !dragging) return;
+  if (!G.started || G.paused || G.dead || G.lookLock) return; const locked = document.pointerLockElement === canvas; if (!locked && !dragging) return;
   const s = .0022; P.yaw -= e.movementX * s; P.pitch = clamp(P.pitch - e.movementY * s, -1.35, 1.35);
 });
 document.addEventListener('pointerlockchange', () => { if (!TOUCH && document.pointerLockElement !== canvas && G.started && !G.dead && !G.won && !G.readingNote) pause(true); });
@@ -1000,7 +1000,7 @@ function kill(reason) {
   const eye = camera.getWorldPosition(new THREE.Vector3()); const fwd = camera.getWorldDirection(new THREE.Vector3()); fwd.y = 0; fwd.normalize();
   C.pos.copy(eye).addScaledVector(fwd, .75).setY(0); C.yaw = Math.atan2(-fwd.x, -fwd.z); CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw; CR.root.visible = true;
   C.state = 'chase'; C.speed = 0; P.lampOn = true;
-  AU.jumpscare(); G.shake = 1.2; endFuga(false);
+  AU.jumpscare(); G.shake = 1.2; endFuga(false); G.lookLock = null;
   $('flash').style.opacity = .7; setTimeout(() => $('flash').style.opacity = 0, 120);
   const hh = 3 + Math.floor(G.t / 3600), mm = Math.floor(G.t / 60) % 60;
   const rows = [['Nome', 'NÃO IDENTIFICADO'], ['Hora do óbito', `0${hh}:${String(mm).padStart(2, '0')}`], ['Local', P.zone ? P.zone.name : 'desconhecido'], ['Causa', reason],
@@ -1083,6 +1083,7 @@ function updatePlayer(dt) {
   if (P.hidden && keys.Space && P.breath <= 0 && !P.gasped) { P.gasped = true; AU.burst({ f: 900, q: 1, dur: .6, vol: .3, verb: .2 }); if (C.pos.distanceTo(P.hidden.pos) < 6) C.suspicion += 1; }
   if (!keys.Space) P.gasped = false;
   if (P.hidden) { camera.position.copy(P.hidden.camPos); P.moving = 0; return; }
+  if (G.lookLock && G.lookLock.freeze) { P.moving = 0; camera.position.set(P.pos.x, P.eye, P.pos.z); return; }
   // movimento
   let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   let mag = 1; if (TI.stickId !== null) { f = -TI.y; s = TI.x; mag = clamp(Math.hypot(f, s), 0, 1); if (mag < .15) { f = s = 0; } }
@@ -1115,7 +1116,7 @@ function updateLights(dt) {
   // lanterna
   const L = CFG.lamp; const dC = C.state !== 'dormant' ? C.pos.distanceTo(P.pos) : 99;
   let fl = lampActive() ? 1 : 0;
-  if (fl && P.battery < 15 && Math.random() < .08) fl = .2; if (G.blackout > 0) fl = 0;
+  if (fl && P.battery < 15 && Math.random() < .08) fl = .2; if (G.blackout > 0) fl = 0; if (G.lookLock && Math.random() < .4) fl = rand(0, .25); // lanterna falhando durante o susto
   if (fl && dC < 9 && Math.random() < (1 - dC / 9) * .25) fl = rand(.1, .6); // falha quando ele está perto (aviso diegético)
   flash.intensity = (P.focus ? 95 : 38) * fl; flash.angle = P.focus ? .22 : .5; flash.distance = (P.focus ? L.focusRange : L.range) + 4; flash.penumbra = P.focus ? .3 : .6;
   flash.color.setHex(P.focus ? 0xffffff : 0xfff0d0);
@@ -1166,7 +1167,7 @@ function frame() {
     animateCreature(dt); updateLights(dt); updateAudio(dt);
   }
   if (G.dead && G.scare > 0) { G.scare -= dt; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); camera.lookAt(head); camera.rotation.z += rand(-.08, .08); CR.jaw.rotation.x = 1.3; }
-  else { G.shake = Math.max(0, (G.shake || 0) - dt * 1.5); const sh = G.shake * G.shake * .06; camera.rotation.set(P.pitch + rand(-sh, sh), P.yaw + rand(-sh, sh), rand(-sh, sh) * .5, 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
+  else { updateLookLock(dt); G.shake = Math.max(0, (G.shake || 0) - dt * 1.5); const sh = G.shake * G.shake * .06; camera.rotation.set(P.pitch + rand(-sh, sh), P.yaw + rand(-sh, sh), rand(-sh, sh) * .5, 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
   if (G.started) { updateHUD(); updateTouchUI(); }
   grainT += dt; if (grainT > 1 / 24) { grainT = 0; drawGrain(); }
   renderer.render(scene, camera);
@@ -1188,7 +1189,7 @@ if (TOUCH) {
   });
   layer.addEventListener('pointermove', (e) => {
     if (e.pointerId === TI.stickId) { let dx = e.clientX - TI.ox, dy = e.clientY - TI.oy; const d = Math.hypot(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; } TI.x = dx / R; TI.y = dy / R; knob.style.transform = `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`; }
-    else if (e.pointerId === TI.lookId && !G.paused && !G.dead) { const sns = .0055; P.yaw -= (e.clientX - TI.lx) * sns; P.pitch = clamp(P.pitch - (e.clientY - TI.ly) * sns, -1.35, 1.35); TI.lx = e.clientX; TI.ly = e.clientY; }
+    else if (e.pointerId === TI.lookId && !G.paused && !G.dead && !G.lookLock) { const sns = .0055; P.yaw -= (e.clientX - TI.lx) * sns; P.pitch = clamp(P.pitch - (e.clientY - TI.ly) * sns, -1.35, 1.35); TI.lx = e.clientX; TI.ly = e.clientY; }
   });
   const up = (e) => { if (e.pointerId === TI.stickId) { TI.stickId = null; TI.x = TI.y = 0; base.style.display = 'none'; } if (e.pointerId === TI.lookId) TI.lookId = null; };
   layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
@@ -1214,6 +1215,8 @@ function updateTouchUI() {
 // =====================================================================
 const TW = [];
 function tween(dur, fn, done) { TW.push({ t: 0, dur, fn, done }); }
+const after = (sec, fn) => tween(sec, () => { }, fn); // timer no relógio do jogo (respeita pausa)
+const later = (fn, ms) => after(ms / 1000, fn);
 function updateTweens(dt) { for (let i = TW.length - 1; i >= 0; i--) { const w = TW[i]; w.t += dt; const k = Math.min(1, w.t / w.dur); w.fn(k); if (k >= 1) { TW.splice(i, 1); w.done && w.done(); } } }
 function screenFlash(color = '#7a0000', op = .6, ms = 110) { const f = $('flash'); f.style.background = color; f.style.opacity = op; setTimeout(() => { f.style.opacity = 0; f.style.background = '#7a0000'; }, ms); }
 
@@ -1249,7 +1252,7 @@ function startFuga(F) {
   if (G.fuga || G.endgame) return; F.armed = false; G.fuga = F; fugaBeat = 0; buildObstacles(F);
   C.pos.copy(tc(...F.spawn)); C.state = 'chase'; C.path = []; C.repath = 0; CR.root.visible = true; C.knownHide = null;
   if (!fugaRed) { fugaRed = new THREE.PointLight(0xff2010, 0, 9, 2); scene.add(fugaRed); }
-  AU.jumpscare(); AU.stinger(); G.shake = 1; screenFlash('#7a0000', .55, 140);
+  AU.jumpscare(); AU.stinger(); G.shake = 1; screenFlash('#7a0000', .55, 140); CR.root.position.copy(C.pos); focusOn(() => { const v = new THREE.Vector3(); CR.head.getWorldPosition(v); return v; }, 1.1, { speed: 10, fov: 55 });
   msg('<b style="font-size:26px;color:#ff5040">CORRA!</b><br>Segure correr · desvie do entulho · <b>agache</b> sob as vigas', 5);
 }
 function updateFuga(dt) {
@@ -1292,38 +1295,65 @@ function endFuga(survived) {
 // =====================================================================
 // SUSTOS ROTEIRIZADOS (cada um acontece uma vez; intervalo mínimo entre eles)
 // =====================================================================
-const PH = buildCreature(); PH.root.visible = false; PH.skin.color.setHex(0x8a8274);
+const PH = buildCreature(); PH.root.visible = false; PH.skin.color.setHex(0x4f4941); PH.skin.roughness = .8;
 function posePhantom(tilt = .6) { PH.spine.rotation.x = .8; PH.neck.rotation.x = -1.25; PH.jaw.rotation.x = 1.15; PH.head.rotation.z = tilt; PH.arms.forEach(a => { a.sh.rotation.x = -.35; a.el.rotation.x = -.25; a.sh.rotation.z = a.s * .12; }); PH.legs.forEach(l => { l.kn.rotation.x = .3; }); }
 function showPhantom(pos, faceTo, dur, sound = true) {
   posePhantom(rand(-.9, .9)); PH.root.position.copy(pos).setY(0); PH.root.rotation.y = Math.atan2(faceTo.x - pos.x, faceTo.z - pos.z); PH.root.visible = true;
   if (sound) { AU.stinger(); AU.whisper(pos.clone().setY(2), .35); }
-  setTimeout(() => { PH.root.visible = false; AU.radio(pos.clone().setY(2)); for (const L of lightObjs) L.off = rand(.05, .3); }, dur * 1000);
+  PH.root.updateMatrixWorld(true); const hd = new THREE.Vector3(); PH.head.getWorldPosition(hd); focusOn(hd, dur + .35, { speed: 16, fov: 52 });
+  after(dur, () => { PH.root.visible = false; AU.radio(pos.clone().setY(2)); for (const L of lightObjs) L.off = rand(.05, .3); });
 }
 const fwdOf = () => new THREE.Vector3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+// ----- CÂMERA FORÇADA: no susto, a cabeça vira sozinha para onde ele está (com zoom curto)
+function focusOn(target, dur = 1.2, o = {}) { G.lookLock = { target, t: 0, dur, speed: o.speed || 11, fov: o.fov || 56, freeze: o.freeze !== false }; }
+function updateLookLock(dt) {
+  const L = G.lookLock; let fovT = 72;
+  if (L && !G.dead) {
+    L.t += dt; const tg = typeof L.target === 'function' ? L.target() : L.target; const e = camera.position;
+    const dx = tg.x - e.x, dy = tg.y - e.y, dz = tg.z - e.z; const wy = Math.atan2(-dx, -dz), wp = Math.atan2(dy, Math.hypot(dx, dz));
+    let d = wy - P.yaw; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; const k = 1 - Math.exp(-L.speed * dt);
+    P.yaw += d * k; P.pitch += (wp - P.pitch) * k; fovT = L.fov; if (L.t >= L.dur) G.lookLock = null;
+  } else if (L) G.lookLock = null;
+  if (Math.abs(camera.fov - fovT) > .05) { camera.fov += (fovT - camera.fov) * Math.min(1, dt * (fovT < camera.fov ? 14 : 4)); camera.updateProjectionMatrix(); }
+}
+const behind = (dist) => P.pos.clone().addScaledVector(fwdOf(), -dist);
+function turnScare(dist = 1.7) { // algo atrás de você: a câmera gira 180° e ele está lá
+  let at = behind(dist); if (isSolid(...tileOf(at))) at = behind(1.1); if (isSolid(...tileOf(at))) return false;
+  posePhantom(rand(-.8, .8)); PH.root.position.copy(at).setY(0); PH.root.rotation.y = Math.atan2(P.pos.x - at.x, P.pos.z - at.z); PH.root.visible = true; PH.root.updateMatrixWorld(true);
+  const head = new THREE.Vector3(); PH.head.getWorldPosition(head);
+  focusOn(head, 1.25, { speed: 9, fov: 50 });
+  after(.3, () => { AU.jumpscare(); G.shake = 1.1; screenFlash('#7a0000', .55, 110); });
+  after(1.2, () => { PH.root.visible = false; for (const L of lightObjs) L.off = rand(.1, .3); });
+}
+
 const inZone = (id) => P.zone && P.zone.id === id;
 const SCARES = [
   { id: 'gaveta', when: () => inZone('morgue') && P.pos.x > tc(33, 0).x, run() { // gaveta abre sozinha com um corpo
       const c = tc(41, 11); const tray = box3(1.4, .08, .8, MAT.steel), bag = makeBody('bag', { arm: true }); bag.scale.set(.68, .9, .9); bag.rotation.y = Math.PI; bag.position.y = .04; tray.add(bag);
-      tray.position.set(c.x + T / 2 + .7, 1.35, c.z); scene.add(tray); AU.slam(c.clone().setY(1.3), 1); G.shake = .6; screenFlash('#000', .5, 60);
-      tween(.18, k => tray.position.x = lerp(c.x + T / 2 + .7, c.x + T / 2 - .7, k)); setTimeout(() => AU.whisper(c.clone().setY(1.3), .3), 700); } },
+      tray.position.set(c.x + T / 2 + .7, 1.35, c.z); scene.add(tray); focusOn(c.clone().setY(1.2).setX(c.x + T / 2 - .6), 1.5, { speed: 13 }); AU.slam(c.clone().setY(1.3), 1); G.shake = .6; screenFlash('#000', .5, 60);
+      tween(.18, k => tray.position.x = lerp(c.x + T / 2 + .7, c.x + T / 2 - .7, k)); later(() => AU.whisper(c.clone().setY(1.3), .3), 700); } },
   { id: 'corredor', when: () => P.zone && P.zone.id === 'corrA' && G.awakeOnce && fwdOf().x > .7 && P.pos.x < tc(30, 0).x && C.state !== 'chase', run() { // ele no fim do corredor
       const [x] = tileOf(P.pos); const at = tc(Math.min(41, x + 8), 4); if (!los(P.pos.x, P.pos.z, at.x, at.z)) return false; showPhantom(at, P.pos, .5); } },
   { id: 'armario', when: () => inZone('admin') && P.pos.distanceTo(tc(9, 9)) < 3.2, run() { // corpo cai de dentro do armário
       const c = tc(9, 9); const body = makeBody('sheet', { arm: true, blood: true }); body.scale.set(.88, 1, .7); const inner = new THREE.Group(); inner.rotation.z = Math.PI / 2; inner.add(body); const outer = new THREE.Group(); outer.rotation.y = Math.PI / 2; outer.position.y = .88; outer.add(inner); const piv = new THREE.Group(); piv.position.set(c.x, 0, c.z - .55); piv.add(outer); scene.add(piv);
-      AU.slam(c.clone().setY(1.2), 1); G.shake = .8; screenFlash('#000', .6, 70); tween(.45, k => piv.rotation.x = k * k * 1.45, () => { AU.tone({ f: 70, f2: 35, dur: .3, vol: .6, at: c, verb: .4 }); }); } },
-  { id: 'apagao', when: () => inZone('lab'), run() { // tudo apaga; quando volta, ele está na sua frente
-      G.blackout = 1.8; AU.tone({ f: 120, f2: 30, dur: .6, vol: .3, type: 'sawtooth', verb: .5 }); setTimeout(() => AU.whisper(null, .35), 300); setTimeout(() => AU.whisper(null, .3), 900);
-      setTimeout(() => { const at = P.pos.clone().addScaledVector(fwdOf(), 2.1); if (!isSolid(...tileOf(at))) { showPhantom(at, P.pos, .35, false); AU.jumpscare(); G.shake = 1; screenFlash('#7a0000', .5, 100); } }, 1800); } },
+      AU.slam(c.clone().setY(1.2), 1); G.shake = .8; screenFlash('#000', .6, 70); focusOn(() => { const v = new THREE.Vector3(); body.getWorldPosition(v); return v; }, 1.6, { speed: 12 }); tween(.45, k => piv.rotation.x = k * k * 1.45, () => { AU.tone({ f: 70, f2: 35, dur: .3, vol: .6, at: c, verb: .4 }); }); } },
+  { id: 'apagao', when: () => inZone('lab'), run() { // tudo apaga, respiração na nuca; a cabeça vira e ele está atrás de você
+      G.blackout = 1.8; AU.tone({ f: 120, f2: 30, dur: .6, vol: .3, type: 'sawtooth', verb: .5 }); later(() => AU.whisper(null, .35), 300); later(() => AU.whisper(null, .3), 900);
+      later(() => AU.step('ftile', .8, behind(2).setY(1)), 1100); after(1.5, () => { AU.breath && AU.whisper(behind(.6).setY(1.6), .45); });
+      after(1.8, () => { if (turnScare(1.6) === false) { const at = P.pos.clone().addScaledVector(fwdOf(), 2.1); if (!isSolid(...tileOf(at))) { showPhantom(at, P.pos, .35, false); AU.jumpscare(); G.shake = 1; } } }); } },
   { id: 'cadeira', when: () => inZone('ward') && P.pos.z > tc(0, 7).z, run() { // cadeira de rodas atravessa a sala sozinha
       const g = new THREE.Group(); const seat = box3(.5, .05, .5, MAT.black); seat.position.y = .5; g.add(seat); const back = box3(.5, .55, .05, MAT.black); back.position.set(0, .8, -.25); g.add(back);
       for (const sx of [-.3, .3]) { const w = new THREE.Mesh(new THREE.TorusGeometry(.3, .02, 6, 18), MAT.steel); w.rotation.y = Math.PI / 2; w.position.set(sx, .32, 0); g.add(w); }
       const ahead = P.pos.clone().addScaledVector(fwdOf(), 4.5); const side = new THREE.Vector3(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
       const a = ahead.clone().addScaledVector(side, -6), b = ahead.clone().addScaledVector(side, 6); g.position.copy(a); g.rotation.y = Math.atan2(side.x, side.z); scene.add(g);
-      AU.creak(ahead.clone().setY(.5), .4); tween(1.6, k => g.position.lerpVectors(a, b, k), () => { scene.remove(g); AU.slam(b, .5); }); } },
-  { id: 'telefone', when: () => inZone('security'), run() { AU.ring(); setTimeout(() => { AU.radio(tc(9, 15, 1)); AU.scream(tc(9, 15, 1)); G.shake = .4; }, 2300); } },
-  { id: 'porao', when: () => inZone('cellar'), run() { const p = tc(13, 28, 1); AU.crash(p); G.shake = .5; setTimeout(() => AU.whisper(tc(4, 29, 1), .4), 900); setTimeout(() => { const at = tc(10, 30); if (los(P.pos.x, P.pos.z, at.x, at.z)) showPhantom(at, P.pos, .4); }, 1600); } },
+      AU.creak(ahead.clone().setY(.5), .4); focusOn(() => g.position.clone().setY(.6), 1.5, { speed: 8, fov: 60 }); tween(1.6, k => g.position.lerpVectors(a, b, k), () => { scene.remove(g); AU.slam(b, .5); }); } },
+  { id: 'telefone', when: () => inZone('security'), run() { AU.ring(); after(2.3, () => { const ph = tc(9, 16, 1.1); ph.z += .8; AU.radio(ph); AU.scream(ph); G.shake = .5; focusOn(ph, 1.1, { speed: 14 }); }); } },
+  { id: 'porao', when: () => inZone('cellar'), run() { const p = tc(13, 28, 1); AU.crash(p); G.shake = .5; focusOn(p, .9, { speed: 12, fov: 62 }); later(() => AU.whisper(tc(4, 29, 1), .4), 900); after(1.6, () => { const at = tc(10, 30); if (los(P.pos.x, P.pos.z, at.x, at.z)) showPhantom(at, P.pos, .4); }); } },
+  { id: 'costas', when: () => inZone('corrB') && P.pos.z > tc(0, 15).z && P.pos.z < tc(0, 22).z && G.awakeOnce && C.pos.distanceTo(P.pos) > 15, run() { // passos se aproximando pelas costas
+      for (const [ms, d] of [[0, 6], [550, 4.5], [1050, 3], [1450, 1.8]]) later(() => AU.step('lino', 1, behind(d).setY(.3)), ms);
+      later(() => AU.whisper(behind(.7).setY(1.6), .5), 1800); after(2.1, () => turnScare(1.5)); } },
   { id: 'recepcao', when: () => inZone('reception') && P.carried.length > 0, run() { // voltando com o fusível: ele está ao lado da porta
-      const at = tc(3, 1); for (const L of lightObjs) L.off = rand(.2, .5); setTimeout(() => showPhantom(at, P.pos, .3), 250); } },
+      const at = tc(3, 1); for (const L of lightObjs) L.off = rand(.2, .5); later(() => showPhantom(at, P.pos, .3), 250); } },
 ];
 let scareCd = 20;
 function updateScares(dt) {
