@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
-import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
@@ -13,6 +12,7 @@ import android.webkit.WebView;
 public class MainActivity extends Activity {
     static final String HOST = "appassets.androidplatform.net";
     private WebView web;
+    private ChromeClient chrome;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -29,7 +29,8 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
 
-        web.setWebChromeClient(new WebChromeClient());
+        chrome = new ChromeClient(this);
+        web.setWebChromeClient(chrome);
         web.setWebViewClient(new AssetClient(this));
         web.loadUrl("https://" + HOST + "/index.html");
     }
@@ -39,6 +40,12 @@ public class MainActivity extends Activity {
         web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(code, perms, res);
+        if (code == ChromeClient.REQ_MIC && chrome != null) chrome.onResult(res.length > 0 && res[0] == android.content.pm.PackageManager.PERMISSION_GRANTED);
     }
 
     @Override

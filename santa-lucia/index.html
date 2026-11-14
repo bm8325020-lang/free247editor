@@ -158,6 +158,27 @@
   body.touch #title h1{font-size:34px}
   body.touch #lobby{margin-top:6px;padding-top:6px}
   body.touch #title .btn{padding:8px 16px;margin:3px}
+  #objective .hint{color:#c9b98a;font-size:11px}
+  #settings{gap:8px}
+  #settings h1.st{font-size:clamp(26px,5vw,44px)}
+  .set-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px 28px;width:min(760px,94vw);text-align:left;font-size:12px;letter-spacing:.08em;color:#c9cfc0}
+  .set-grid label{display:flex;flex-direction:column;gap:4px}
+  .set-grid input[type=range]{width:100%;accent-color:#d7dccf}
+  .seg{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .seg span{flex-basis:100%}
+  .seg button{flex:1;padding:7px 4px;background:transparent;border:1px solid #6d766a;color:var(--ink);font:12px 'IBM Plex Mono',monospace;cursor:pointer}
+  .seg button.on{background:#d7dccf;color:#000}
+  .set-note{font-size:11px!important;margin:4px 0!important}
+  #map{gap:10px}
+  #map-cv{max-width:96vw;border:1px solid #3a4440;image-rendering:pixelated}
+  #map-legend{display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:center;font-size:12px;max-width:94vw}
+  #map-legend .w{color:#ffb040}#map-legend .ok{color:#5fc27a}#map-legend .k{color:#8c958a;flex-basis:100%}
+  #mic-ind{position:fixed;right:28px;top:100px;font-size:11px;color:#9fc29f;display:none;width:110px}
+  #mic-ind.on{display:block}#mic-ind .bar{height:4px;background:rgba(255,255,255,.1);margin-top:3px}#mic-ind i{display:block;height:100%;width:0;background:#9fc29f}
+  #tb-map{top:14px;left:calc(50% - 82px);width:52px;height:44px;border-radius:8px;font-size:10px}
+  #tb-mic{top:14px;left:calc(50% + 34px);width:52px;height:44px;border-radius:8px;font-size:10px}
+  body.touch #mic-ind{right:16px;top:70px}
+  @media (max-height:520px){.set-grid{gap:4px 18px;font-size:11px}.seg button{padding:5px 3px}}
   #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
 </style>
 </head>
@@ -173,6 +194,7 @@
 <div id="zone"></div>
 <div id="objective"></div>
 <div id="partner"></div>
+<div id="mic-ind">🎙 MIC <div class="bar"><i id="mic-lvl"></i></div></div>
 <div id="fuses"></div>
 <div id="meters">
   <div class="meter">LANTERNA <span id="batt-pct"></span><div class="bar" id="batt"><i></i></div></div>
@@ -198,6 +220,7 @@
     <b>Shift</b><span>correr (barulho!)</span>
     <b>C / Ctrl</b><span>agachar (silencioso)</span>
     <b>F</b><span>ligar/desligar lanterna</span>
+    <b>M</b><span>mapa · <b>V</b> microfone (cooperativo)</span>
     <b>Botão direito / Q</b><span>FOCO: feixe concentrado — mire no ROSTO dele</span>
     <b>E</b><span>interagir / esconder / sair</span>
     <b>Espaço (escondido)</b><span>prender a respiração</span>
@@ -213,7 +236,7 @@
     <b>AR</b><span>escondido: segure para prender a respiração</span>
   </div>
   <p style="font-size:11px">Use fones de ouvido. O som é metade do jogo.</p>
-  <div><button class="btn" id="btn-new">Jogar sozinho</button><button class="btn" id="btn-cont" style="display:none">Continuar</button></div>
+  <div><button class="btn" id="btn-new">Jogar sozinho</button><button class="btn" id="btn-cont" style="display:none">Continuar</button><button class="btn" id="btn-settings">Configurações</button></div>
   <div id="lobby"><div class="lobby-t">COM UM AMIGO (cooperativo · 2 jogadores · precisa de internet)</div>
     <button class="btn" id="btn-host">Criar sala</button><span class="or">ou</span><input id="join-code" maxlength="4" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn" id="btn-join">Entrar</button>
     <div id="lobby-msg"></div></div>
@@ -221,6 +244,8 @@
 <div id="touch">
   <div id="stick-base"><div id="stick-knob"></div></div>
   <button class="tbtn" id="tb-pause">II</button>
+  <button class="tbtn" id="tb-map">MAPA</button>
+  <button class="tbtn" id="tb-mic" style="display:none">MIC</button>
   <button class="tbtn" id="tb-lamp">LUZ</button>
   <button class="tbtn" id="tb-crouch">AGACHAR</button>
   <button class="tbtn big" id="tb-focus">FOCO</button>
@@ -229,7 +254,23 @@
   <button class="tbtn big" id="tb-breath" style="display:none">AR</button>
   <button class="tbtn" id="tb-photo" style="display:none">FOTO</button>
 </div>
-<div class="screen" id="pause"><h1>PAUSA</h1><h2>clique para continuar</h2></div>
+<div class="screen" id="pause"><h1>PAUSA</h1><h2>o jogo continua rodando no cooperativo</h2><div><button class="btn" id="btn-resume">Continuar</button><button class="btn" id="btn-settings2">Configurações</button><button class="btn" id="btn-quit">Sair para o menu</button></div></div>
+<div class="screen" id="settings"><h1 class="st">CONFIGURAÇÕES</h1>
+  <div class="set-grid">
+    <label>Volume geral<input type="range" data-k="vol" min="0" max="100"></label>
+    <label>Passos<input type="range" data-k="steps" min="0" max="100"></label>
+    <label>Ambiente<input type="range" data-k="amb" min="0" max="100"></label>
+    <label>Respiração<input type="range" data-k="breath" min="0" max="100"></label>
+    <label>Voz do amigo<input type="range" data-k="voice" min="0" max="150"></label>
+    <label>Brilho<input type="range" data-k="bright" min="60" max="170"></label>
+    <label>Sensibilidade<input type="range" data-k="sens" min="40" max="220"></label>
+    <div class="seg" data-k="gfx"><span>Gráficos</span><button data-v="baixo">Baixo</button><button data-v="medio">Médio</button><button data-v="alto">Alto</button></div>
+    <div class="seg" data-k="diff"><span>Dificuldade</span><button data-v="facil">Fácil</button><button data-v="normal">Normal</button><button data-v="dificil">Difícil</button></div>
+    <div class="seg" data-k="autoRun"><span>Correr empurrando o analógico</span><button data-v="1">Sim</button><button data-v="0">Não</button></div>
+  </div>
+  <p class="set-note">No cooperativo, a dificuldade que vale é a de quem criou a sala.</p>
+  <button class="btn" id="btn-set-close">Voltar</button></div>
+<div class="screen" id="map"><canvas id="map-cv"></canvas><div id="map-legend"></div><button class="btn" id="btn-map-close">Fechar mapa</button></div>
 <div class="screen" id="death">
   <div class="glitch" data-t="VOCÊ MORREU">VOCÊ MORREU</div>
   <div class="tag" id="d-tag">

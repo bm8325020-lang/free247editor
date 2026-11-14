@@ -605,7 +605,7 @@ const AU = {
     const ctx = this.ctx, t = ctx.currentTime, src = ctx.createBufferSource(); src.buffer = sm.buf; src.playbackRate.value = rand(.84, .97); // mais grave = mais pesado
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = P.crouch ? 1300 : surface === 'lino' ? 3200 : surface === 'ftile' ? 9000 : 5000;
     const pk = ctx.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 180; pk.Q.value = 1; pk.gain.value = surface === 'concrete' ? 3 : 5; // corpo no grave
-    const g = ctx.createGain(); g.gain.value = Math.min(1, .62 * loud) * rand(.85, 1);
+    const g = ctx.createGain(); g.gain.value = Math.min(1, .62 * loud) * rand(.85, 1) * SET.steps / 100;
     src.connect(pk).connect(f).connect(g); g.connect(at ? this.spatial(at) : this.master);
     const v = ctx.createGain(); v.gain.value = (surface === 'concrete' ? .45 : .32) * Math.min(1, loud + .2); g.connect(v).connect(this.verbIn); // eco do corredor
     src.start(t);
@@ -741,7 +741,7 @@ CR.root.visible = false;
 // =====================================================================
 // ESTADO DO JOGO, SAVE
 // =====================================================================
-const G = { spots: null, stare: 0, started: false, paused: true, dead: false, won: false, t: 0, inserted: [], notesRead: new Set(), endgame: null, exitOpen: false, deaths: 0, msgT: 0, readingNote: false, scare: 0 };
+const G = { visited: new Set(['reception']), mapOpen: false, spots: null, stare: 0, started: false, paused: true, dead: false, won: false, t: 0, inserted: [], notesRead: new Set(), endgame: null, exitOpen: false, deaths: 0, msgT: 0, readingNote: false, scare: 0 };
 const SAVE_KEY = 'santa_lucia_save_v1';
 function save() { if (NET.role !== 'solo') return; try { localStorage.setItem(SAVE_KEY, JSON.stringify({ inserted: G.inserted, notes: [...G.notesRead], deaths: G.deaths, spots: G.spots })); } catch (e) { } }
 function loadSave() { try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.inserted ? s : null; } catch (e) { return null; } }
@@ -755,8 +755,10 @@ function setObjective() {
   let o = '';
   if (G.exitOpen) o = 'A porta está aberta. <b>FUJA.</b>';
   else if (G.endgame) o = `Energizando o portão… <b>${Math.floor(G.endgame.t / CFG.endgame.duration * 100)}%</b> — sobreviva.`;
-  else if (P.carried.length) o = `Leve ${P.carried.length > 1 ? 'os fusíveis' : 'o fusível'} até o <b>painel da recepção</b>.` + (left ? ` Restam ${left} no prédio.` : '');
-  else o = `Encontre os fusíveis. Restam <b>${left}</b>.`;
+  else if (P.carried.length) o = `<b>Leve ${P.carried.length > 1 ? 'os fusíveis' : 'o fusível'} ao painel da RECEPÇÃO</b> (ao lado da porta de saída).`;
+  else o = `<b>OBJETIVO:</b> achar 4 fusíveis e instalar no painel da recepção.`;
+  const where = FUSES.filter(f => f.state === 'world').map(f => f.where.replace(' do necrotério', '')); if (!G.exitOpen && !G.endgame && where.length) o += `<br><span class="hint">Procure em: ${where.join(' · ')}</span>`;
+  o += `<br><span class="hint">${TOUCH ? 'Toque em MAPA' : 'Aperte M'} para ver a planta.</span>`;
   $('objective').innerHTML = o;
   $('fuses').innerHTML = `PAINEL · ${G.inserted.length}/4<div class="slots">${[0, 1, 2, 3].map(i => `<span class="${i < G.inserted.length ? 'in' : i < G.inserted.length + P.carried.length ? 'carry' : ''}"></span>`).join('')}</div>`;
 }
@@ -774,6 +776,8 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' || e.code === 'ControlLeft') P.crouch = !P.crouch;
   if (e.code === 'KeyE') interact();
   if (e.code === 'KeyR' && !G.readingNote) takePhoto();
+  if (e.code === 'KeyM') toggleMap();
+  if (e.code === 'KeyV') toggleMic();
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -784,12 +788,12 @@ addEventListener('mouseup', (e) => { if (e.button === 2) mouseR = false; });
 let dragging = false; addEventListener('mousedown', e => { if (e.button === 0) dragging = true; }); addEventListener('mouseup', e => { if (e.button === 0) dragging = false; });
 addEventListener('mousemove', (e) => {
   if (!G.started || G.paused || G.dead || G.lookLock) return; const locked = document.pointerLockElement === canvas; if (!locked && !dragging) return;
-  const s = .0022; P.yaw -= e.movementX * s; P.pitch = clamp(P.pitch - e.movementY * s, -1.35, 1.35);
+  const s = .0022 * SET.sens / 100; P.yaw -= e.movementX * s; P.pitch = clamp(P.pitch - e.movementY * s, -1.35, 1.35);
 });
 document.addEventListener('pointerlockchange', () => { if (!TOUCH && document.pointerLockElement !== canvas && G.started && !G.dead && !G.won && !G.readingNote) pause(true); });
 function pause(v) { G.paused = v; $('pause').classList.toggle('on', v); try { if (AU.ctx) v ? AU.ctx.suspend() : AU.ctx.resume(); } catch (e) { } }
 window.__pauseGame = () => { if (G.started && !G.dead && !G.won && !G.paused) pause(true); };
-$('pause').addEventListener('click', () => { pause(false); if (!TOUCH) canvas.requestPointerLock?.(); });
+$('pause').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && b.id !== 'btn-resume') return; if (!G.started) return; pause(false); if (!TOUCH) canvas.requestPointerLock?.(); });
 
 // =====================================================================
 // INTERAÇÃO
@@ -1153,7 +1157,9 @@ function updatePlayer(dt) {
   // movimento
   let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   let mag = 1; if (TI.stickId !== null) { f = -TI.y; s = TI.x; mag = clamp(Math.hypot(f, s), 0, 1); if (mag < .15) { f = s = 0; } }
-  const moving = !!(f || s); P.sprinting = moving && (keys.ShiftLeft || keys.ShiftRight) && !P.exhausted && !P.crouch && f > .3;
+  const moving = !!(f || s); const autoRun = SET.autoRun && TI.stickId !== null && mag > .92;
+  P.sprinting = moving && (keys.ShiftLeft || keys.ShiftRight || P.runLatch || autoRun) && !P.exhausted && !P.crouch && f > .3;
+  if (P.runLatch) { if (!moving || P.exhausted) { P.runIdle = (P.runIdle || 0) + dt; if (P.runIdle > .5 || P.exhausted) P.runLatch = false; } else P.runIdle = 0; }
   if (P.sprinting) { P.stamina -= dt; if (P.stamina <= 0) { P.exhausted = true; AU.burst({ f: 700, q: 1, dur: .8, vol: .15 }); } }
   else { P.stamina = Math.min(PC.staminaMax, P.stamina + PC.staminaRegen * dt); if (P.stamina > PC.staminaMax * .45) P.exhausted = false; }
   if (G.fuga) { P.stamina = PC.staminaMax; P.exhausted = false; } P.stumble = Math.max(0, (P.stumble || 0) - dt);
@@ -1168,7 +1174,7 @@ function updatePlayer(dt) {
   P.moving = moving ? spd : 0;
   P.eye = lerp(P.eye, P.crouch ? PC.crouchEye : PC.eye, Math.min(1, dt * 10));
   camera.position.set(P.pos.x, P.eye + Math.sin(P.bob) * .035 * (moving ? 1 : 0), P.pos.z);
-  const z = zoneAt(...tileOf(P.pos)); if (z && z !== P.zone) { P.zone = z; showZone(z); }
+  const z = zoneAt(...tileOf(P.pos)); if (z && z !== P.zone) { P.zone = z; showZone(z); G.visited.add(z.id); }
 }
 function updateLights(dt) {
   for (const L of lightObjs) {
@@ -1200,12 +1206,12 @@ function updateAudio(dt) {
   if (active && Math.random() < dt * (chase ? 3 : .8)) AU.tone({ f: rand(1500, 2600), dur: .015, vol: .12, type: 'square', at: cp, verb: .3 }); // estalos
   // zumbido das lâmpadas
   let hum = 0; for (const Lo of lightObjs) if (Lo.on && Lo.type !== 'emergency') hum = Math.max(hum, (1 - clamp(Lo.pl.position.distanceTo(camera.position) / 7, 0, 1)) * (Lo.pl.intensity / Lo.int));
-  AU.hum.gain.setTargetAtTime(hum * .05, t, .05);
+  AU.hum.gain.setTargetAtTime(hum * .05 * SET.amb / 100, t, .05);
   // coração
   const d = active ? C.pos.distanceTo(P.pos) : 99; const fear = clamp(1 - d / 22, 0, 1) + (chase ? .4 : 0) + G.stare * .25; updatePlayerBreath(dt, fear);
   heartT -= dt; if (fear > .1 && heartT <= 0) { heartT = 60 / lerp(70, 165, clamp(fear, 0, 1)); AU.heartbeat(.25 + fear * .5); }
   $('danger').style.opacity = clamp(fear * .7 - .2, 0, .55) * (chase ? 1 : .6);
-  AU.ambGain.gain.setTargetAtTime(chase ? .15 : .35, t, .5); // "silêncio tenso": o ambiente recua quando ele caça
+  AU.ambGain.gain.setTargetAtTime((chase ? .15 : .35) * SET.amb / 100, t, .5); AU.drone.gain.setTargetAtTime(.035 * SET.amb / 100, t, .5); AU.master.gain.setTargetAtTime(.9 * SET.vol / 100, t, .1); // "silêncio tenso": o ambiente recua quando ele caça
   ambT -= dt; if (ambT <= 0) { ambT = rand(6, 16); const [x, y] = pick(floorTiles); const p = tc(x, y, 2); if (p.distanceTo(P.pos) > 10) { const r = Math.random();
     if (r < .3) AU.bang(p); else if (r < .5) AU.moan(p); else if (r < .65) AU.creak(p, .25); else if (r < .8) AU.radio(p); else if (r < .92) AU.whisper(p, .25); else AU.scream(p); } }
   if (active && CR.root.visible) { const sp = Math.floor(C.phase / Math.PI); if (sp !== stepPh) { stepPh = sp; if (C.speed > .3) AU.cstep(C.pos.clone().setY(.2), chase || G.fuga ? 1 : .55); } if (chase && Math.random() < dt * .35) AU.scrape(cp); }
@@ -1228,7 +1234,7 @@ const clock = new THREE.Clock(); let grainT = 0;
 function frame() {
   if (G.trailer) return;
   requestAnimationFrame(frame); const dt = Math.min(clock.getDelta(), 1 / 20);
-  if (G.started && (NET.role !== 'solo' || (!G.paused && !G.readingNote)) && !G.won) {
+  if (G.started && (NET.role !== 'solo' || (!G.paused && !G.readingNote && !G.mapOpen)) && !G.won) {
     if (!G.dead) { G.t += dt; updatePlayer(dt); } else if (NET.role === 'host') G.t += dt;
     if (NET.role === 'guest') { if (!G.dead) updateFuga(dt); netGuestTick(dt); }
     else if (!G.dead || NET.role === 'host') { updateFuga(dt); updateCreature(dt); updateEndgame(dt); }
@@ -1260,21 +1266,21 @@ if (TOUCH) {
   });
   layer.addEventListener('pointermove', (e) => {
     if (e.pointerId === TI.stickId) { let dx = e.clientX - TI.ox, dy = e.clientY - TI.oy; const d = Math.hypot(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; } TI.x = dx / R; TI.y = dy / R; knob.style.transform = `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`; }
-    else if (e.pointerId === TI.lookId && !G.paused && !G.dead && !G.lookLock) { const sns = .0055; P.yaw -= (e.clientX - TI.lx) * sns; P.pitch = clamp(P.pitch - (e.clientY - TI.ly) * sns, -1.35, 1.35); TI.lx = e.clientX; TI.ly = e.clientY; }
+    else if (e.pointerId === TI.lookId && !G.paused && !G.dead && !G.lookLock) { const sns = .0055 * SET.sens / 100; P.yaw -= (e.clientX - TI.lx) * sns; P.pitch = clamp(P.pitch - (e.clientY - TI.ly) * sns, -1.35, 1.35); TI.lx = e.clientX; TI.ly = e.clientY; }
   });
   const up = (e) => { if (e.pointerId === TI.stickId) { TI.stickId = null; TI.x = TI.y = 0; base.style.display = 'none'; } if (e.pointerId === TI.lookId) TI.lookId = null; };
   layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
   const hold = (id, key) => { const b = $(id); b.addEventListener('pointerdown', (e) => { e.stopPropagation(); keys[key] = true; b.classList.add('held'); }); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { keys[key] = false; b.classList.remove('held'); }); };
   const tap = (id, fn) => $(id).addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (G.started && !G.dead && !G.won) fn(); });
-  hold('tb-focus', 'KeyQ'); hold('tb-run', 'ShiftLeft'); hold('tb-breath', 'Space'); tap('tb-photo', takePhoto);
+  hold('tb-focus', 'KeyQ'); tap('tb-run', () => { P.runLatch = !P.runLatch; P.runIdle = 0; }); hold('tb-breath', 'Space'); tap('tb-photo', takePhoto);
   tap('tb-lamp', toggleLamp); tap('tb-crouch', () => { P.crouch = !P.crouch; }); tap('tb-use', () => { if (G.readingNote) closeNote(); else interact(); });
-  tap('tb-pause', () => pause(true));
+  tap('tb-pause', () => pause(true)); tap('tb-map', toggleMap); tap('tb-mic', toggleMic);
   $('note').addEventListener('pointerdown', () => { if (G.readingNote) closeNote(); });
   $('keys-desktop').style.display = 'none'; $('keys-touch').style.display = '';
 }
 function updateTouchUI() {
   if (!TOUCH) return; const hid = !!P.hidden;
-  $('tb-photo').style.display = P.hasCam && !hid ? '' : 'none'; $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
+  $('tb-photo').style.display = P.hasCam && !hid ? '' : 'none'; $('tb-mic').style.display = NET.role !== 'solo' ? '' : 'none'; $('tb-mic').classList.toggle('held', VOICE.on); $('tb-run').classList.toggle('held', !!P.runLatch || P.sprinting); $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
   $('tb-use').classList.toggle('ready', !!focusTarget || hid || G.readingNote);
   $('tb-use').textContent = hid ? 'SAIR' : G.readingNote ? 'FECHAR' : 'USAR';
   $('tb-lamp').classList.toggle('held', P.lampOn); $('tb-crouch').classList.toggle('held', P.crouch);
@@ -1286,8 +1292,8 @@ function updatePlayerBreath(dt, fear) {
   const hold = P.holding || G.dead || G.won; const tired = P.exhausted || P.sprinting || G.fuga ? 1 : clamp(1 - P.stamina / CFG.player.staminaMax, 0, 1) * .8;
   const scared = clamp(fear, 0, 1.3);
   const gm = hold ? 0 : .05 + scared * .32, gc = hold || !L.cansado ? 0 : tired * .42;
-  L.medo.g.gain.setTargetAtTime(gm, t, hold ? .05 : .4); L.medo.s.playbackRate.setTargetAtTime(.85 + scared * .3, t, .5); L.medo.f.frequency.setTargetAtTime(P.crouch ? 1800 : 2600 + scared * 2500, t, .3);
-  if (L.cansado) { L.cansado.g.gain.setTargetAtTime(gc, t, hold ? .05 : .3); L.cansado.s.playbackRate.setTargetAtTime(.92 + tired * .12, t, .5); }
+  L.medo.g.gain.setTargetAtTime(gm * SET.breath / 100, t, hold ? .05 : .4); L.medo.s.playbackRate.setTargetAtTime(.85 + scared * .3, t, .5); L.medo.f.frequency.setTargetAtTime(P.crouch ? 1800 : 2600 + scared * 2500, t, .3);
+  if (L.cansado) { L.cansado.g.gain.setTargetAtTime(gc * SET.breath / 100, t, hold ? .05 : .3); L.cansado.s.playbackRate.setTargetAtTime(.92 + tired * .12, t, .5); }
   if (P.wasHolding && !P.holding && P.hidden && AU.breathBuf.cansado) AU.playBuf(AU.breathBuf.cansado, { vol: .5, dur: .9, verb: .1 }); // solta o ar
   P.wasHolding = P.holding;
   if (gc > .3 && Math.random() < dt * .8) emitNoise(P.pos, 3.5); // ofegar faz barulho
@@ -1360,7 +1366,7 @@ function updateFuga(dt) {
 function updateFugaCreature(dt) {
   if (C.blindT > 0) { blindTick(dt); return; }
   const pls = players(); if (!pls.length) return; TGT = pls.reduce((a, b) => a.pos.distanceTo(C.pos) < b.pos.distanceTo(C.pos) ? a : b);
-  const d = C.pos.distanceTo(TGT.pos); const sp = d > 16 ? 5.6 : d < 5 ? 4.35 : 4.6; // elástico: sempre colado, nunca impossível
+  const d = C.pos.distanceTo(TGT.pos); const sp = (d > 16 ? 5.6 : d < 5 ? 4.35 : 4.6) * (CFG.creature.fugaMul || 1); // elástico: sempre colado, nunca impossível
   C.repath -= dt; if (C.repath <= 0) { C.repath = .25; planPath(TGT.pos); } moveAlong(sp, dt); C.state = 'chase';
   CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
   if (d < CFG.creature.killDist) killTgt('Ele te alcançou na fuga.');
@@ -1467,7 +1473,7 @@ function buildDoors() {
     if (alongX) { piv.position.set(c.x - T / 2 + .06, 0, c.z); } else { piv.position.set(c.x, 0, c.z - T / 2 + .06); piv.rotation.y = -Math.PI / 2; }
     scene.add(piv);
     const d = { x, y, piv, base: piv.rotation.y, open: true, bash: 0, hp: 0, sign: Math.random() < .5 ? 1 : -1 };
-    const closed = cell ? Math.random() < .7 : Math.random() < .35; setDoor(d, !closed, true); DOORS.push(d);
+    const closed = (x === 5 && y === 8) || (x === 10 && y === 11) ? false : cell ? Math.random() < .6 : Math.random() < .22; setDoor(d, !closed, true); DOORS.push(d);
     interactables.push({ type: 'door', pos: c.clone().setY(1.2), door: d, label: 'Porta' });
   }
 }
@@ -1603,7 +1609,7 @@ function updateAvatar(dt) {
 }
 function meMsg() { return { x: P.pos.x, z: P.pos.z, ey: camera.position.y, yw: P.yaw, pt: P.pitch, l: lampActive() ? 1 : 0, f: P.focus ? 1 : 0, c: P.crouch ? 1 : 0, h: P.hidden ? hideSpots.indexOf(P.hidden) : -1, b: P.holding ? 1 : 0, d: G.dead ? 1 : 0 }; }
 function netTick(dt) {
-  updateAvatar(dt); if (NET.role === 'solo' || !NET.conn) return;
+  updateAvatar(dt); voiceTick(dt); if (NET.role === 'solo' || !NET.conn) return;
   NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1 / 15;
   if (NET.role === 'guest') { NET.send(Object.assign({ t: 'p' }, meMsg())); return; }
   NET.send({ t: 's', p: meMsg(), c: [C.pos.x, C.pos.z, C.yaw, C.state, C.speed, CR.root.visible ? 1 : 0, C.flinch, C.exposure, C.blindT || 0, C.stateT],
@@ -1683,7 +1689,7 @@ function wire(conn) { conn.on('data', onData); conn.on('close', onClose); conn.o
 function hostRoom() {
   if (!window.Peer) { lobbyMsg('A biblioteca de rede não carregou.'); return; }
   if (NET.peer) NET.peer.destroy(); NET.code = makeCode(); lobbyMsg('Criando sala…');
-  const peer = new Peer(PEER_PREFIX + NET.code, { debug: 0 }); NET.peer = peer;
+  const peer = new Peer(PEER_PREFIX + NET.code, { debug: 0 }); NET.peer = peer; peerCalls(peer);
   peer.on('open', () => lobbyMsg(`Sala criada. Código: <b class="code">${NET.code}</b><br>Seu amigo digita esse código em "Entrar". Aguardando…`));
   peer.on('error', (e) => { if (e.type === 'unavailable-id') hostRoom(); else lobbyMsg('Erro de conexão (' + e.type + '). Verifique a internet.'); });
   peer.on('connection', (conn) => {
@@ -1696,7 +1702,7 @@ function joinRoom() {
   if (!window.Peer) { lobbyMsg('A biblioteca de rede não carregou.'); return; }
   const code = $('join-code').value.trim().toUpperCase(); if (code.length !== 4) { lobbyMsg('Digite o código de 4 letras.'); return; }
   if (NET.peer) NET.peer.destroy(); lobbyMsg('Conectando…'); AU.init();
-  const peer = new Peer({ debug: 0 }); NET.peer = peer;
+  const peer = new Peer({ debug: 0 }); NET.peer = peer; peerCalls(peer);
   peer.on('open', () => { const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
     conn.on('open', () => { NET.conn = conn; NET.role = 'guest'; R.alive = true; wire(conn); lobbyMsg('Conectado! Esperando o host…'); }); });
   peer.on('error', (e) => lobbyMsg(e.type === 'peer-unavailable' ? 'Sala não encontrada. Confira o código.' : 'Erro de conexão (' + e.type + '). Verifique a internet.'));
@@ -1708,18 +1714,113 @@ function guestStart(m) {
   start(false); P.pos.copy(tc(6, 5)); C.state = 'dormant'; CR.root.visible = false;
 }
 
+
+// =====================================================================
+// CONFIGURAÇÕES (salvas no aparelho)
+// =====================================================================
+const SET_KEY = 'santa_lucia_cfg_v1';
+const SET = Object.assign({ vol: 90, steps: 70, amb: 100, breath: 80, voice: 100, gfx: TOUCH ? 'medio' : 'alto', bright: 100, sens: 100, diff: 'normal', autoRun: true }, (() => { try { return JSON.parse(localStorage.getItem(SET_KEY)) || {}; } catch (e) { return {}; } })());
+const saveSet = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(SET)); } catch (e) { } };
+const DIFF = { // o "Normal" antigo virou o Difícil
+  facil: { chaseDark: 3.55, chaseLit: 2.7, seeDark: 6.5, seeLit: 13, seeFlashlight: 19, hideSuspicion: 2.8, wakeAfter: 150, director: 75, resistStep: .2, killDist: 1.1, fuga: .9, drain: .22 },
+  normal: { chaseDark: 3.95, chaseLit: 2.9, seeDark: 7.5, seeLit: 15, seeFlashlight: 22, hideSuspicion: 2.1, wakeAfter: 110, director: 55, resistStep: .28, killDist: 1.18, fuga: .95, drain: .28 },
+  dificil: { chaseDark: 4.35, chaseLit: 3.1, seeDark: 9, seeLit: 17, seeFlashlight: 26, hideSuspicion: 1.7, wakeAfter: 75, director: 40, resistStep: .35, killDist: 1.25, fuga: 1, drain: .32 } };
+function applyDiff() {
+  const d = DIFF[SET.diff] || DIFF.normal, CC = CFG.creature; for (const k of ['chaseDark', 'chaseLit', 'seeDark', 'seeLit', 'seeFlashlight', 'hideSuspicion', 'wakeAfter', 'director', 'resistStep', 'killDist']) CC[k] = d[k];
+  CC.fugaMul = d.fuga; CFG.lamp.drain = d.drain;
+  if (NET.role !== 'solo') { CC.chaseDark *= 1.07; CC.chaseLit *= 1.07; CC.director *= .8; } // dois jogadores: ele fica mais forte
+}
+function applyGfx() {
+  if (G.trailer) return; const pr = { baixo: .6, medio: 1, alto: Math.min(devicePixelRatio, 1.5) }[SET.gfx] || 1;
+  renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
+  const sm = SET.gfx === 'alto' ? 1024 : 512; flash.castShadow = SET.gfx !== 'baixo';
+  if (flash.shadow.mapSize.x !== sm) { flash.shadow.mapSize.set(sm, sm); if (flash.shadow.map) { flash.shadow.map.dispose(); flash.shadow.map = null; } }
+  renderer.toneMappingExposure = 1.15 * SET.bright / 100; $('grain').style.display = SET.gfx === 'baixo' ? 'none' : '';
+}
+function applyAll() { applyGfx(); applyDiff(); if (VOICE.nodes) VOICE.nodes.g.gain.value = 1.6 * SET.voice / 100; }
+let setFrom = null;
+function openSettings() {
+  setFrom = ['title', 'pause'].find(id => $(id).classList.contains('on')) || null; if (setFrom) $(setFrom).classList.remove('on');
+  document.querySelectorAll('#settings input[type=range]').forEach(i => { i.value = SET[i.dataset.k]; });
+  document.querySelectorAll('#settings .seg').forEach(sg => sg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(sg.dataset.k === 'autoRun' ? (SET.autoRun ? 1 : 0) : SET[sg.dataset.k]) === b.dataset.v)));
+  $('settings').classList.add('on');
+}
+function closeSettings() { $('settings').classList.remove('on'); if (setFrom) $(setFrom).classList.add('on'); }
+document.querySelectorAll('#settings input[type=range]').forEach(i => i.addEventListener('input', () => { SET[i.dataset.k] = +i.value; applyAll(); saveSet(); }));
+document.querySelectorAll('#settings .seg button').forEach(b => b.addEventListener('click', () => { const k = b.parentElement.dataset.k; SET[k] = k === 'autoRun' ? b.dataset.v === '1' : b.dataset.v;
+  b.parentElement.querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b)); applyAll(); saveSet(); }));
+$('btn-set-close').onclick = closeSettings; $('btn-settings').onclick = openSettings; $('btn-settings2').onclick = openSettings; $('btn-quit').onclick = () => location.reload();
+
+// =====================================================================
+// MAPA (planta de evacuação do sanatório)
+// =====================================================================
+function toggleMap() { if (!G.started || G.dead) return; G.mapOpen = !G.mapOpen; $('map').classList.toggle('on', G.mapOpen); if (G.mapOpen) drawMap(); }
+$('btn-map-close').onclick = toggleMap;
+function drawMap() {
+  const cv = $('map-cv'), cell = Math.max(5, Math.floor(Math.min((innerWidth - 32) / W, (innerHeight - 120) / H))); cv.width = W * cell; cv.height = H * cell; const g = cv.getContext('2d');
+  g.fillStyle = '#0c0f0d'; g.fillRect(0, 0, cv.width, cv.height);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { if (isWall(x, y) && grid[y][x] !== 'D') continue; const z = zoneAt(x, y); const seen = z && G.visited.has(z.id);
+    g.fillStyle = seen ? '#56645a' : '#252d28'; g.fillRect(x * cell, y * cell, cell, cell); if (grid[y][x] === 'D') { g.fillStyle = '#b8402e'; g.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2); } }
+  g.font = `${Math.max(9, cell * .9)}px 'IBM Plex Mono',monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const z of ZONES) { if (['corrA', 'corrB', 'base', 'shaft'].includes(z.id)) continue; const cx = (z.r[0] + z.r[2] + 1) / 2 * cell, cy = (z.r[1] + z.r[3] + 1) / 2 * cell; g.fillStyle = G.visited.has(z.id) ? '#e6ebdf' : '#8c958a'; g.fillText(z.name.split(' —')[0].split(' / ')[0], cx, cy); }
+  for (const f of FUSES) { if (f.state !== 'world') continue; const z = zoneAt(f.x, f.y); const cx = (z.r[0] + z.r[2] + 1) / 2 * cell, cy = (z.r[1] + z.r[3] + 1) / 2 * cell + cell * 1.4;
+    g.fillStyle = '#ffb040'; g.beginPath(); g.arc(cx, cy, cell * .55, 0, 7); g.fill(); g.fillStyle = '#000'; g.fillText('?', cx, cy + 1); }
+  const pz = tc(7, 1); g.fillStyle = '#5fc27a'; g.fillRect(pz.x / T * cell - cell * .6, pz.z / T * cell - cell * .6, cell * 1.2, cell * 1.2); g.fillStyle = '#e6ebdf'; g.fillText('PAINEL', pz.x / T * cell, pz.z / T * cell + cell * 1.4);
+  g.fillStyle = '#ff5040'; g.fillText('SAÍDA', 5.5 * cell, .5 * cell);
+  const dot = (p, col, yaw) => { const x = p.x / T * cell, y = p.z / T * cell; g.fillStyle = col; g.beginPath(); if (yaw === undefined) g.arc(x, y, cell * .5, 0, 7); else { const fx = -Math.sin(yaw), fy = -Math.cos(yaw); g.moveTo(x + fx * cell, y + fy * cell); g.lineTo(x - fy * cell * .55 - fx * cell * .4, y + fx * cell * .55 - fy * cell * .4); g.lineTo(x + fy * cell * .55 - fx * cell * .4, y - fx * cell * .55 - fy * cell * .4); } g.fill(); };
+  if (NET.role !== 'solo' && R.alive && !R.dead) dot(R.pos, '#5aa8ff'); dot(P.pos, '#ffffff', P.yaw);
+  const st = (f) => f.state === 'inserted' ? '✓ no painel' : f.state === 'carried' ? (f.by === 'g' && NET.role === 'host' || f.by === 'h' && NET.role === 'guest' ? 'com seu amigo' : 'com você') : 'no prédio';
+  $('map-legend').innerHTML = FUSES.map(f => `<span class="${f.state === 'world' ? 'w' : 'ok'}">⚡ ${f.where}: ${st(f)}</span>`).join('') + `<span class="k">◆ você${NET.role !== 'solo' ? ' · ● amigo' : ''} · ■ porta fechada · ? setor com fusível</span>`;
+}
+
+// =====================================================================
+// VOZ NO COOPERATIVO — microfone por proximidade (e ele também ouve)
+// =====================================================================
+const VOICE = { stream: null, on: false, an: null, data: null, nodes: null, noiseT: 0, level: 0 };
+async function toggleMic() {
+  if (NET.role === 'solo' || !G.started) return;
+  if (!VOICE.stream) {
+    try { VOICE.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+    catch (e) { msg('Não deu para usar o microfone. <b>Permita o microfone</b> para o jogo nas configurações do celular.', 5); return; }
+    const src = AU.ctx.createMediaStreamSource(VOICE.stream); VOICE.an = AU.ctx.createAnalyser(); VOICE.an.fftSize = 512; src.connect(VOICE.an); VOICE.data = new Float32Array(512);
+    if (NET.peer && NET.conn) { const call = NET.peer.call(NET.conn.peer, VOICE.stream); wireCall(call); }
+  }
+  VOICE.on = !VOICE.on; VOICE.stream.getAudioTracks().forEach(t => t.enabled = VOICE.on);
+  $('mic-ind').classList.toggle('on', VOICE.on); msg(VOICE.on ? 'Microfone <b>ligado</b>. Fale baixo: <b>ele também ouve.</b>' : 'Microfone desligado.', 3);
+}
+function peerCalls(peer) { peer.on('call', (call) => { call.answer(VOICE.stream || undefined); wireCall(call); }); }
+function wireCall(call) { call.on('stream', playRemote); call.on('error', () => { }); }
+function playRemote(stream) {
+  if (!AU.ctx) return; if (VOICE.src) { try { VOICE.src.disconnect(); } catch (e) { } }
+  const el = new Audio(); el.srcObject = stream; el.muted = true; el.play().catch(() => { }); VOICE.el = el; // necessário para o WebRTC alimentar o WebAudio
+  const ctx = AU.ctx, src = ctx.createMediaStreamSource(stream), g = ctx.createGain(), lp = ctx.createBiquadFilter(), pn = ctx.createPanner();
+  g.gain.value = 1.6 * SET.voice / 100; lp.type = 'lowpass'; lp.frequency.value = 8000; Object.assign(pn, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 3, rolloffFactor: 1.1, maxDistance: 60 });
+  src.connect(g).connect(lp).connect(pn).connect(AU.master); VOICE.src = src; VOICE.nodes = { g, lp, pn };
+}
+function voiceTick(dt) {
+  if (VOICE.nodes) { const n = VOICE.nodes, t = AU.ctx.currentTime; n.pn.positionX.value = R.eye.x; n.pn.positionY.value = R.eye.y; n.pn.positionZ.value = R.eye.z;
+    n.lp.frequency.setTargetAtTime(los(P.pos.x, P.pos.z, R.pos.x, R.pos.z) ? 8000 : 900, t, .1); }
+  if (!VOICE.on || !VOICE.an) { $('mic-lvl').style.width = '0'; return; }
+  VOICE.an.getFloatTimeDomainData(VOICE.data); let e = 0; for (const v of VOICE.data) e += v * v; const rms = Math.sqrt(e / VOICE.data.length); VOICE.level += (rms - VOICE.level) * .3;
+  $('mic-lvl').style.width = Math.min(100, VOICE.level * 600) + '%';
+  VOICE.noiseT -= dt; if (VOICE.level > .035 && VOICE.noiseT <= 0 && !G.dead) { VOICE.noiseT = .4; emitNoise(P.pos, clamp(VOICE.level * 110, 3, 16)); } // falar alto chama a criatura
+}
+
 // =====================================================================
 // BOOT
 // =====================================================================
 buildLevel(); buildProps(); buildExit(); buildItems(); buildLights(); buildDoors(); buildHidden(); computeLightmap();
 const existing = loadSave(); if (existing && existing.inserted.length) $('btn-cont').style.display = '';
+applyAll();
 function start(cont) {
   AU.init(); AU.ctx.resume?.(); $('title').classList.remove('on'); G.started = true; pause(false);
   if (cont && existing) { G.inserted = existing.inserted.slice(); G.deaths = existing.deaths || 0; for (const id of G.inserted) { FUSES[id].state = 'inserted'; FUSES[id].obj.visible = false; for (const li of FUSES[id].lights) setLight(li, false); } computeLightmap(); refreshPanel(); if (G.inserted.length) C.wakeT = 10; }
   else if (NET.role === 'solo') { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } }
   if (NET.role !== 'solo') $('partner').style.display = 'block';
+  applyDiff(); if (!(cont && existing) && C.state === 'dormant') { C.wakeT = CFG.creature.wakeAfter; C.directorT = CFG.creature.director; }
   setObjective(); camera.rotation.set(0, P.yaw, 0, 'YXZ');
-  msg('A porta principal está trancada. Há um <b>painel de energia</b> à sua esquerda e um papel no chão.', 6);
+  const tut = ['<b>OBJETIVO:</b> encontre os <b>4 fusíveis</b> e instale no painel ao lado da porta de saída.', `Portas fechadas abrem com <b>${TOUCH ? 'USAR' : 'E'}</b>. O botão USAR acende quando há algo para pegar.`, `Abra o <b>MAPA</b> ${TOUCH ? '' : '(M) '}para ver os setores e onde procurar.`];
+  tut.forEach((t, i) => setTimeout(() => { if (!G.dead) msg(t, 5.5); }, 400 + i * 6200));
   if (TOUCH) { $('touch').classList.add('on'); try { document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape').catch(() => { })).catch(() => { }); } catch (e) { } }
   else if (!DEBUG) canvas.requestPointerLock?.();
 }
@@ -1745,4 +1846,4 @@ if (new URLSearchParams(location.search).has('trailer')) {
     drawGrain(); renderer.render(scene, camera);
   };
 }
-window.__game = { NET, R, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+window.__game = { get VOICE_nodes() { return VOICE.nodes; }, NET, R, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
