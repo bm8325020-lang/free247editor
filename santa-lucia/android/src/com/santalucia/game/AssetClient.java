@@ -40,6 +40,7 @@ public class AssetClient extends WebViewClient {
         if (p.endsWith(".html")) return "text/html";
         if (p.endsWith(".css")) return "text/css";
         if (p.endsWith(".png")) return "image/png";
+        if (p.endsWith(".ogg")) return "audio/ogg";
         return "application/octet-stream";
     }
 }

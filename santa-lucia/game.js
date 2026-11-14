@@ -558,6 +558,7 @@ const AU = {
     // batimento cardíaco (seco, sem reverb, "dentro da cabeça")
     this.heartBus = ctx.createGain(); this.heartBus.gain.value = .9; this.heartBus.connect(this.master);
     // alarme final
+    this.loadSamples();
     this.alarm = ctx.createGain(); this.alarm.gain.value = 0; this.alarm.connect(this.master); this.alarm.connect(this.verbIn);
     const ao = ctx.createOscillator(); ao.type = 'square'; ao.frequency.value = 620; const am = ctx.createOscillator(); am.frequency.value = 1.6; const amg = ctx.createGain(); amg.gain.value = 180; am.connect(amg).connect(ao.frequency); const alp = ctx.createBiquadFilter(); alp.type = 'lowpass'; alp.frequency.value = 1800; ao.connect(alp).connect(this.alarm); ao.start(); am.start();
   },
@@ -574,13 +575,24 @@ const AU = {
     const g = ctx.createGain(); this.env(g, t, a, vol, dur); o.connect(g); g.connect(at ? this.spatial(at) : this.master); if (verb) { const v = ctx.createGain(); v.gain.value = verb; g.connect(v).connect(this.verbIn); } o.start(t); o.stop(t + a + dur + .1);
   },
   spatial(p) { const pn = this.ctx.createPanner(); Object.assign(pn, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 2, rolloffFactor: 1.1, maxDistance: 80 }); pn.positionX.value = p.x; pn.positionY.value = p.y; pn.positionZ.value = p.z; pn.connect(this.master); return pn; },
-  // passos: baque surdo + textura do piso + rangido ocasional. 'at' = passo vindo de outro lugar
+  // passos: gravações reais (CC0) com variação de tom, filtro por piso e eco do prédio. 'at' = passo vindo de outro lugar
+  samples: { stone: [], grit: [] }, foot: 0,
+  loadSamples() {
+    const load = (set, names) => names.forEach(n => fetch(`sounds/steps/${n}.ogg`).then(r => r.arrayBuffer()).then(b => this.ctx.decodeAudioData(b)).then(buf => this.samples[set].push({ n, buf })).catch(() => { }));
+    load('stone', ['stonel1', 'stoner1', 'stonel2', 'stoner2', 'stonel3', 'stoner3']); load('grit', ['sandl1', 'sandr1', 'sandl2', 'sandr2', 'sandl3', 'sandr3']);
+  },
   step(surface, loud, at = null) {
-    if (!this.ctx) return; this.tone({ f: 72 * rand(.9, 1.1), f2: 36, dur: .13, vol: .34 * loud, verb: .28 * loud, at });
-    if (surface === 'concrete') { this.burst({ f: rand(2300, 3300), q: .8, dur: .17, vol: .11 * loud, verb: .35 * loud, at }); if (Math.random() < .3) this.burst({ f: rand(600, 900), q: 6, dur: .1, vol: .07 * loud, verb: .5, at }); } // chapinhado
-    else if (surface === 'ftile') this.burst({ f: rand(2800, 3700), q: 7, dur: .05, vol: .14 * loud, verb: .4 * loud, at });                // estalo vítreo
-    else this.burst({ f: rand(900, 1300), q: 2.5, dur: .09, vol: .12 * loud, verb: .22 * loud, at });
-    if (Math.random() < .2) this.creak(at, .06 * loud);
+    if (!this.ctx) return; const set = this.samples[surface === 'concrete' ? 'grit' : 'stone'];
+    if (!set.length) { this.burst({ f: rand(900, 1400), q: 2, dur: .08, vol: .1 * loud, verb: .2, at }); return; }
+    this.foot ^= 1; const side = set.filter((s, i) => i % 2 === this.foot); let sm = pick(side.length ? side : set); if (sm === this.lastStep && side.length > 1) sm = pick(side); this.lastStep = sm;
+    const ctx = this.ctx, t = ctx.currentTime, src = ctx.createBufferSource(); src.buffer = sm.buf; src.playbackRate.value = rand(.84, .97); // mais grave = mais pesado
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = P.crouch ? 1300 : surface === 'lino' ? 3200 : surface === 'ftile' ? 9000 : 5000;
+    const pk = ctx.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 180; pk.Q.value = 1; pk.gain.value = surface === 'concrete' ? 3 : 5; // corpo no grave
+    const g = ctx.createGain(); g.gain.value = Math.min(1, .62 * loud) * rand(.85, 1);
+    src.connect(pk).connect(f).connect(g); g.connect(at ? this.spatial(at) : this.master);
+    const v = ctx.createGain(); v.gain.value = (surface === 'concrete' ? .45 : .32) * Math.min(1, loud + .2); g.connect(v).connect(this.verbIn); // eco do corredor
+    src.start(t);
+    if (Math.random() < .06 && loud > .3) this.creak(at, .045 * loud);
   },
   creak(at, vol = .08) { // rangido: dente-de-serra instável em filtro estreito
     if (!this.ctx) return; const ctx = this.ctx, t = ctx.currentTime, d = rand(.25, .7), o = ctx.createOscillator(); o.type = 'sawtooth'; const f0 = rand(80, 170); o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * rand(.65, 1.5), t + d);
