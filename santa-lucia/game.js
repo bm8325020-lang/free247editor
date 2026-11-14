@@ -136,10 +136,10 @@ const LIGHTS = [
 let PLAYER_START = [5, 5];
 const CREATURE_SPAWNS = [[10, 29], [38, 29], [39, 12]];
 
-const SOLID = new Set(['#', 'X', 'L', 'S', 'T', 'c', 'W', 'K']);  // 'B' (painel) é de parede: tile andável
+const SOLID = new Set(['#', 'X', 'L', 'S', 'T', 'c', 'W', 'K', 'G']);  // 'B' (painel) é de parede: tile andável
 const inB = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
 const isSolid = (x, y) => !inB(x, y) || SOLID.has(grid[y][x]);
-const isWall = (x, y) => !inB(x, y) || grid[y][x] === '#' || grid[y][x] === 'X';
+const isWall = (x, y) => !inB(x, y) || grid[y][x] === '#' || grid[y][x] === 'X' || grid[y][x] === 'G';
 const tileOf = (v) => [Math.floor(v.x / T), Math.floor(v.z / T)];
 const tc = (x, y, yy = 0) => new THREE.Vector3((x + 0.5) * T, yy, (y + 0.5) * T);
 
@@ -517,7 +517,9 @@ const AU = {
     this.cPan = ctx.createPanner(); Object.assign(this.cPan, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 2, rolloffFactor: 1.3, maxDistance: 60 });
     this.cOcc = ctx.createBiquadFilter(); this.cOcc.type = 'lowpass'; this.cOcc.frequency.value = 8000; this.cOcc.connect(this.cPan); this.cPan.connect(this.master);
     this.cSend = ctx.createGain(); this.cSend.gain.value = .25; this.cOcc.connect(this.cSend).connect(this.verbIn);
-    const br = this.loop(this.noise); const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 520; bf.Q.value = 1.8; this.breath = ctx.createGain(); this.breath.gain.value = 0; br.connect(bf).connect(this.breath).connect(this.cOcc);
+    const br = this.loop(this.noise); const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 380; bf.Q.value = 1.3; const bf2 = ctx.createBiquadFilter(); bf2.type = 'bandpass'; bf2.frequency.value = 1150; bf2.Q.value = 4;
+    this.breath = ctx.createGain(); this.breath.gain.value = 0; const rat = ctx.createGain(); rat.gain.value = .55; const ro = ctx.createOscillator(); ro.type = 'square'; ro.frequency.value = 23; const rg = ctx.createGain(); rg.gain.value = .45; ro.connect(rg).connect(rat.gain); ro.start(); // chocalho na garganta
+    br.connect(bf).connect(rat); br.connect(bf2).connect(rat); rat.connect(this.breath).connect(this.cOcc);
     this.growl = ctx.createGain(); this.growl.gain.value = 0; const ws = ctx.createWaveShaper(); const curve = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(x * 6); } ws.curve = curve;
     const go = ctx.createOscillator(); go.type = 'sawtooth'; go.frequency.value = 58; this.growlOsc = go; const go2 = ctx.createOscillator(); go2.type = 'square'; go2.frequency.value = 61.5; const glp = ctx.createBiquadFilter(); glp.type = 'lowpass'; glp.frequency.value = 700;
     go.connect(ws); go2.connect(ws); ws.connect(glp).connect(this.growl).connect(this.cOcc); go.start(); go2.start();
@@ -540,11 +542,57 @@ const AU = {
     const g = ctx.createGain(); this.env(g, t, a, vol, dur); o.connect(g); g.connect(at ? this.spatial(at) : this.master); if (verb) { const v = ctx.createGain(); v.gain.value = verb; g.connect(v).connect(this.verbIn); } o.start(t); o.stop(t + a + dur + .1);
   },
   spatial(p) { const pn = this.ctx.createPanner(); Object.assign(pn, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 2, rolloffFactor: 1.1, maxDistance: 80 }); pn.positionX.value = p.x; pn.positionY.value = p.y; pn.positionZ.value = p.z; pn.connect(this.master); return pn; },
-  step(surface, loud) { const f = surface === 'concrete' ? 700 : surface === 'ftile' ? 1900 : 1300; this.burst({ f: f * rand(.85, 1.15), q: 1.2, dur: .07, vol: .12 * loud, verb: .15 * loud }); this.burst({ f: 140, q: 1, dur: .05, vol: .2 * loud, type: 'lowpass', verb: 0 }); },
+  // passos: baque surdo + textura do piso + rangido ocasional. 'at' = passo vindo de outro lugar
+  step(surface, loud, at = null) {
+    if (!this.ctx) return; this.tone({ f: 72 * rand(.9, 1.1), f2: 36, dur: .13, vol: .34 * loud, verb: .28 * loud, at });
+    if (surface === 'concrete') { this.burst({ f: rand(2300, 3300), q: .8, dur: .17, vol: .11 * loud, verb: .35 * loud, at }); if (Math.random() < .3) this.burst({ f: rand(600, 900), q: 6, dur: .1, vol: .07 * loud, verb: .5, at }); } // chapinhado
+    else if (surface === 'ftile') this.burst({ f: rand(2800, 3700), q: 7, dur: .05, vol: .14 * loud, verb: .4 * loud, at });                // estalo vítreo
+    else this.burst({ f: rand(900, 1300), q: 2.5, dur: .09, vol: .12 * loud, verb: .22 * loud, at });
+    if (Math.random() < .2) this.creak(at, .06 * loud);
+  },
+  creak(at, vol = .08) { // rangido: dente-de-serra instável em filtro estreito
+    if (!this.ctx) return; const ctx = this.ctx, t = ctx.currentTime, d = rand(.25, .7), o = ctx.createOscillator(); o.type = 'sawtooth'; const f0 = rand(80, 170); o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * rand(.65, 1.5), t + d);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rand(600, 1500); bp.Q.value = 9; const g = ctx.createGain(); this.env(g, t, .04, vol, d); o.connect(bp).connect(g); g.connect(at ? this.spatial(at) : this.master);
+    const v = ctx.createGain(); v.gain.value = .5; g.connect(v).connect(this.verbIn); o.start(t); o.stop(t + d + .3);
+  },
+  cstep(p, heavy) { // passo da criatura: baque + articulação estalando
+    this.tone({ f: 55, f2: 28, dur: .22, vol: .5 * heavy, at: p, verb: .5 }); this.burst({ f: rand(1800, 2700), q: 5, dur: .035, vol: .4 * heavy, at: p, verb: .3 });
+    if (Math.random() < .55) setTimeout(() => this.burst({ f: rand(2600, 3600), q: 4, dur: .03, vol: .3 * heavy, at: p, verb: .3 }), rand(30, 90));
+  },
+  scrape(p, d = .7) { // unhas no azulejo
+    if (!this.ctx) return; const ctx = this.ctx, t = ctx.currentTime, s = ctx.createBufferSource(); s.buffer = this.noise; const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 14;
+    bp.frequency.setValueAtTime(rand(2400, 3400), t); bp.frequency.linearRampToValueAtTime(rand(4200, 6500), t + d); const g = ctx.createGain(); this.env(g, t, .06, .4, d);
+    s.connect(bp).connect(g).connect(this.spatial(p)); s.start(t, Math.random()); s.stop(t + d + .2);
+  },
+  whisper(p = null, vol = .2) { // sussurros: ruído em formantes de voz, em "sílabas"
+    if (!this.ctx) return; const ctx = this.ctx; let t = ctx.currentTime; const n = 3 + (Math.random() * 5 | 0);
+    for (let i = 0; i < n; i++) { const d = rand(.08, .24), s = ctx.createBufferSource(); s.buffer = this.noise; const out = ctx.createGain(); out.gain.setValueAtTime(0, t); out.gain.linearRampToValueAtTime(vol, t + .02); out.gain.exponentialRampToValueAtTime(.0001, t + d);
+      for (const [f, q] of [[rand(450, 900), 6], [rand(1100, 2200), 8], [rand(2400, 3100), 10]]) { const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q; s.connect(bp).connect(out); }
+      out.connect(p ? this.spatial(p) : this.master); const v = ctx.createGain(); v.gain.value = .5; out.connect(v).connect(this.verbIn); s.start(t, Math.random()); s.stop(t + d + .1); t += d + rand(.03, .14); }
+  },
+  moan(p) { // gemido distante com vibrato
+    if (!this.ctx) return; const ctx = this.ctx, t = ctx.currentTime, d = rand(2, 4), o = ctx.createOscillator(); o.type = 'sawtooth'; const f = rand(130, 250); o.frequency.setValueAtTime(f, t); o.frequency.linearRampToValueAtTime(f * rand(.55, .85), t + d);
+    const vib = ctx.createOscillator(); vib.frequency.value = rand(4, 6.5); const vg = ctx.createGain(); vg.gain.value = f * .035; vib.connect(vg).connect(o.frequency);
+    const out = ctx.createGain(); out.gain.setValueAtTime(0, t); out.gain.linearRampToValueAtTime(.16, t + d * .3); out.gain.linearRampToValueAtTime(0, t + d);
+    for (const [ff, q] of [[700, 5], [1150, 7]]) { const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = ff; bp.Q.value = q; o.connect(bp).connect(out); }
+    out.connect(this.spatial(p)); out.connect(this.verbIn); o.start(t); vib.start(t); o.stop(t + d + .1); vib.stop(t + d + .1);
+  },
+  radio(p) { this.burst({ f: 2500, q: .4, dur: rand(.4, 1), vol: .18, at: p, type: 'highpass', verb: .2 }); this.tone({ f: 50, dur: .5, vol: .06, type: 'square', at: p, verb: .1 }); if (Math.random() < .6) setTimeout(() => this.whisper(p, .3), 250); },
+  slam(p, vol = 1) { this.tone({ f: 95, f2: 38, dur: .5, vol: .6 * vol, at: p, verb: .7 }); this.burst({ f: 420, q: 2, dur: .35, vol: .5 * vol, at: p, verb: .7 }); this.tone({ f: rand(1200, 1700), dur: 1.4, vol: .06 * vol, type: 'triangle', at: p, verb: .9 }); },
+  crash(p) { for (let i = 0; i < 6; i++) setTimeout(() => { this.burst({ f: rand(300, 3000), q: rand(1, 6), dur: rand(.1, .4), vol: .35, at: p, verb: .6 }); }, i * rand(30, 90)); this.tone({ f: 70, f2: 30, dur: .6, vol: .6, at: p, verb: .7 }); for (let i = 0; i < 4; i++) setTimeout(() => this.tone({ f: rand(2500, 5000), dur: .15, vol: .05, type: 'triangle', at: p, verb: .8 }), 150 + i * rand(40, 120)); },
+  ring() { for (let i = 0; i < 2; i++) setTimeout(() => { this.tone({ f: 440, dur: .8, vol: .07, type: 'square', verb: .4, a: .01 }); this.tone({ f: 480, dur: .8, vol: .07, type: 'square', verb: .4, a: .01 }); }, i * 1100); },
+  tom(vol = .5) { this.tone({ f: 95, f2: 45, dur: .3, vol, verb: .3 }); this.burst({ f: 1500, q: .8, dur: .06, vol: vol * .4, type: 'lowpass', verb: .2 }); },
+  jumpscare() { // grito sem espacialização, distorcido, na cara
+    this.tone({ f: 1700, f2: 300, dur: 1.2, vol: .5, type: 'sawtooth', verb: .4, a: .005 }); this.tone({ f: 2300, f2: 500, dur: 1.0, vol: .35, type: 'square', verb: .4, a: .005 });
+    this.tone({ f: 61, f2: 30, dur: .9, vol: .9, verb: .3 }); this.burst({ f: 3000, q: .5, dur: 1.0, vol: .6, verb: .4 }); this.burst({ f: 200, q: .6, dur: .5, vol: .7, type: 'lowpass', verb: .5 });
+  },
   heartbeat(vol) { if (!this.ctx) return; for (const [d, v] of [[0, 1], [.16, .6]]) setTimeout(() => { const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(); o.frequency.setValueAtTime(62, t); o.frequency.exponentialRampToValueAtTime(38, t + .12); const g = ctx.createGain(); this.env(g, t, .01, vol * v, .16); o.connect(g).connect(this.heartBus); o.start(t); o.stop(t + .3); }, d * 1000); },
   scream(p) { this.tone({ f: 1400, f2: 260, dur: 1.4, vol: .35, type: 'sawtooth', at: p, verb: .6, a: .02 }); this.tone({ f: 1950, f2: 400, dur: 1.2, vol: .2, type: 'square', at: p, verb: .5, a: .02 }); this.burst({ f: 2600, q: .8, dur: 1.2, vol: .35, at: p, verb: .5 }); },
   sizzle(p) { this.burst({ f: 5000, q: .5, dur: .25, vol: .12, at: p, type: 'highpass', verb: 0 }); },
-  stinger() { for (const f of [92, 97.5, 138, 207, 293]) this.tone({ f, f2: f * .94, dur: 2.6, vol: .07, type: 'sawtooth', verb: .7, a: .01 }); this.burst({ f: 300, q: .7, dur: 1.5, vol: .3, type: 'lowpass', verb: .8 }); },
+  stinger() { // cordas guinchando + pancada grave
+    for (const f of [1046, 1108, 1480, 1568, 2217]) this.tone({ f, f2: f * rand(.97, 1.03), dur: 1.8, vol: .045, type: 'sawtooth', verb: .7, a: .008 });
+    for (const f of [46, 49, 69]) this.tone({ f, f2: f * .9, dur: 2.2, vol: .14, type: 'sawtooth', verb: .6, a: .01 }); this.burst({ f: 300, q: .7, dur: 1.2, vol: .45, type: 'lowpass', verb: .8 });
+  },
   bang(p) { this.burst({ f: rand(180, 420), q: 9, dur: 1.4, vol: .5, at: p, verb: 1 }); this.tone({ f: rand(90, 140), f2: 60, dur: 1.2, vol: .25, at: p, verb: 1 }); },
   drip(p) { this.tone({ f: rand(1400, 2400), f2: 900, dur: .08, vol: .06, at: p, verb: .9 }); },
   click() { this.burst({ f: 3000, q: 3, dur: .03, vol: .2, verb: 0 }); },
@@ -705,6 +753,7 @@ function pickFuse(f) {
   for (const li of f.lights) setLight(li, false); computeLightmap();
   emitNoise(f.obj.position, CFG.noise.fusePickup, true);
   if (C.state === 'dormant') { C.wakeT = 2.5; }
+  for (const F of FUGAS) if (F.armedBy === f.id) F.armed = true;
   msg(`Fusível encontrado (<i>${f.where}</i>). <b>As luzes do setor caíram.</b> Algo ouviu isso.`, 5); setObjective();
 }
 function setLight(i, on) { const L = lightObjs[i]; L.on = on; }
@@ -790,6 +839,7 @@ function burn() {
 }
 function updateCreature(dt) {
   const CC = CFG.creature; C.stateT += dt;
+  if (G.fuga) { updateFugaCreature(dt); return; }
   if (C.state === 'dormant') {
     C.wakeT -= dt; if (C.wakeT <= 0) { CR.root.visible = true; setState('patrol'); C.goal = patrolGoal(); planPath(C.goal); AU.scream(C.pos.clone().setY(2)); AU.bang(C.pos.clone().setY(2)); if (!G.awakeOnce) { G.awakeOnce = true; msg('Um grito vindo do <b>subsolo</b>. Você não está sozinho.', 5); } }
     return;
@@ -861,7 +911,7 @@ function updateCreature(dt) {
 // --------- lanterna contra a criatura
 function lampVsCreature(dt) {
   const L = CFG.lamp; let hit = 0;
-  if (lampActive() && !P.hidden) {
+  if (lampActive() && !P.hidden && !G.fuga) {
     const eye = camera.getWorldPosition(new THREE.Vector3()), fwd = camera.getWorldDirection(new THREE.Vector3()); const head = new THREE.Vector3(); CR.head.getWorldPosition(head); head.y += .12;
     const to = head.clone().sub(eye); const d = to.length(); const range = P.focus ? L.focusRange : L.range; const half = THREE.MathUtils.degToRad(P.focus ? L.focusHalfCone : L.halfCone);
     if (d < range && fwd.angleTo(to) < half && los(eye.x, eye.z, head.x, head.z)) {
@@ -918,14 +968,14 @@ function kill(reason) {
   const eye = camera.getWorldPosition(new THREE.Vector3()); const fwd = camera.getWorldDirection(new THREE.Vector3()); fwd.y = 0; fwd.normalize();
   C.pos.copy(eye).addScaledVector(fwd, .75).setY(0); C.yaw = Math.atan2(-fwd.x, -fwd.z); CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw; CR.root.visible = true;
   C.state = 'chase'; C.speed = 0; P.lampOn = true;
-  AU.scream(eye.clone().addScaledVector(fwd, .5)); AU.stinger();
+  AU.jumpscare(); G.shake = 1.2; endFuga(false);
   $('flash').style.opacity = .7; setTimeout(() => $('flash').style.opacity = 0, 120);
   setTimeout(() => { $('death-sub').textContent = reason + ' Os fusíveis instalados continuam no painel.'; $('death').classList.add('on'); document.exitPointerLock?.(); }, 1100);
 }
 function respawn() {
   $('death').classList.remove('on'); G.dead = false;
   for (const id of P.carried) { const f = FUSES[id]; f.state = 'world'; f.obj.visible = true; f.obj.position.copy(f.home); for (const li of f.lights) setLight(li, true); }
-  P.carried = []; computeLightmap();
+  P.carried = []; computeLightmap(); endFuga(false); for (const F of FUGAS) F.armed = false;
   P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
   const far = CREATURE_SPAWNS.slice().sort((a, b) => tc(...b).distanceTo(P.pos) - tc(...a).distanceTo(P.pos))[0];
   C.pos.copy(tc(...far)); C.exposure = 0; C.knownHide = null; C.suspicion = 0; C.path = []; C.state = 'dormant'; C.wakeT = 8; CR.root.visible = false;
@@ -960,6 +1010,9 @@ function collide(pos, r) {
     const cx = clamp(pos.x, minX, maxX), cz = clamp(pos.z, minZ, maxZ); const dx = pos.x - cx, dz = pos.z - cz, d = Math.hypot(dx, dz);
     if (d < r) { if (d > 1e-5) { pos.x += dx / d * (r - d); pos.z += dz / d * (r - d); } else pos.z += r; }
   }
+  for (const o of OBST) { if (!o.landed || (o.crouch && P.crouch)) continue; const b = o.box;
+    const cx = clamp(pos.x, b[0], b[1]), cz = clamp(pos.z, b[2], b[3]); const dx = pos.x - cx, dz = pos.z - cz, d = Math.hypot(dx, dz);
+    if (d < r) { if (d > 1e-5) { pos.x += dx / d * (r - d); pos.z += dz / d * (r - d); } else pos.x += r; if (!o.hit) { o.hit = true; P.stumble = .7; G.shake = Math.max(G.shake, .5); AU.tone({ f: 80, f2: 40, dur: .25, vol: .5 }); } } }
 }
 function updatePlayer(dt) {
   const PC = CFG.player, L = CFG.lamp;
@@ -982,12 +1035,13 @@ function updatePlayer(dt) {
   const moving = !!(f || s); P.sprinting = moving && (keys.ShiftLeft || keys.ShiftRight) && !P.exhausted && !P.crouch && f > .3;
   if (P.sprinting) { P.stamina -= dt; if (P.stamina <= 0) { P.exhausted = true; AU.burst({ f: 700, q: 1, dur: .8, vol: .15 }); } }
   else { P.stamina = Math.min(PC.staminaMax, P.stamina + PC.staminaRegen * dt); if (P.stamina > PC.staminaMax * .45) P.exhausted = false; }
-  const spd = (P.crouch ? PC.crouch : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .75 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag));
+  if (G.fuga) { P.stamina = PC.staminaMax; P.exhausted = false; } P.stumble = Math.max(0, (P.stumble || 0) - dt);
+  const spd = (P.crouch ? (G.fuga ? 2.2 : PC.crouch) : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .75 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag)) * (P.stumble > 0 ? .45 : 1);
   if (moving) {
     const dir = new THREE.Vector3(-Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, 0, -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s).normalize();
     P.pos.addScaledVector(dir, spd * dt); collide(P.pos, PC.radius); collide(P.pos, PC.radius);
     P.stepAcc += spd * dt; const stride = P.sprinting ? 1.25 : P.crouch ? .7 : .95;
-    if (P.stepAcc > stride) { P.stepAcc = 0; const z = zoneAt(...tileOf(P.pos)); const loud = P.sprinting ? 1.4 : P.crouch ? .25 : .7; AU.step(z ? z.floor : 'lino', loud); emitNoise(P.pos, P.sprinting ? CFG.noise.sprint : P.crouch ? CFG.noise.crouch : CFG.noise.walk); }
+    if (P.stepAcc > stride) { P.stepAcc = 0; const z = zoneAt(...tileOf(P.pos)); const loud = P.sprinting ? 1.4 : P.crouch ? .25 : .7; AU.step(z ? z.floor : 'lino', loud); if (!G.fuga && lightAt(P.pos) < .3 && Math.random() < .05) { const back = P.pos.clone().add(new THREE.Vector3(Math.sin(P.yaw) * 3, 1, Math.cos(P.yaw) * 3)); setTimeout(() => AU.step(z ? z.floor : 'lino', loud * .8, back), 300); } emitNoise(P.pos, P.sprinting ? CFG.noise.sprint : P.crouch ? CFG.noise.crouch : CFG.noise.walk); }
     P.bob += dt * spd * 2.4;
   }
   P.moving = moving ? spd : 0;
@@ -1001,17 +1055,18 @@ function updateLights(dt) {
     if (L.on && L.type === 'flicker') { if (L.off > 0) { L.off -= dt; k = .05; } else if (Math.random() < dt * (G.endgame ? 3 : .7)) { L.off = rand(.04, .35); if (Math.random() < .25) AU.burst({ f: 3500, q: 1, dur: .05, vol: .04, at: L.pl.position, verb: .1 }); } else k = .9 + Math.random() * .1; }
     if (L.on && L.type === 'emergency') k = .55 + .45 * Math.sin(G.t * 2.2 + L.idx);
     if (C.state !== 'dormant' && L.on && C.pos.distanceTo(L.pl.position) < 4 && Math.random() < .5) k *= .3; // luz falha perto dele
+    if (G.blackout > 0) k = 0; if (G.fuga && L.on) k *= Math.random() < .25 ? .1 : 1;
     L.pl.intensity = L.int * k; L.fix.material.color.setHex(L.color).multiplyScalar(k);
   }
   // lanterna
   const L = CFG.lamp; const dC = C.state !== 'dormant' ? C.pos.distanceTo(P.pos) : 99;
   let fl = lampActive() ? 1 : 0;
-  if (fl && P.battery < 15 && Math.random() < .08) fl = .2;
+  if (fl && P.battery < 15 && Math.random() < .08) fl = .2; if (G.blackout > 0) fl = 0;
   if (fl && dC < 9 && Math.random() < (1 - dC / 9) * .25) fl = rand(.1, .6); // falha quando ele está perto (aviso diegético)
   flash.intensity = (P.focus ? 95 : 38) * fl; flash.angle = P.focus ? .22 : .5; flash.distance = (P.focus ? L.focusRange : L.range) + 4; flash.penumbra = P.focus ? .3 : .6;
   flash.color.setHex(P.focus ? 0xffffff : 0xfff0d0);
 }
-let heartT = 0, ambT = 3, dripT = 1;
+let heartT = 0, ambT = 3, dripT = 1, stepPh = 0;
 function updateAudio(dt) {
   if (!AU.ctx) return; AU.setListener(camera); const t = AU.ctx.currentTime;
   const cp = C.pos.clone().setY(1.9); AU.cPan.positionX.value = cp.x; AU.cPan.positionY.value = cp.y; AU.cPan.positionZ.value = cp.z;
@@ -1030,7 +1085,10 @@ function updateAudio(dt) {
   heartT -= dt; if (fear > .1 && heartT <= 0) { heartT = 60 / lerp(70, 165, clamp(fear, 0, 1)); AU.heartbeat(.25 + fear * .5); }
   $('danger').style.opacity = clamp(fear * .7 - .2, 0, .55) * (chase ? 1 : .6);
   AU.ambGain.gain.setTargetAtTime(chase ? .15 : .35, t, .5); // "silêncio tenso": o ambiente recua quando ele caça
-  ambT -= dt; if (ambT <= 0) { ambT = rand(7, 20); const [x, y] = pick(floorTiles); const p = tc(x, y, 2); if (p.distanceTo(P.pos) > 12) AU.bang(p); }
+  ambT -= dt; if (ambT <= 0) { ambT = rand(6, 16); const [x, y] = pick(floorTiles); const p = tc(x, y, 2); if (p.distanceTo(P.pos) > 10) { const r = Math.random();
+    if (r < .3) AU.bang(p); else if (r < .5) AU.moan(p); else if (r < .65) AU.creak(p, .25); else if (r < .8) AU.radio(p); else if (r < .92) AU.whisper(p, .25); else AU.scream(p); } }
+  if (active && CR.root.visible) { const sp = Math.floor(C.phase / Math.PI); if (sp !== stepPh) { stepPh = sp; if (C.speed > .3) AU.cstep(C.pos.clone().setY(.2), chase || G.fuga ? 1 : .55); } if (chase && Math.random() < dt * .35) AU.scrape(cp); }
+  if (active && C.pos.distanceTo(P.pos) < 9 && Math.random() < dt * .12) AU.whisper(cp, .22);
   dripT -= dt; if (dripT <= 0) { dripT = rand(1, 5); const p = P.pos.clone().add(new THREE.Vector3(rand(-6, 6), 2.5, rand(-6, 6))); AU.drip(p); }
 }
 function updateHUD() {
@@ -1049,11 +1107,12 @@ function frame() {
   if (G.trailer) return;
   requestAnimationFrame(frame); const dt = Math.min(clock.getDelta(), 1 / 20);
   if (G.started && !G.paused && !G.readingNote && !G.won) {
-    if (!G.dead) { G.t += dt; updatePlayer(dt); updateCreature(dt); updateEndgame(dt); }
+    if (!G.dead) { G.t += dt; updatePlayer(dt); updateFuga(dt); updateCreature(dt); updateEndgame(dt); updateScares(dt); }
+    updateTweens(dt); G.blackout = Math.max(0, (G.blackout || 0) - dt);
     animateCreature(dt); updateLights(dt); updateAudio(dt);
   }
   if (G.dead && G.scare > 0) { G.scare -= dt; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); camera.lookAt(head); camera.rotation.z += rand(-.08, .08); CR.jaw.rotation.x = 1.3; }
-  else { camera.rotation.set(P.pitch, P.yaw, 0, 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
+  else { G.shake = Math.max(0, (G.shake || 0) - dt * 1.5); const sh = G.shake * G.shake * .06; camera.rotation.set(P.pitch + rand(-sh, sh), P.yaw + rand(-sh, sh), rand(-sh, sh) * .5, 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
   if (G.started) { updateHUD(); updateTouchUI(); }
   grainT += dt; if (grainT > 1 / 24) { grainT = 0; drawGrain(); }
   renderer.render(scene, camera);
@@ -1095,6 +1154,130 @@ function updateTouchUI() {
   $('tb-lamp').classList.toggle('held', P.lampOn); $('tb-crouch').classList.toggle('held', P.crouch);
 }
 
+
+// =====================================================================
+// TWEENS / EFEITOS DE TELA
+// =====================================================================
+const TW = [];
+function tween(dur, fn, done) { TW.push({ t: 0, dur, fn, done }); }
+function updateTweens(dt) { for (let i = TW.length - 1; i >= 0; i--) { const w = TW[i]; w.t += dt; const k = Math.min(1, w.t / w.dur); w.fn(k); if (k >= 1) { TW.splice(i, 1); w.done && w.done(); } } }
+function screenFlash(color = '#7a0000', op = .6, ms = 110) { const f = $('flash'); f.style.background = color; f.style.opacity = op; setTimeout(() => { f.style.opacity = 0; f.style.background = '#7a0000'; }, ms); }
+
+// =====================================================================
+// FUGA — perseguição roteirizada: corredor longo, coisas desabando, sem luz que salve
+// =====================================================================
+const FUGAS = [
+  { id: 'leste', armedBy: 1, trigger: (x, y) => y === 4 && x >= 34 && x <= 41, spawn: [42, 4], path: [[41, 4], [10, 4]], end: (x, y) => y === 4 && x <= 10, gate: [11, 4] },
+  { id: 'subsolo', armedBy: 3, trigger: (x, y) => y === 25 && x >= 30 && x <= 37, spawn: [41, 25], path: [[37, 25], [11, 25], [11, 11]], end: (x, y) => x === 11 && y <= 11 || x === 10 && y === 11, gate: [11, 13] },
+];
+const OBST = []; let gateMesh = null, fugaRed = null, fugaBeat = 0;
+const debrisMat = new THREE.MeshStandardMaterial({ color: 0x6a6b60, roughness: 1, map: TEX.ceiling });
+function buildObstacles(F) {
+  const pts = []; for (let i = 0; i < F.path.length - 1; i++) { const [ax, ay] = F.path[i], [bx, by] = F.path[i + 1]; const n = Math.max(Math.abs(bx - ax), Math.abs(by - ay)); for (let k = 0; k < n; k++) pts.push([ax + Math.sign(bx - ax) * k, ay + Math.sign(by - ay) * k, bx !== ax]); }
+  const types = ['debris', 'beam', 'locker', 'debris', 'cart', 'beam'];
+  let ti = 0;
+  for (let i = 3; i < pts.length - 2; i += rand(2.6, 3.6) | 0) {
+    const [x, y, horiz] = pts[i]; const c = tc(x, y); if (c.distanceTo(P.pos) < 9) continue; const type = types[ti++ % types.length]; const side = Math.random() < .5 ? -1 : 1; const g = new THREE.Group(); let box, crouch = false;
+    if (type === 'beam') { // cano/viga que despenca na altura da cabeça: AGACHE
+      const m = box3(horiz ? .3 : T, .3, horiz ? T : .3, MAT.rust); g.add(m); g.position.set(c.x, WALL_H, c.z); crouch = true;
+      box = [c.x - (horiz ? .15 : T / 2), c.x + (horiz ? .15 : T / 2), c.z - (horiz ? T / 2 : .15), c.z + (horiz ? T / 2 : .15)];
+    } else { // entulho/armário/carrinho ocupando metade do corredor: DESVIE
+      const w = type === 'locker' ? .95 : 1.05; const m = type === 'locker' ? box3(horiz ? .9 : w, .6, horiz ? w : .9, MAT.locker) : type === 'cart' ? box3(horiz ? .8 : w, .9, horiz ? w : .8, MAT.metal) : box3(horiz ? 1.1 : w, .5, horiz ? w : 1.1, debrisMat);
+      m.position.y = type === 'cart' ? .45 : .3; g.add(m); const off = side * (T / 2 - w / 2 - .02);
+      g.position.set(c.x + (horiz ? 0 : off), type === 'cart' ? 0 : WALL_H, c.z + (horiz ? off : 0));
+      const hw = (horiz ? .55 : w / 2), hd = (horiz ? w / 2 : .55); box = [g.position.x - hw, g.position.x + hw, g.position.z - hd, g.position.z + hd];
+      if (type === 'cart') g.position[horiz ? 'z' : 'x'] -= side * 2.2; // carrinho entra rolando de lado
+    }
+    scene.add(g); OBST.push({ g, box, type, crouch, landed: false, falling: false, hit: false, at: c, horiz, side });
+  }
+}
+function box3(w, h, d, mat) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.castShadow = m.receiveShadow = true; return m; }
+function startFuga(F) {
+  if (G.fuga || G.endgame) return; F.armed = false; G.fuga = F; fugaBeat = 0; buildObstacles(F);
+  C.pos.copy(tc(...F.spawn)); C.state = 'chase'; C.path = []; C.repath = 0; CR.root.visible = true; C.knownHide = null;
+  if (!fugaRed) { fugaRed = new THREE.PointLight(0xff2010, 0, 9, 2); scene.add(fugaRed); }
+  AU.jumpscare(); AU.stinger(); G.shake = 1; screenFlash('#7a0000', .55, 140);
+  msg('<b style="font-size:26px;color:#ff5040">CORRA!</b><br>Segure correr · desvie do entulho · <b>agache</b> sob as vigas', 5);
+}
+function updateFuga(dt) {
+  if (!G.fuga) { const [x, y] = tileOf(P.pos); for (const F of FUGAS) if (F.armed && !P.hidden && F.trigger(x, y)) startFuga(F); return; }
+  const F = G.fuga; const [x, y] = tileOf(P.pos);
+  // obstáculos caem quando você se aproxima
+  for (const o of OBST) {
+    if (o.falling || o.landed) continue; if (o.at.distanceTo(P.pos) > 7.5) continue; o.falling = true;
+    if (o.type === 'cart') { const from = o.g.position.clone(), to = from.clone(); to[o.horiz ? 'z' : 'x'] += o.side * 2.2; AU.creak(o.at.clone().setY(1), .3); tween(.45, k => o.g.position.lerpVectors(from, to, k), () => { o.landed = true; AU.slam(o.at, .5); }); }
+    else { const y0 = o.g.position.y, y1 = o.type === 'beam' ? 1.15 : 0; if (o.type === 'beam') AU.creak(o.at.clone().setY(2.5), .35);
+      tween(o.type === 'beam' ? .35 : .5, k => { o.g.position.y = lerp(y0, y1, k * k); o.g.rotation.z = (o.type === 'beam' ? 0 : k * .3 * o.side); }, () => { o.landed = true; AU.crash(o.at.clone().setY(1)); G.shake = Math.max(G.shake, .35);
+        const b = o.box; if (P.pos.x > b[0] - .3 && P.pos.x < b[1] + .3 && P.pos.z > b[2] - .3 && P.pos.z < b[3] + .3 && !(o.crouch && P.crouch)) { P.stumble = .9; G.shake = 1; screenFlash('#300', .5, 90); } }); }
+  }
+  // tambores
+  fugaBeat -= dt; if (fugaBeat <= 0) { fugaBeat = .22; AU.tom(.35); }
+  if (fugaRed) { const h = C.pos.clone().setY(2.2); fugaRed.position.copy(h); fugaRed.intensity = 6 + Math.random() * 6; }
+  if (F.end(x, y)) endFuga(true);
+}
+function updateFugaCreature(dt) {
+  const d = C.pos.distanceTo(P.pos); const sp = d > 16 ? 5.6 : d < 5 ? 4.35 : 4.6; // elástico: sempre colado, nunca impossível
+  C.repath -= dt; if (C.repath <= 0) { C.repath = .25; planPath(P.pos); } moveAlong(sp, dt); C.state = 'chase';
+  CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
+  if (d < CFG.creature.killDist) kill('Ele te alcançou na fuga.');
+}
+function endFuga(survived) {
+  if (!G.fuga) return; const F = G.fuga; G.fuga = null;
+  for (const o of OBST) scene.remove(o.g); OBST.length = 0; if (fugaRed) fugaRed.intensity = 0;
+  if (!survived) return;
+  // portão de aço desce atrás de você
+  const [gx, gy] = F.gate; put(gx, gy, 'G'); computeLightmap(); const c = tc(gx, gy);
+  gateMesh = box3(T, WALL_H, T, MAT.steel); gateMesh.position.set(c.x, WALL_H * 1.5, c.z); scene.add(gateMesh);
+  tween(.25, k => gateMesh.position.y = lerp(WALL_H * 1.5, WALL_H / 2, k * k), () => { AU.slam(c, 1.3); G.shake = .9; });
+  setTimeout(() => AU.scream(c.clone().setY(2)), 600);
+  setTimeout(() => { for (let i = 0; i < 3; i++) setTimeout(() => { AU.slam(c, .7); G.shake = Math.max(G.shake, .3); }, i * 380); }, 1100); // ele esmurra o portão
+  C.state = 'dormant'; C.wakeT = 25; CR.root.visible = false; C.pos.copy(tc(...CREATURE_SPAWNS[1]));
+  msg('Você escapou. <b>Por enquanto.</b>', 4);
+  setTimeout(() => { if (!gateMesh) return; const gm = gateMesh; gateMesh = null; tween(1.2, k => gm.position.y = lerp(WALL_H / 2, WALL_H * 1.5, k), () => { scene.remove(gm); put(gx, gy, '.'); computeLightmap(); }); AU.creak(c, .3); }, 30000);
+}
+
+// =====================================================================
+// SUSTOS ROTEIRIZADOS (cada um acontece uma vez; intervalo mínimo entre eles)
+// =====================================================================
+const PH = buildCreature(); PH.root.visible = false; PH.skin.color.setHex(0x8a8274);
+function posePhantom(tilt = .6) { PH.spine.rotation.x = .8; PH.neck.rotation.x = -1.25; PH.jaw.rotation.x = 1.15; PH.head.rotation.z = tilt; PH.arms.forEach(a => { a.sh.rotation.x = -.35; a.el.rotation.x = -.25; a.sh.rotation.z = a.s * .12; }); PH.legs.forEach(l => { l.kn.rotation.x = .3; }); }
+function showPhantom(pos, faceTo, dur, sound = true) {
+  posePhantom(rand(-.9, .9)); PH.root.position.copy(pos).setY(0); PH.root.rotation.y = Math.atan2(faceTo.x - pos.x, faceTo.z - pos.z); PH.root.visible = true;
+  if (sound) { AU.stinger(); AU.whisper(pos.clone().setY(2), .35); }
+  setTimeout(() => { PH.root.visible = false; AU.radio(pos.clone().setY(2)); for (const L of lightObjs) L.off = rand(.05, .3); }, dur * 1000);
+}
+const fwdOf = () => new THREE.Vector3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+const inZone = (id) => P.zone && P.zone.id === id;
+const SCARES = [
+  { id: 'gaveta', when: () => inZone('morgue') && P.pos.x > tc(33, 0).x, run() { // gaveta abre sozinha com um corpo
+      const c = tc(41, 11); const tray = box3(1.4, .08, .8, MAT.steel), bag = new THREE.Mesh(new THREE.CapsuleGeometry(.22, .9, 4, 8), MAT.bag); bag.rotation.z = Math.PI / 2; bag.position.y = .2; tray.add(bag);
+      tray.position.set(c.x + T / 2 + .7, 1.35, c.z); scene.add(tray); AU.slam(c.clone().setY(1.3), 1); G.shake = .6; screenFlash('#000', .5, 60);
+      tween(.18, k => tray.position.x = lerp(c.x + T / 2 + .7, c.x + T / 2 - .7, k)); setTimeout(() => AU.whisper(c.clone().setY(1.3), .3), 700); } },
+  { id: 'corredor', when: () => P.zone && P.zone.id === 'corrA' && G.awakeOnce && fwdOf().x > .7 && P.pos.x < tc(30, 0).x && C.state !== 'chase', run() { // ele no fim do corredor
+      const [x] = tileOf(P.pos); const at = tc(Math.min(41, x + 8), 4); if (!los(P.pos.x, P.pos.z, at.x, at.z)) return false; showPhantom(at, P.pos, .5); } },
+  { id: 'armario', when: () => inZone('admin') && P.pos.distanceTo(tc(9, 9)) < 3.2, run() { // corpo cai de dentro do armário
+      const c = tc(9, 9); const body = new THREE.Mesh(new THREE.CapsuleGeometry(.24, 1.2, 4, 8), MAT.sheet); body.castShadow = true; const piv = new THREE.Group(); piv.position.set(c.x, 0, c.z - .6); body.position.y = .85; piv.add(body); scene.add(piv);
+      AU.slam(c.clone().setY(1.2), 1); G.shake = .8; screenFlash('#000', .6, 70); tween(.45, k => piv.rotation.x = k * k * 1.45, () => { AU.tone({ f: 70, f2: 35, dur: .3, vol: .6, at: c, verb: .4 }); }); } },
+  { id: 'apagao', when: () => inZone('lab'), run() { // tudo apaga; quando volta, ele está na sua frente
+      G.blackout = 1.8; AU.tone({ f: 120, f2: 30, dur: .6, vol: .3, type: 'sawtooth', verb: .5 }); setTimeout(() => AU.whisper(null, .35), 300); setTimeout(() => AU.whisper(null, .3), 900);
+      setTimeout(() => { const at = P.pos.clone().addScaledVector(fwdOf(), 2.1); if (!isSolid(...tileOf(at))) { showPhantom(at, P.pos, .35, false); AU.jumpscare(); G.shake = 1; screenFlash('#7a0000', .5, 100); } }, 1800); } },
+  { id: 'cadeira', when: () => inZone('ward') && P.pos.z > tc(0, 7).z, run() { // cadeira de rodas atravessa a sala sozinha
+      const g = new THREE.Group(); const seat = box3(.5, .05, .5, MAT.black); seat.position.y = .5; g.add(seat); const back = box3(.5, .55, .05, MAT.black); back.position.set(0, .8, -.25); g.add(back);
+      for (const sx of [-.3, .3]) { const w = new THREE.Mesh(new THREE.TorusGeometry(.3, .02, 6, 18), MAT.steel); w.rotation.y = Math.PI / 2; w.position.set(sx, .32, 0); g.add(w); }
+      const ahead = P.pos.clone().addScaledVector(fwdOf(), 4.5); const side = new THREE.Vector3(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
+      const a = ahead.clone().addScaledVector(side, -6), b = ahead.clone().addScaledVector(side, 6); g.position.copy(a); g.rotation.y = Math.atan2(side.x, side.z); scene.add(g);
+      AU.creak(ahead.clone().setY(.5), .4); tween(1.6, k => g.position.lerpVectors(a, b, k), () => { scene.remove(g); AU.slam(b, .5); }); } },
+  { id: 'telefone', when: () => inZone('security'), run() { AU.ring(); setTimeout(() => { AU.radio(tc(9, 15, 1)); AU.scream(tc(9, 15, 1)); G.shake = .4; }, 2300); } },
+  { id: 'porao', when: () => inZone('cellar'), run() { const p = tc(13, 28, 1); AU.crash(p); G.shake = .5; setTimeout(() => AU.whisper(tc(4, 29, 1), .4), 900); setTimeout(() => { const at = tc(10, 30); if (los(P.pos.x, P.pos.z, at.x, at.z)) showPhantom(at, P.pos, .4); }, 1600); } },
+  { id: 'recepcao', when: () => inZone('reception') && P.carried.length > 0, run() { // voltando com o fusível: ele está ao lado da porta
+      const at = tc(3, 1); for (const L of lightObjs) L.off = rand(.2, .5); setTimeout(() => showPhantom(at, P.pos, .3), 250); } },
+];
+let scareCd = 20;
+function updateScares(dt) {
+  scareCd -= dt; if (scareCd > 0 || G.fuga || G.endgame || P.hidden || C.state === 'chase') return;
+  for (const S of SCARES) { if (S.done || !S.when()) continue; const r = S.run(); if (r === false) continue; S.done = true; scareCd = 25; break; }
+}
+
 // =====================================================================
 // BOOT
 // =====================================================================
@@ -1130,4 +1313,4 @@ if (new URLSearchParams(location.search).has('trailer')) {
     drawGrain(); renderer.render(scene, camera);
   };
 }
-window.__game = { P, C, G, CR, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+window.__game = { P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
