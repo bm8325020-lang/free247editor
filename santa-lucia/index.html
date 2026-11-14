@@ -134,7 +134,15 @@
   @media (max-height:520px){#win .paper{padding:12px 18px}#win .cols{gap:12px}#win p{font-size:12px;margin-bottom:6px}#win .sub{margin-bottom:6px}#win .headline{margin:6px 0 2px}#win .last{margin-top:22px}}
   .fit{transform-origin:center center}
   #death .glitch{line-height:1}
-    #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
+    #polaroid{position:fixed;right:28px;bottom:120px;width:180px;padding:9px 9px 30px;background:#ece8dc;box-shadow:0 10px 30px rgba(0,0,0,.7);transform:translateX(260px) rotate(8deg);transition:transform .5s cubic-bezier(.2,.9,.3,1.1);pointer-events:none;z-index:5}
+  #polaroid.on{transform:translateX(0) rotate(-4deg)}
+  #polaroid .ph{aspect-ratio:1;overflow:hidden;background:#0c0c0c}
+  #polaroid img{width:100%;height:100%;object-fit:cover;filter:brightness(0) sepia(1);transition:filter 3.5s ease-in}
+  #polaroid.dev img{filter:brightness(1.05) sepia(.55) contrast(1.15) saturate(.8)}
+  #polaroid span{position:absolute;left:0;right:0;bottom:6px;text-align:center;font:15px 'Special Elite',serif;color:#3a2f22}
+  body.touch #polaroid{right:auto;left:16px;bottom:auto;top:90px;width:130px}
+  #tb-photo{right:196px;bottom:112px}
+  #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
 </style>
 </head>
 <body>
@@ -153,9 +161,11 @@
   <div class="meter">LANTERNA <span id="batt-pct"></span><div class="bar" id="batt"><i></i></div></div>
   <div class="meter">CALOR DO FOCO<div class="bar" id="heat"><i></i></div></div>
   <div class="meter">FÔLEGO<div class="bar" id="stam"><i></i></div></div>
+  <div class="meter" id="film" style="display:none">POLAROID · <span id="film-n">0</span> foto(s)</div>
   <div class="meter" id="breath">PRENDENDO A RESPIRAÇÃO<div class="bar"><i></i></div></div>
 </div>
 <div id="msg"></div>
+<div id="polaroid"><div class="ph"><img id="pol-img" alt=""></div><span id="pol-cap"></span></div>
 <div id="debug"></div>
 <div id="card"></div>
 <div id="note"><div class="paper"><h3 id="note-title"></h3><div id="note-body"></div><div class="close">[E] / [ESC] fechar</div></div></div>
@@ -197,6 +207,7 @@
   <button class="tbtn" id="tb-run">CORRER</button>
   <button class="tbtn big" id="tb-use">USAR</button>
   <button class="tbtn big" id="tb-breath" style="display:none">AR</button>
+  <button class="tbtn" id="tb-photo" style="display:none">FOTO</button>
 </div>
 <div class="screen" id="pause"><h1>PAUSA</h1><h2>clique para continuar</h2></div>
 <div class="screen" id="death">

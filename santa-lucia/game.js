@@ -105,10 +105,10 @@ const ZONES = [
 function zoneAt(x, y) { for (const z of ZONES) { const r = z.r; if (x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]) return z; } return null; }
 
 const FUSES = [
-  { id: 0, x: 2, y: 16, where: 'Arquivo Médico', lights: [10, 1] },
-  { id: 1, x: 39, y: 1, where: 'Cela de Isolamento 7', lights: [3, 11] },
-  { id: 2, x: 41, y: 9, where: 'Gaveta 7 do necrotério', lights: [4] },
-  { id: 3, x: 40, y: 29, where: 'Gerador do subsolo', lights: [9] },
+  { id: 0, x: 2, y: 16, where: 'Arquivo Médico', lights: [10, 1], alt: [[2, 16, 'Arquivo Médico', [10, 1]], [8, 15, 'Guarita de Segurança', [1]], [4, 11, 'Administração', [1]]] },
+  { id: 1, x: 39, y: 1, where: 'Cela de Isolamento 7', lights: [3, 11], alt: [[39, 1, 'Cela de Isolamento 7', [3, 11]], [31, 1, 'Cela de Isolamento 5', [3, 11]], [23, 2, 'Cela de Isolamento 3', [3, 11]]] },
+  { id: 2, x: 41, y: 9, where: 'Gaveta 7 do necrotério', lights: [4], alt: [[41, 9, 'Gaveta 7 do necrotério', [4]], [40, 6, 'Necrotério', [4]], [40, 16, 'Sala de Autópsia', [5]]] },
+  { id: 3, x: 40, y: 29, where: 'Gerador do subsolo', lights: [9], alt: [[40, 29, 'Gerador do subsolo', [9]], [27, 29, 'Caldeiras', [8]], [2, 27, 'Porão', [8]]] },
 ];
 const BATTERIES = [[8, 10], [25, 7], [17, 20], [5, 29], [39, 20], [36, 2]];
 const NOTES = [
@@ -136,10 +136,10 @@ const LIGHTS = [
 let PLAYER_START = [5, 5];
 const CREATURE_SPAWNS = [[10, 29], [38, 29], [39, 12]];
 
-const SOLID = new Set(['#', 'X', 'L', 'S', 'T', 'c', 'W', 'K', 'G']);  // 'B' (painel) é de parede: tile andável
+const SOLID = new Set(['#', 'X', 'L', 'S', 'T', 'c', 'W', 'K', 'G', 'D']);  // 'B' (painel) é de parede: tile andável
 const inB = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
 const isSolid = (x, y) => !inB(x, y) || SOLID.has(grid[y][x]);
-const isWall = (x, y) => !inB(x, y) || grid[y][x] === '#' || grid[y][x] === 'X' || grid[y][x] === 'G';
+const isWall = (x, y) => !inB(x, y) || grid[y][x] === '#' || grid[y][x] === 'X' || grid[y][x] === 'G' || grid[y][x] === 'D';
 const tileOf = (v) => [Math.floor(v.x / T), Math.floor(v.z / T)];
 const tc = (x, y, yy = 0) => new THREE.Vector3((x + 0.5) * T, yy, (y + 0.5) * T);
 
@@ -151,7 +151,7 @@ function los(ax, az, bx, bz) {
 }
 
 // ----- A* em grid, 8 direções, custo extra opcional (luz)
-function astar(sx, sy, tx, ty, extraCost) {
+function astar(sx, sy, tx, ty, extraCost, doorPass = false) {
   if (isSolid(tx, ty)) { const n = nearestFree(tx, ty); if (!n) return null; [tx, ty] = n; }
   const N = W * H, g = new Float32Array(N).fill(1e9), came = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
   const heap = []; const push = (f, i) => { heap.push([f, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
@@ -162,9 +162,9 @@ function astar(sx, sy, tx, ty, extraCost) {
     const [, i] = pop(); if (i === t) break; if (closed[i]) continue; closed[i] = 1;
     const x = i % W, y = (i / W) | 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (isSolid(nx, ny)) continue;
+      if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; const door = doorPass && inB(nx, ny) && grid[ny][nx] === 'D'; if (isSolid(nx, ny) && !door) continue; if (door && dx && dy) continue;
       if (dx && dy && (isSolid(x + dx, y) || isSolid(x, y + dy))) continue;
-      const j = ny * W + nx; const c = g[i] + (dx && dy ? 1.414 : 1) + (extraCost ? extraCost(nx, ny) : 0);
+      const j = ny * W + nx; const c = g[i] + (dx && dy ? 1.414 : 1) + (extraCost ? extraCost(nx, ny) : 0) + (door ? 3 : 0);
       if (c < g[j]) { g[j] = c; came[j] = i; push(c + hf(nx, ny), j); }
     }
   }
@@ -442,8 +442,6 @@ function buildProps() {
       if (Math.random() < .5) { const s2 = s * .7; const b2 = box(s2, s2 * .8, s2, MAT.crate); b2.position.copy(c).setY(s * .8 + s2 * .4); b2.rotation.y = rand(0, 1); scene.add(b2); }
     }
   }
-  // portas de cela entreabertas
-  for (let i = 0; i < 7; i++) { const x = 14 + i * 4 + 1; const d = box(1.1, 2.2, .1, MAT.metal); d.position.copy(tc(x, 3, 1.1)); d.position.z += T / 2 - .1; d.position.x -= .55; d.rotation.y = rand(.6, 1.4); d.position.x += Math.cos(d.rotation.y) * .55 - .1; scene.add(d); }
 }
 function nearestFreeAround(x, y) { for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]]) if (!isSolid(x + dx, y + dy)) return [x + dx, y + dy]; return [x, y + 1]; }
 
@@ -473,12 +471,19 @@ function makeFuseMesh() {
 }
 const glowTex = makeTex(64, (g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2); gr.addColorStop(0, 'rgba(255,170,60,1)'); gr.addColorStop(1, 'rgba(255,120,20,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); });
 const fuseObjs = [];
+function chooseFuseSpots() { // posições sorteadas por partida (mantidas no save para "Continuar")
+  let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { }
+  const spots = saved && Array.isArray(saved.spots) && saved.spots.length === 4 ? saved.spots : FUSES.map(f => (Math.random() * f.alt.length) | 0);
+  FUSES.forEach((f, i) => { const [x, y, where, lights] = f.alt[spots[i]]; Object.assign(f, { x, y, where, lights }); }); G.spots = spots;
+  NOTES[3].body = '14 corpos em 3 semanas. Todos com queimaduras de retina.<br><br>A gaveta 18 está trancada <i>por dentro</i>. Escondi um dos fusíveis ' + (FUSES[2].x === 40 && FUSES[2].y === 16 ? 'na <b>sala de autópsia</b>, ao lado.' : 'aqui no <b>necrotério</b>, entre os mortos.') + '<br><br><i>Câmera da guarita: as fotos mostram coisas que os olhos não veem.</i>';
+}
 function buildItems() {
+  chooseFuseSpots();
   for (const f of FUSES) {
     const g = new THREE.Group(); const m = makeFuseMesh(); m.rotation.z = Math.PI / 2; g.add(m);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .6 })); glow.scale.setScalar(.5); g.add(glow);
     const base = tc(f.x, f.y); let h = 0.9;
-    if (f.id === 2) { // gaveta aberta do necrotério
+    if (f.id === 2 && f.x === 41 && f.y === 9) { // gaveta aberta do necrotério
       const tray = box(1.4, .08, .8, MAT.steel); tray.position.set(base.x + T / 2 - .7, .95, base.z); scene.add(tray);
       const bag = makeBody('bag'); bag.scale.set(.68, .9, .9); bag.rotation.y = Math.PI; bag.position.set(base.x + T / 2 - .7, .99, base.z); scene.add(bag);
       g.position.set(base.x + T / 2 - 1.2, 1.05, base.z + .25);
@@ -577,7 +582,13 @@ const AU = {
   spatial(p) { const pn = this.ctx.createPanner(); Object.assign(pn, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 2, rolloffFactor: 1.1, maxDistance: 80 }); pn.positionX.value = p.x; pn.positionY.value = p.y; pn.positionZ.value = p.z; pn.connect(this.master); return pn; },
   // passos: gravações reais (CC0) com variação de tom, filtro por piso e eco do prédio. 'at' = passo vindo de outro lugar
   samples: { stone: [], grit: [] }, foot: 0,
+  breathBuf: {}, voices: [],
+  playBuf(buf, o = {}) { const ctx = this.ctx, s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = o.rate || 1; const g = ctx.createGain(); g.gain.value = o.vol || .5; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = o.lp || 8000;
+    s.connect(f).connect(g); g.connect(o.at ? this.spatial(o.at) : this.master); const v = ctx.createGain(); v.gain.value = o.verb ?? .4; g.connect(v).connect(this.verbIn); s.start(0, o.off || 0, o.dur); return s; },
+  voice(at) { if (this.voices.length) this.playBuf(pick(this.voices), { at, vol: .8, rate: rand(.88, .96), lp: 3200, verb: .7 }); else { this.whisper(at, .45); setTimeout(() => this.whisper(at, .35), 900); } },
   loadSamples() {
+    for (const n of ['cansado', 'medo']) fetch(`sounds/breath/${n}.ogg`).then(r => r.arrayBuffer()).then(b => this.ctx.decodeAudioData(b)).then(buf => { this.breathBuf[n] = buf; if (n === 'medo' || n === 'cansado') this.startBreathLoop(n, buf); }).catch(() => { });
+    for (const n of ['voz1', 'voz2', 'voz3', 'voz4']) fetch(`sounds/voice/${n}.ogg`).then(r => r.ok ? r.arrayBuffer() : Promise.reject()).then(b => this.ctx.decodeAudioData(b)).then(buf => this.voices.push(buf)).catch(() => { });
     const load = (set, names) => names.forEach(n => fetch(`sounds/steps/${n}.ogg`).then(r => r.arrayBuffer()).then(b => this.ctx.decodeAudioData(b)).then(buf => this.samples[set].push({ n, buf })).catch(() => { }));
     load('stone', ['stonel1', 'stoner1', 'stonel2', 'stoner2', 'stonel3', 'stoner3']); load('grit', ['sandl1', 'sandr1', 'sandl2', 'sandr2', 'sandl3', 'sandr3']);
   },
@@ -599,6 +610,10 @@ const AU = {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rand(600, 1500); bp.Q.value = 9; const g = ctx.createGain(); this.env(g, t, .04, vol, d); o.connect(bp).connect(g); g.connect(at ? this.spatial(at) : this.master);
     const v = ctx.createGain(); v.gain.value = .5; g.connect(v).connect(this.verbIn); o.start(t); o.stop(t + d + .3);
   },
+  // respiração do jogador: dois loops gravados (medo / cansaço) misturados conforme o estado
+  breathLoops: {},
+  startBreathLoop(n, buf) { const ctx = this.ctx, s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 5000; const g = ctx.createGain(); g.gain.value = 0;
+    s.connect(f).connect(g).connect(this.master); s.start(0, Math.random() * buf.duration); this.breathLoops[n] = { s, g, f }; },
   cstep(p, heavy) { // passo da criatura: baque + articulação estalando
     this.tone({ f: 55, f2: 28, dur: .22, vol: .5 * heavy, at: p, verb: .5 }); this.burst({ f: rand(1800, 2700), q: 5, dur: .035, vol: .4 * heavy, at: p, verb: .3 });
     if (Math.random() < .55) setTimeout(() => this.burst({ f: rand(2600, 3600), q: 4, dur: .03, vol: .3 * heavy, at: p, verb: .3 }), rand(30, 90));
@@ -720,9 +735,9 @@ CR.root.visible = false;
 // =====================================================================
 // ESTADO DO JOGO, SAVE
 // =====================================================================
-const G = { started: false, paused: true, dead: false, won: false, t: 0, inserted: [], notesRead: new Set(), endgame: null, exitOpen: false, deaths: 0, msgT: 0, readingNote: false, scare: 0 };
+const G = { spots: null, stare: 0, started: false, paused: true, dead: false, won: false, t: 0, inserted: [], notesRead: new Set(), endgame: null, exitOpen: false, deaths: 0, msgT: 0, readingNote: false, scare: 0 };
 const SAVE_KEY = 'santa_lucia_save_v1';
-function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify({ inserted: G.inserted, notes: [...G.notesRead], deaths: G.deaths })); } catch (e) { } }
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify({ inserted: G.inserted, notes: [...G.notesRead], deaths: G.deaths, spots: G.spots })); } catch (e) { } }
 function loadSave() { try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.inserted ? s : null; } catch (e) { return null; } }
 
 // =====================================================================
@@ -752,6 +767,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') toggleLamp();
   if (e.code === 'KeyC' || e.code === 'ControlLeft') P.crouch = !P.crouch;
   if (e.code === 'KeyE') interact();
+  if (e.code === 'KeyR' && !G.readingNote) takePhoto();
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -786,6 +802,9 @@ function interact() {
   if (P.hidden) { leaveHide(); return; }
   const it = focusTarget; if (!it) return;
   if (it.type === 'fuse') pickFuse(it.fuse);
+  else if (it.type === 'door') toggleDoor(it.door, true);
+  else if (it.type === 'camera') { it.gone = true; it.obj.visible = false; P.hasCam = true; P.film = 3; AU.pickup(); msg('<b>Câmera Polaroid</b> (3 fotos). Aperte <b>R</b> / <b>FOTO</b>: o flash <b>cega ele</b> por alguns segundos. E as fotos mostram o que os olhos não veem.', 7); }
+  else if (it.type === 'film') { it.gone = true; it.obj.visible = false; P.film = (P.film || 0) + 2; AU.pickup(); msg('Filme Polaroid: <b>+2 fotos</b>.'); }
   else if (it.type === 'battery') { it.gone = true; it.obj.visible = false; P.battery = Math.min(100, P.battery + 45); AU.pickup(); msg('Pilhas novas. <b>+45%</b> de bateria.'); emitNoise(P.pos, 3); }
   else if (it.type === 'note') openNote(it);
   else if (it.type === 'locker') enterHide(it.spot);
@@ -844,7 +863,7 @@ function setState(s) {
   if (s === 'search') { C.searchPts = []; }
 }
 const lightCost = (x, y) => lightmap[y][x] * 5;
-function planPath(goal) { const [sx, sy] = tileOf(C.pos), [tx, ty] = tileOf(goal); const p = astar(sx, sy, tx, ty, C.state === 'patrol' || C.state === 'search' ? lightCost : null); C.path = p || []; C.pathI = 0; }
+function planPath(goal) { const [sx, sy] = tileOf(C.pos), [tx, ty] = tileOf(goal); const p = astar(sx, sy, tx, ty, C.state === 'patrol' || C.state === 'search' ? lightCost : null, true); C.path = p || []; C.pathI = 0; }
 const ROOM_CENTERS = ZONES.filter(z => !['corrA', 'corrB', 'base', 'shaft'].includes(z.id)).map(z => { const [x, y] = nearestFree(((z.r[0] + z.r[2]) / 2) | 0, ((z.r[1] + z.r[3]) / 2) | 0); return { z, x, y }; });
 function patrolGoal() {
   const pz = zoneAt(...tileOf(P.pos));
@@ -866,7 +885,8 @@ function canSeePlayer() {
 function beamOnCreatureBody() { const eye = camera.getWorldPosition(new THREE.Vector3()), fwd = camera.getWorldDirection(new THREE.Vector3()); const to = C.pos.clone().setY(1.4).sub(eye); return fwd.angleTo(to) < .45; }
 function moveAlong(speed, dt) {
   if (C.pathI >= C.path.length) return true;
-  const [nx, ny] = C.path[C.pathI]; const target = tc(nx, ny); const to = target.sub(C.pos); to.y = 0; const d = to.length();
+  const [nx, ny] = C.path[C.pathI]; if (grid[ny][nx] === 'D' && C.pos.distanceTo(tc(nx, ny)) < T * .95) { bashDoor(nx, ny, dt); C.speed = 0; return false; }
+  const target = tc(nx, ny); const to = target.sub(C.pos); to.y = 0; const d = to.length();
   if (d < .35) { C.pathI++; return C.pathI >= C.path.length; }
   to.normalize(); const step = Math.min(d, speed * dt); C.pos.addScaledVector(to, step);
   const ty = Math.atan2(to.x, to.z); let dy = ty - C.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI; C.yaw += dy * Math.min(1, dt * 7);
@@ -888,6 +908,7 @@ function updateCreature(dt) {
     C.wakeT -= dt; if (C.wakeT <= 0) { CR.root.visible = true; setState('patrol'); C.goal = patrolGoal(); planPath(C.goal); AU.scream(C.pos.clone().setY(2)); AU.bang(C.pos.clone().setY(2)); if (!G.awakeOnce) { G.awakeOnce = true; msg('Um grito vindo do <b>subsolo</b>. Você não está sozinho.', 5); } }
     return;
   }
+  if (C.blindT > 0) { blindTick(dt); return; }
   const inLit = lightAt(C.pos) > .4; const sees = canSeePlayer(); C.sees = sees;
   if (sees) { C.lastKnown = P.pos.clone(); C.lastSeenT = G.t; }
   // ---------- luz: exposição do rosto
@@ -1148,7 +1169,7 @@ function updateAudio(dt) {
   let hum = 0; for (const Lo of lightObjs) if (Lo.on && Lo.type !== 'emergency') hum = Math.max(hum, (1 - clamp(Lo.pl.position.distanceTo(camera.position) / 7, 0, 1)) * (Lo.pl.intensity / Lo.int));
   AU.hum.gain.setTargetAtTime(hum * .05, t, .05);
   // coração
-  const d = active ? C.pos.distanceTo(P.pos) : 99; const fear = clamp(1 - d / 22, 0, 1) + (chase ? .4 : 0);
+  const d = active ? C.pos.distanceTo(P.pos) : 99; const fear = clamp(1 - d / 22, 0, 1) + (chase ? .4 : 0) + G.stare * .25; updatePlayerBreath(dt, fear);
   heartT -= dt; if (fear > .1 && heartT <= 0) { heartT = 60 / lerp(70, 165, clamp(fear, 0, 1)); AU.heartbeat(.25 + fear * .5); }
   $('danger').style.opacity = clamp(fear * .7 - .2, 0, .55) * (chase ? 1 : .6);
   AU.ambGain.gain.setTargetAtTime(chase ? .15 : .35, t, .5); // "silêncio tenso": o ambiente recua quando ele caça
@@ -1164,7 +1185,8 @@ function updateHUD() {
   $('stam').firstElementChild.style.width = (P.stamina / CFG.player.staminaMax * 100) + '%';
   $('breath').style.display = P.hidden ? 'block' : 'none'; $('breath').querySelector('i').style.width = (P.breath / CFG.player.breathMax * 100) + '%';
   focusTarget = findInteractable();
-  let pr = ''; if (P.hidden) pr = '<b>E</b>sair'; else if (focusTarget) pr = `<b>E</b>${focusTarget.type === 'panel' && P.carried.length ? `Instalar ${P.carried.length} fusível(is)` : focusTarget.label}`;
+  let pr = ''; if (P.hidden) pr = '<b>E</b>sair'; else if (focusTarget) pr = `<b>E</b>${focusTarget.type === 'panel' && P.carried.length ? `Instalar ${P.carried.length} fusível(is)` : focusTarget.type === 'door' ? (focusTarget.door.open ? 'Fechar porta' : 'Abrir porta') : focusTarget.label}`;
+  $('film').style.display = P.hasCam ? 'block' : 'none'; $('film-n').textContent = P.film || 0;
   $('prompt').innerHTML = pr;
   if (G.msgT > 0) { G.msgT -= 1 / 60; if (G.msgT <= 0) $('msg').style.opacity = 0; }
   if (DEBUG) $('debug').textContent = `state ${C.state}  t ${C.stateT.toFixed(1)}\nexp ${C.exposure.toFixed(2)} res ${C.resistance.toFixed(2)}\nsees ${C.sees} dist ${C.pos.distanceTo(P.pos).toFixed(1)}\nlight@P ${lightAt(P.pos).toFixed(2)} @C ${lightAt(C.pos).toFixed(2)}\nsusp ${C.suspicion.toFixed(2)}`;
@@ -1174,12 +1196,12 @@ function frame() {
   if (G.trailer) return;
   requestAnimationFrame(frame); const dt = Math.min(clock.getDelta(), 1 / 20);
   if (G.started && !G.paused && !G.readingNote && !G.won) {
-    if (!G.dead) { G.t += dt; updatePlayer(dt); updateFuga(dt); updateCreature(dt); updateEndgame(dt); updateScares(dt); }
+    if (!G.dead) { G.t += dt; updatePlayer(dt); updateFuga(dt); updateCreature(dt); updateEndgame(dt); updateScares(dt); updateStare(dt); updateMimic(dt); }
     updateTweens(dt); G.blackout = Math.max(0, (G.blackout || 0) - dt);
     animateCreature(dt); updateLights(dt); updateAudio(dt);
   }
   if (G.dead && G.scare > 0) { G.scare -= dt; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); camera.lookAt(head); camera.rotation.z += rand(-.08, .08); CR.jaw.rotation.x = 1.3; }
-  else { updateLookLock(dt); G.shake = Math.max(0, (G.shake || 0) - dt * 1.5); const sh = G.shake * G.shake * .06; camera.rotation.set(P.pitch + rand(-sh, sh), P.yaw + rand(-sh, sh), rand(-sh, sh) * .5, 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
+  else { updateLookLock(dt); G.shake = Math.max(0, (G.shake || 0) - dt * 1.5); const sh = G.shake * G.shake * .06; camera.rotation.set(P.pitch + rand(-sh, sh), P.yaw + rand(-sh, sh), rand(-sh, sh) * .5 + (G.stareRoll || 0), 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
   if (G.started) { updateHUD(); updateTouchUI(); }
   grainT += dt; if (grainT > 1 / 24) { grainT = 0; drawGrain(); }
   renderer.render(scene, camera);
@@ -1207,7 +1229,7 @@ if (TOUCH) {
   layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
   const hold = (id, key) => { const b = $(id); b.addEventListener('pointerdown', (e) => { e.stopPropagation(); keys[key] = true; b.classList.add('held'); }); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { keys[key] = false; b.classList.remove('held'); }); };
   const tap = (id, fn) => $(id).addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (G.started && !G.dead && !G.won) fn(); });
-  hold('tb-focus', 'KeyQ'); hold('tb-run', 'ShiftLeft'); hold('tb-breath', 'Space');
+  hold('tb-focus', 'KeyQ'); hold('tb-run', 'ShiftLeft'); hold('tb-breath', 'Space'); tap('tb-photo', takePhoto);
   tap('tb-lamp', toggleLamp); tap('tb-crouch', () => { P.crouch = !P.crouch; }); tap('tb-use', () => { if (G.readingNote) closeNote(); else interact(); });
   tap('tb-pause', () => pause(true));
   $('note').addEventListener('pointerdown', () => { if (G.readingNote) closeNote(); });
@@ -1215,12 +1237,24 @@ if (TOUCH) {
 }
 function updateTouchUI() {
   if (!TOUCH) return; const hid = !!P.hidden;
-  $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
+  $('tb-photo').style.display = P.hasCam && !hid ? '' : 'none'; $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
   $('tb-use').classList.toggle('ready', !!focusTarget || hid || G.readingNote);
   $('tb-use').textContent = hid ? 'SAIR' : G.readingNote ? 'FECHAR' : 'USAR';
   $('tb-lamp').classList.toggle('held', P.lampOn); $('tb-crouch').classList.toggle('held', P.crouch);
 }
 
+
+function updatePlayerBreath(dt, fear) {
+  const L = AU.breathLoops; if (!AU.ctx || !L.medo) return; const t = AU.ctx.currentTime;
+  const hold = P.holding || G.dead || G.won; const tired = P.exhausted || P.sprinting || G.fuga ? 1 : clamp(1 - P.stamina / CFG.player.staminaMax, 0, 1) * .8;
+  const scared = clamp(fear, 0, 1.3);
+  const gm = hold ? 0 : .05 + scared * .32, gc = hold || !L.cansado ? 0 : tired * .42;
+  L.medo.g.gain.setTargetAtTime(gm, t, hold ? .05 : .4); L.medo.s.playbackRate.setTargetAtTime(.85 + scared * .3, t, .5); L.medo.f.frequency.setTargetAtTime(P.crouch ? 1800 : 2600 + scared * 2500, t, .3);
+  if (L.cansado) { L.cansado.g.gain.setTargetAtTime(gc, t, hold ? .05 : .3); L.cansado.s.playbackRate.setTargetAtTime(.92 + tired * .12, t, .5); }
+  if (P.wasHolding && !P.holding && P.hidden && AU.breathBuf.cansado) AU.playBuf(AU.breathBuf.cansado, { vol: .5, dur: .9, verb: .1 }); // solta o ar
+  P.wasHolding = P.holding;
+  if (gc > .3 && Math.random() < dt * .8) emitNoise(P.pos, 3.5); // ofegar faz barulho
+}
 
 // =====================================================================
 // TWEENS / EFEITOS DE TELA
@@ -1236,8 +1270,8 @@ function screenFlash(color = '#7a0000', op = .6, ms = 110) { const f = $('flash'
 // FUGA — perseguição roteirizada: corredor longo, coisas desabando, sem luz que salve
 // =====================================================================
 const FUGAS = [
-  { id: 'leste', armedBy: 1, trigger: (x, y) => y === 4 && x >= 34 && x <= 41, spawn: [42, 4], path: [[41, 4], [10, 4]], end: (x, y) => y === 4 && x <= 10, gate: [11, 4] },
-  { id: 'subsolo', armedBy: 3, trigger: (x, y) => y === 25 && x >= 30 && x <= 37, spawn: [41, 25], path: [[37, 25], [11, 25], [11, 11]], end: (x, y) => x === 11 && y <= 11 || x === 10 && y === 11, gate: [11, 13] },
+  { id: 'leste', armedBy: 1, trigger: (x, y) => y === 4 && x >= 20, spawn: [42, 4], path: [[41, 4], [10, 4]], end: (x, y) => y === 4 && x <= 10, gate: [11, 4] },
+  { id: 'subsolo', armedBy: 3, trigger: (x, y) => y === 25, spawn: [41, 25], path: [[37, 25], [11, 25], [11, 11]], end: (x, y) => x === 11 && y <= 11 || x === 10 && y === 11, gate: [11, 13] },
 ];
 const OBST = []; let gateMesh = null, fugaRed = null, fugaBeat = 0;
 const debrisMat = new THREE.MeshStandardMaterial({ color: 0x6a6b60, roughness: 1, map: TEX.ceiling });
@@ -1284,6 +1318,7 @@ function updateFuga(dt) {
   if (F.end(x, y)) endFuga(true);
 }
 function updateFugaCreature(dt) {
+  if (C.blindT > 0) { blindTick(dt); return; }
   const d = C.pos.distanceTo(P.pos); const sp = d > 16 ? 5.6 : d < 5 ? 4.35 : 4.6; // elástico: sempre colado, nunca impossível
   C.repath -= dt; if (C.repath <= 0) { C.repath = .25; planPath(P.pos); } moveAlong(sp, dt); C.state = 'chase';
   CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
@@ -1319,7 +1354,7 @@ const fwdOf = () => new THREE.Vector3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
 // ----- CÂMERA FORÇADA: no susto, a cabeça vira sozinha para onde ele está (com zoom curto)
 function focusOn(target, dur = 1.2, o = {}) { G.lookLock = { target, t: 0, dur, speed: o.speed || 11, fov: o.fov || 56, freeze: o.freeze !== false }; }
 function updateLookLock(dt) {
-  const L = G.lookLock; let fovT = 72;
+  const L = G.lookLock; let fovT = 72 - clamp((G.stare || 0) / 3, 0, 1) * 14;
   if (L && !G.dead) {
     L.t += dt; const tg = typeof L.target === 'function' ? L.target() : L.target; const e = camera.position;
     const dx = tg.x - e.x, dy = tg.y - e.y, dz = tg.z - e.z; const wy = Math.atan2(-dx, -dz), wp = Math.atan2(dy, Math.hypot(dx, dz));
@@ -1373,10 +1408,126 @@ function updateScares(dt) {
   for (const S of SCARES) { if (S.done || !S.when()) continue; const r = S.run(); if (r === false) continue; S.done = true; scareCd = 25; break; }
 }
 
+
+// =====================================================================
+// PORTAS DE VERDADE — fechar dá tempo; ele arromba
+// =====================================================================
+const DOOR_TILES = [[20, 5], [35, 5], [35, 14], [12, 18], [5, 8], [10, 11], [3, 13], [8, 13], [25, 26], [35, 26], [6, 26], [15, 26], [15, 3], [19, 3], [23, 3], [27, 3], [31, 3], [35, 3], [39, 3]];
+const DOORS = [];
+const TEX_DOOR = makeTex(256, (g, s) => { g.fillStyle = '#4c5a50'; g.fillRect(0, 0, s, s); g.fillStyle = '#121614'; g.fillRect(s * .3, s * .12, s * .4, s * .22); g.strokeStyle = '#2b332d'; g.lineWidth = 6; g.strokeRect(8, 8, s - 16, s - 16);
+  g.fillStyle = '#20251f'; g.fillRect(s * .78, s * .5, 18, 8); blotch(g, s, 8, 'rgba(110,60,25,.5)', .03, .12); g.strokeStyle = 'rgba(20,15,10,.6)'; g.lineWidth = 2; for (let i = 0; i < 14; i++) { const x = rand(s * .2, s * .8), y = rand(s * .4, s * .9); g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(-4, 4), y + rand(15, 45)); g.stroke(); } grime(g, s, .6, .6); grainy(g, s, 22); });
+const MAT_DOOR = new THREE.MeshStandardMaterial({ map: TEX_DOOR, roughness: .7, metalness: .3, bumpMap: TEX_DOOR, bumpScale: .5 });
+function buildDoors() {
+  for (const [x, y] of DOOR_TILES) {
+    const alongX = isWall(x - 1, y) && isWall(x + 1, y); // paredes à esquerda/direita: a folha cobre o eixo X
+    const c = tc(x, y); const piv = new THREE.Group(); const cell = y === 3;
+    const leaf = box3(T - .12, 2.5, .09, cell ? MAT.metal : MAT_DOOR); leaf.position.set((T - .12) / 2, 1.25, 0); piv.add(leaf);
+    const handle = box3(.04, .2, .06, MAT.steel); handle.position.set(T - .35, 1.1, .07); piv.add(handle);
+    if (alongX) { piv.position.set(c.x - T / 2 + .06, 0, c.z); } else { piv.position.set(c.x, 0, c.z - T / 2 + .06); piv.rotation.y = -Math.PI / 2; }
+    scene.add(piv);
+    const d = { x, y, piv, base: piv.rotation.y, open: true, bash: 0, hp: 0, sign: Math.random() < .5 ? 1 : -1 };
+    const closed = cell ? Math.random() < .7 : Math.random() < .35; setDoor(d, !closed, true); DOORS.push(d);
+    interactables.push({ type: 'door', pos: c.clone().setY(1.2), door: d, label: 'Porta' });
+  }
+}
+function setDoor(d, open, instant) {
+  d.open = open; grid[d.y][d.x] = open ? '.' : 'D'; const to = d.base + (open ? d.sign * 1.75 : 0);
+  if (instant) d.piv.rotation.y = to; else { const from = d.piv.rotation.y; tween(open ? .35 : .25, k => d.piv.rotation.y = lerp(from, to, k)); }
+  if (!instant) computeLightmap();
+}
+function toggleDoor(d, byPlayer) {
+  if (d.open) { // fechar: não pode ter ninguém no vão
+    const c = tc(d.x, d.y); if (P.pos.distanceTo(c) < .9 || (C.state !== 'dormant' && C.pos.distanceTo(c) < 1.1)) { msg('Tem algo no caminho.', 1.5); return; }
+    setDoor(d, false); AU.slam(c.clone().setY(1.2), .55); emitNoise(c, 9);
+  } else { setDoor(d, true); AU.creak(tc(d.x, d.y, 1.2), .3); emitNoise(tc(d.x, d.y), 4); }
+}
+function bashDoor(x, y, dt) { // ele esmurra/arranha até arrombar (mais rápido no escuro)
+  const d = DOORS.find(o => o.x === x && o.y === y); if (!d) { grid[y][x] = '.'; return; }
+  faceTowards(tc(x, y), dt, 8); d.bash += dt; const need = lightAt(C.pos) > .4 ? 2.6 : 1.7;
+  if (Math.random() < dt * 4) { const c = tc(x, y, 1.2); if (Math.random() < .5) AU.slam(c, .6); else AU.scrape(c, .4); d.piv.rotation.y = d.base + rand(-.04, .04); if (P.pos.distanceTo(c) < 6) G.shake = Math.max(G.shake, .25); }
+  if (d.bash >= need) { d.bash = 0; d.sign = Math.sign(tc(x, y).sub(C.pos).dot(new THREE.Vector3(1, 0, 1))) || 1; setDoor(d, true); AU.slam(tc(x, y, 1.2), 1.2); AU.scream(tc(x, y, 2)); if (P.pos.distanceTo(tc(x, y)) < 8) G.shake = .8; }
+}
+
+// =====================================================================
+// CÂMERA POLAROID — o flash cega; a foto mostra o que os olhos não veem
+// =====================================================================
+const PH2 = buildCreature(); PH2.root.traverse(o => o.layers.set(1)); PH2.root.visible = false; PH2.skin.color.setHex(0x3a3530);
+const flashLight = new THREE.PointLight(0xffffff, 0, 30, 1.5); camera.add(flashLight);
+function hiddenText(text, size = 120) {
+  return makeTex(512, (g, s) => { g.clearRect(0, 0, s, s); g.fillStyle = 'rgba(150,10,8,.92)'; g.font = `bold ${size}px "Special Elite", serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const lines = text.split('\n'); lines.forEach((l, i) => g.fillText(l, s / 2, s / 2 + (i - (lines.length - 1) / 2) * size * 1.05));
+    for (let i = 0; i < 26; i++) { const x = rand(s * .1, s * .9), y = rand(s * .35, s * .65), len = rand(20, 120); const gr = g.createLinearGradient(0, y, 0, y + len); gr.addColorStop(0, 'rgba(130,8,6,.8)'); gr.addColorStop(1, 'rgba(130,8,6,0)'); g.fillStyle = gr; g.fillRect(x, y, rand(2, 5), len); } });
+}
+function wallSpot(x, y) { for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) if (isWall(x + dx, y + dy)) { const c = tc(x, y); return { pos: new THREE.Vector3(c.x + dx * (T / 2 - .02), 1.55, c.z + dy * (T / 2 - .02)), rotY: Math.atan2(-dx, -dy) }; } return null; }
+function placeHidden(text, x, y, size) {
+  const w = wallSpot(x, y); if (!w) return; const m = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 1.9), new THREE.MeshBasicMaterial({ map: hiddenText(text, size), transparent: true, depthWrite: false }));
+  m.position.copy(w.pos); m.rotation.y = w.rotY; m.layers.set(1); scene.add(m);
+}
+function buildHidden() {
+  for (const f of FUSES) placeHidden('AQUI\n↓', f.x, f.y, 150);
+  for (const [t, x, y] of [['ELE NÃO\nDORME', 12, 4], ['NÃO OLHE\nPRA ELE', 11, 9], ['ATRÁS\nDE VOCÊ', 30, 4], ['GAVETA\n18', 30, 12], ['A LUZ\nMENTE', 22, 25], ['17\n17\n17', 14, 21], ['ELE IMITA\nVOZES', 3, 27], ['SAIA', 9, 2]]) placeHidden(t, x, y, 105);
+  const cam = { x: 9, y: 15 }; const g = new THREE.Group(); const body = box3(.2, .14, .16, MAT.black); body.position.y = .07; g.add(body); const lens = cyl(.04, .04, MAT.steel); lens.rotation.x = Math.PI / 2; lens.position.set(0, .08, .09); g.add(lens);
+  const desk = box3(.8, .9, .5, MAT.metal); desk.position.copy(tc(cam.x, cam.y, .45)); scene.add(desk); g.position.copy(tc(cam.x, cam.y, .9)); scene.add(g);
+  interactables.push({ type: 'camera', pos: g.position.clone(), obj: g, label: 'Pegar câmera Polaroid' });
+  for (const [x, y] of [[16, 19], [23, 12], [33, 29], [30, 19]]) { const f = box3(.12, .03, .1, new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: .4 })); f.position.copy(tc(x, y, .02)); scene.add(f); interactables.push({ type: 'film', pos: f.position.clone(), obj: f, label: 'Pegar filme Polaroid' }); }
+}
+function takePhoto() {
+  if (!G.started || G.paused || G.dead || P.hidden) return;
+  if (!P.hasCam) return; if (!(P.film > 0)) { AU.burst({ f: 2500, q: 4, dur: .04, vol: .2, verb: 0 }); msg('Sem filme.', 1.5); return; }
+  P.film--; AU.tone({ f: 2400, f2: 7000, dur: .35, vol: .06, verb: .1 }); AU.burst({ f: 3500, q: 3, dur: .05, vol: .35, verb: .3 }); setTimeout(() => AU.burst({ f: 900, q: 1, dur: .7, vol: .12, verb: .1 }), 120);
+  screenFlash('#ffffff', .95, 90); flashLight.intensity = 400; after(.12, () => flashLight.intensity = 0); emitNoise(P.pos, 11);
+  // ele está no enquadramento?
+  if (CR.root.visible && C.state !== 'dormant') { const eye = camera.getWorldPosition(new THREE.Vector3()), fwd = camera.getWorldDirection(new THREE.Vector3()); const h = new THREE.Vector3(); CR.head.getWorldPosition(h); const to = h.clone().sub(eye);
+    if (to.length() < 17 && fwd.angleTo(to) < .55 && los(eye.x, eye.z, h.x, h.z)) { C.blindT = G.fuga ? 2.6 : 5; C.speed = 0; AU.scream(h); CR.smokeT = 1.2; msg('<b>Ele está cego.</b> Corra!', 2.5); } }
+  // revelação: às vezes aparece alguém na foto que não está ali
+  let ghost = false; if (Math.random() < .35) { const at = P.pos.clone().addScaledVector(fwdOf(), rand(4, 7)); if (!isSolid(...tileOf(at)) && los(P.pos.x, P.pos.z, at.x, at.z)) { posePhantom2(); PH2.root.position.copy(at).setY(0); PH2.root.rotation.y = Math.atan2(P.pos.x - at.x, P.pos.z - at.z); PH2.root.visible = true; ghost = true; } }
+  camera.layers.enable(1); flashLight.intensity = 400; renderer.render(scene, camera); let url = ''; try { url = renderer.domElement.toDataURL('image/jpeg', .75); } catch (e) { } camera.layers.disable(1); PH2.root.visible = false;
+  const pol = $('polaroid'); $('pol-img').src = url; $('pol-cap').textContent = ghost ? 'quem é esse?' : `03:${String(Math.floor(G.t / 60) % 60).padStart(2, '0')}`;
+  pol.classList.remove('dev', 'on'); void pol.offsetWidth; pol.classList.add('on'); setTimeout(() => pol.classList.add('dev'), 60); clearTimeout(takePhoto.t); takePhoto.t = setTimeout(() => pol.classList.remove('on'), 9000);
+}
+function posePhantom2() { PH2.spine.rotation.x = .75; PH2.neck.rotation.x = -1.2; PH2.jaw.rotation.x = .9; PH2.head.rotation.z = rand(-1, 1); PH2.arms.forEach(a => { a.sh.rotation.x = -.3; a.el.rotation.x = -.2; a.sh.rotation.z = a.s * .1; }); }
+function blindTick(dt) { // cego: cobre os olhos, gira no lugar, grunhe
+  C.blindT -= dt; C.speed = 0; C.flinch = .3; C.yaw += Math.sin(G.t * 3) * dt * 1.5; CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
+  if (Math.random() < dt * 1.5) AU.whisper(C.pos.clone().setY(2), .3);
+  if (C.blindT <= 0 && !G.fuga) { setState('search'); C.lastKnown = P.pos.clone(); C.searchPts = []; }
+}
+
+// =====================================================================
+// NÃO OLHE PARA ELE — encarar sem luz no rosto distorce a visão e chama a atenção dele
+// =====================================================================
+let stareWarned = false;
+function updateStare(dt) {
+  let looking = false;
+  if (CR.root.visible && C.state !== 'dormant' && !P.hidden && !G.fuga) {
+    const h = new THREE.Vector3(); CR.head.getWorldPosition(h); const d = h.distanceTo(camera.position); const ndc = h.clone().project(camera);
+    looking = d < 16 && ndc.z < 1 && Math.abs(ndc.x) < .45 && Math.abs(ndc.y) < .6 && los(camera.position.x, camera.position.z, h.x, h.z) && !(P.focus && C.flinch > 0);
+  }
+  G.stare = looking ? Math.min(4, G.stare + dt) : Math.max(0, G.stare - dt * 1.5);
+  const k = clamp(G.stare / 3, 0, 1);
+  canvas.style.filter = k > .02 ? `contrast(${1 + k * .5}) saturate(${1 - k * .7}) hue-rotate(${Math.sin(G.t * 7) * k * 25}deg)` : '';
+  G.stareRoll = Math.sin(G.t * 2.3) * k * .05;
+  if (G.stare > 2.4 && ['patrol', 'search', 'investigate'].includes(C.state)) { C.lastKnown = P.pos.clone(); setState('chase'); if (!stareWarned) { stareWarned = true; msg('<b>Ele sentiu você olhando.</b>', 3); } }
+}
+
+// =====================================================================
+// ELE IMITA — seus passos, sua respiração, uma voz chamando
+// =====================================================================
+let mimicT = 45;
+function updateMimic(dt) {
+  if (C.state === 'dormant' || G.fuga || G.endgame || P.hidden || C.state === 'chase') return;
+  mimicT -= dt; if (mimicT > 0) return; mimicT = rand(35, 70);
+  const d = C.pos.distanceTo(P.pos); if (d < 8 || d > 40) return; const src = C.pos.clone().setY(1.4);
+  const r = Math.random();
+  if (r < .4) { // seus próprios passos, vindo na sua direção e parando
+    const z = zoneAt(...tileOf(P.pos)); for (let i = 0; i < 6; i++) later(() => { const p = src.clone().lerp(P.pos, i / 9).setY(.3); AU.step(z ? z.floor : 'lino', .9, p); }, i * 560);
+  } else if (r < .7 && AU.breathBuf.cansado) { AU.playBuf(AU.breathBuf.cansado, { at: src, vol: .7, rate: .95, dur: 3 }); } // sua respiração… vinda de lá
+  else { AU.voice(src); } // "aqui…"
+}
+
 // =====================================================================
 // BOOT
 // =====================================================================
-buildLevel(); buildProps(); buildExit(); buildItems(); buildLights(); computeLightmap();
+buildLevel(); buildProps(); buildExit(); buildItems(); buildLights(); buildDoors(); buildHidden(); computeLightmap();
 const existing = loadSave(); if (existing && existing.inserted.length) $('btn-cont').style.display = '';
 function start(cont) {
   AU.init(); AU.ctx.resume?.(); $('title').classList.remove('on'); G.started = true; pause(false);
@@ -1408,4 +1559,4 @@ if (new URLSearchParams(location.search).has('trailer')) {
     drawGrain(); renderer.render(scene, camera);
   };
 }
-window.__game = { win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+window.__game = { DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
