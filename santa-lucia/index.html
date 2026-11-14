@@ -53,6 +53,35 @@
   .btn{margin:8px;padding:12px 28px;border:1px solid #6d766a;background:transparent;color:var(--ink);font:inherit;letter-spacing:.2em;cursor:pointer;text-transform:uppercase}
   .btn:hover{background:#d7dccf;color:#000}
   #death h1{color:var(--bad)}
+  #touch{position:fixed;inset:0;display:none;touch-action:none;user-select:none;-webkit-user-select:none}
+  #touch.on{display:block}
+  #stick-base{position:fixed;display:none;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:1px solid rgba(215,220,207,.35);background:rgba(0,0,0,.25);pointer-events:none}
+  #stick-knob{position:absolute;left:50%;top:50%;width:52px;height:52px;border-radius:50%;background:rgba(215,220,207,.35);transform:translate(-50%,-50%)}
+  .tbtn{position:fixed;width:64px;height:64px;border-radius:50%;border:1px solid rgba(215,220,207,.4);background:rgba(10,14,12,.45);color:var(--ink);font:600 10px 'IBM Plex Mono',monospace;letter-spacing:.06em;touch-action:none;-webkit-tap-highlight-color:transparent}
+  .tbtn.big{width:78px;height:78px;font-size:12px}
+  .tbtn.held{background:rgba(215,220,207,.35);color:#000}
+  #tb-pause{top:14px;left:50%;margin-left:-22px;width:44px;height:44px}
+  #tb-use{right:24px;bottom:24px;opacity:.45}
+  #tb-use.ready{opacity:1;border-color:#fff;box-shadow:0 0 14px rgba(255,255,255,.35)}
+  #tb-focus{right:116px;bottom:44px;border-color:var(--warn);color:var(--warn)}
+  #tb-focus.held{background:rgba(224,160,64,.55);color:#000}
+  #tb-breath{right:116px;bottom:44px}
+  #tb-run{right:36px;bottom:122px}
+  #tb-lamp{right:118px;bottom:138px}
+  #tb-crouch{right:196px;bottom:30px}
+  body.touch #meters{left:16px;bottom:12px;width:130px;font-size:9px}
+  body.touch #prompt{top:62%}
+  body.touch #objective{top:46px;left:16px;font-size:11px;max-width:260px}
+  body.touch #zone{left:16px;top:14px;font-size:17px}
+  body.touch #fuses{right:16px;top:12px;font-size:11px}
+  body.touch #cross{width:6px;height:6px;margin:-3px}
+  body.touch #msg{font-size:13px;bottom:30%}
+  body.touch .screen p{font-size:12px}
+  body.touch .screen h1{font-size:38px}
+  body.touch .screen h2{margin:2px 0 8px;font-size:11px}
+  body.touch .screen p{margin:6px 0;line-height:1.45}
+  body.touch .keys{margin:6px 0;gap:1px 14px;font-size:11px}
+  body.touch .btn{padding:10px 22px;margin:4px}
   #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
 </style>
 </head>
@@ -83,7 +112,7 @@
   <h2>sanatório &amp; necrotério · 1974</h2>
   <p>A trava eletromagnética do portão principal está sem energia. Encontre os <b>4 fusíveis</b> espalhados pelo prédio, instale-os no painel ao lado da saída e fuja.<br>
   Algo vive no escuro aqui dentro. A luz o machuca. Mas a luz também mostra onde você está.</p>
-  <div class="keys">
+  <div class="keys" id="keys-desktop">
     <b>W A S D</b><span>andar</span>
     <b>Mouse</b><span>olhar (clique para capturar)</span>
     <b>Shift</b><span>correr (barulho!)</span>
@@ -93,8 +122,28 @@
     <b>E</b><span>interagir / esconder / sair</span>
     <b>Espaço (escondido)</b><span>prender a respiração</span>
   </div>
+  <div class="keys" id="keys-touch" style="display:none">
+    <b>Lado esquerdo</b><span>arraste para andar</span>
+    <b>Lado direito</b><span>arraste para olhar</span>
+    <b>LUZ</b><span>liga/desliga lanterna</span>
+    <b>FOCO</b><span>segure: feixe concentrado — mire no ROSTO dele</span>
+    <b>CORRER</b><span>segure (faz barulho!)</span>
+    <b>AGACHAR</b><span>silencioso</span>
+    <b>USAR</b><span>pegar / esconder / ler (acende quando há algo)</span>
+    <b>AR</b><span>escondido: segure para prender a respiração</span>
+  </div>
   <p style="font-size:11px">Use fones de ouvido. O som é metade do jogo.</p>
   <div><button class="btn" id="btn-new">Novo jogo</button><button class="btn" id="btn-cont" style="display:none">Continuar</button></div>
+</div>
+<div id="touch">
+  <div id="stick-base"><div id="stick-knob"></div></div>
+  <button class="tbtn" id="tb-pause">II</button>
+  <button class="tbtn" id="tb-lamp">LUZ</button>
+  <button class="tbtn" id="tb-crouch">AGACHAR</button>
+  <button class="tbtn big" id="tb-focus">FOCO</button>
+  <button class="tbtn" id="tb-run">CORRER</button>
+  <button class="tbtn big" id="tb-use">USAR</button>
+  <button class="tbtn big" id="tb-breath" style="display:none">AR</button>
 </div>
 <div class="screen" id="pause"><h1>PAUSA</h1><h2>clique para continuar</h2></div>
 <div class="screen" id="death"><h1>VOCÊ MORREU</h1><h2 id="death-sub">os fusíveis instalados continuam no painel</h2><button class="btn" id="btn-retry">Tentar de novo</button></div>

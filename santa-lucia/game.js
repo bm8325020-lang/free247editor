@@ -3,6 +3,7 @@
 import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
+const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -178,7 +179,7 @@ const floorTiles = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) i
 // =====================================================================
 const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1 : 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
@@ -564,7 +565,7 @@ const P = {
   stepAcc: 0, bob: 0, carried: [], zone: null, moving: 0, sprinting: false, lastEnterHide: -99,
 };
 const flash = new THREE.SpotLight(0xfff1d6, 40, CFG.lamp.range + 4, .48, .55, 1.6);
-flash.castShadow = true; flash.shadow.mapSize.set(1024, 1024); flash.shadow.camera.near = .2; flash.shadow.camera.far = 26; flash.shadow.bias = -.0004;
+flash.castShadow = true; flash.shadow.mapSize.set(TOUCH ? 512 : 1024, TOUCH ? 512 : 1024); flash.shadow.camera.near = .2; flash.shadow.camera.far = 26; flash.shadow.bias = -.0004;
 flash.position.set(.22, -.18, 0); camera.add(flash); camera.add(flash.target); flash.target.position.set(.05, -.05, -6);
 const keys = {}; let mouseR = false;
 
@@ -656,23 +657,24 @@ function drawGrain() { const d = grainImg.data; for (let i = 0; i < d.length; i 
 addEventListener('keydown', (e) => {
   keys[e.code] = true; if (!G.started || G.dead || G.won) return;
   if (G.readingNote && (e.code === 'KeyE' || e.code === 'Escape')) { closeNote(); return; }
-  if (e.code === 'KeyF' && !P.hidden) { if (P.battery > 0 && P.overheat <= 0) { P.lampOn = !P.lampOn; AU.click(); } }
+  if (e.code === 'KeyF') toggleLamp();
   if (e.code === 'KeyC' || e.code === 'ControlLeft') P.crouch = !P.crouch;
   if (e.code === 'KeyE') interact();
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
+function toggleLamp() { if (P.hidden) return; if (P.battery > 0 && P.overheat <= 0) { P.lampOn = !P.lampOn; AU.click(); } }
 addEventListener('contextmenu', (e) => e.preventDefault());
-addEventListener('mousedown', (e) => { if (e.button === 2) mouseR = true; if (G.started && !G.paused && document.pointerLockElement !== canvas && !DEBUG) canvas.requestPointerLock?.(); });
+addEventListener('mousedown', (e) => { if (e.button === 2) mouseR = true; if (G.started && !G.paused && document.pointerLockElement !== canvas && !DEBUG && !TOUCH) canvas.requestPointerLock?.(); });
 addEventListener('mouseup', (e) => { if (e.button === 2) mouseR = false; });
 let dragging = false; addEventListener('mousedown', e => { if (e.button === 0) dragging = true; }); addEventListener('mouseup', e => { if (e.button === 0) dragging = false; });
 addEventListener('mousemove', (e) => {
   if (!G.started || G.paused || G.dead) return; const locked = document.pointerLockElement === canvas; if (!locked && !dragging) return;
   const s = .0022; P.yaw -= e.movementX * s; P.pitch = clamp(P.pitch - e.movementY * s, -1.35, 1.35);
 });
-document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement !== canvas && G.started && !G.dead && !G.won && !G.readingNote) pause(true); });
+document.addEventListener('pointerlockchange', () => { if (!TOUCH && document.pointerLockElement !== canvas && G.started && !G.dead && !G.won && !G.readingNote) pause(true); });
 function pause(v) { G.paused = v; $('pause').classList.toggle('on', v); }
-$('pause').addEventListener('click', () => { pause(false); canvas.requestPointerLock?.(); });
+$('pause').addEventListener('click', () => { pause(false); if (!TOUCH) canvas.requestPointerLock?.(); });
 
 // =====================================================================
 // INTERAÇÃO
@@ -927,7 +929,7 @@ function respawn() {
   const far = CREATURE_SPAWNS.slice().sort((a, b) => tc(...b).distanceTo(P.pos) - tc(...a).distanceTo(P.pos))[0];
   C.pos.copy(tc(...far)); C.exposure = 0; C.knownHide = null; C.suspicion = 0; C.path = []; C.state = 'dormant'; C.wakeT = 8; CR.root.visible = false;
   if (G.endgame) { G.endgame.t = Math.max(0, G.endgame.t - 10); C.wakeT = 4; }
-  setObjective(); pause(false); canvas.requestPointerLock?.();
+  setObjective(); pause(false); if (!TOUCH) canvas.requestPointerLock?.();
 }
 function startEndgame() {
   G.endgame = { t: 0 }; AU.alarm.gain.setTargetAtTime(.08, AU.ctx.currentTime, .5);
@@ -974,11 +976,12 @@ function updatePlayer(dt) {
   if (!keys.Space) P.gasped = false;
   if (P.hidden) { camera.position.copy(P.hidden.camPos); P.moving = 0; return; }
   // movimento
-  const f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  const moving = f || s; P.sprinting = moving && (keys.ShiftLeft || keys.ShiftRight) && !P.exhausted && !P.crouch && f > 0;
+  let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  let mag = 1; if (TI.stickId !== null) { f = -TI.y; s = TI.x; mag = clamp(Math.hypot(f, s), 0, 1); if (mag < .15) { f = s = 0; } }
+  const moving = !!(f || s); P.sprinting = moving && (keys.ShiftLeft || keys.ShiftRight) && !P.exhausted && !P.crouch && f > .3;
   if (P.sprinting) { P.stamina -= dt; if (P.stamina <= 0) { P.exhausted = true; AU.burst({ f: 700, q: 1, dur: .8, vol: .15 }); } }
   else { P.stamina = Math.min(PC.staminaMax, P.stamina + PC.staminaRegen * dt); if (P.stamina > PC.staminaMax * .45) P.exhausted = false; }
-  const spd = P.crouch ? PC.crouch : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .75 : 1);
+  const spd = (P.crouch ? PC.crouch : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .75 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag));
   if (moving) {
     const dir = new THREE.Vector3(-Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, 0, -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s).normalize();
     P.pos.addScaledVector(dir, spd * dt); collide(P.pos, PC.radius); collide(P.pos, PC.radius);
@@ -1049,9 +1052,45 @@ function frame() {
   }
   if (G.dead && G.scare > 0) { G.scare -= dt; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); camera.lookAt(head); camera.rotation.z += rand(-.08, .08); CR.jaw.rotation.x = 1.3; }
   else { camera.rotation.set(P.pitch, P.yaw, 0, 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
-  if (G.started) updateHUD();
+  if (G.started) { updateHUD(); updateTouchUI(); }
   grainT += dt; if (grainT > 1 / 24) { grainT = 0; drawGrain(); }
   renderer.render(scene, camera);
+}
+
+
+// =====================================================================
+// CONTROLES DE TOQUE (celular / APK)
+// joystick dinâmico à esquerda · arrastar à direita para olhar · botões
+// =====================================================================
+const TI = { stickId: null, lookId: null, ox: 0, oy: 0, x: 0, y: 0, lx: 0, ly: 0 };
+if (TOUCH) {
+  document.body.classList.add('touch');
+  const layer = $('touch'), knob = $('stick-knob'), base = $('stick-base'), R = 60;
+  layer.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.tbtn')) return;
+    if (e.clientX < innerWidth * .42 && TI.stickId === null) { TI.stickId = e.pointerId; TI.ox = e.clientX; TI.oy = e.clientY; TI.x = TI.y = 0; base.style.cssText = `display:block;left:${e.clientX}px;top:${e.clientY}px`; knob.style.transform = 'translate(-50%,-50%)'; }
+    else if (TI.lookId === null) { TI.lookId = e.pointerId; TI.lx = e.clientX; TI.ly = e.clientY; }
+  });
+  layer.addEventListener('pointermove', (e) => {
+    if (e.pointerId === TI.stickId) { let dx = e.clientX - TI.ox, dy = e.clientY - TI.oy; const d = Math.hypot(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; } TI.x = dx / R; TI.y = dy / R; knob.style.transform = `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`; }
+    else if (e.pointerId === TI.lookId && !G.paused && !G.dead) { const sns = .0055; P.yaw -= (e.clientX - TI.lx) * sns; P.pitch = clamp(P.pitch - (e.clientY - TI.ly) * sns, -1.35, 1.35); TI.lx = e.clientX; TI.ly = e.clientY; }
+  });
+  const up = (e) => { if (e.pointerId === TI.stickId) { TI.stickId = null; TI.x = TI.y = 0; base.style.display = 'none'; } if (e.pointerId === TI.lookId) TI.lookId = null; };
+  layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
+  const hold = (id, key) => { const b = $(id); b.addEventListener('pointerdown', (e) => { e.stopPropagation(); keys[key] = true; b.classList.add('held'); }); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { keys[key] = false; b.classList.remove('held'); }); };
+  const tap = (id, fn) => $(id).addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (G.started && !G.dead && !G.won) fn(); });
+  hold('tb-focus', 'KeyQ'); hold('tb-run', 'ShiftLeft'); hold('tb-breath', 'Space');
+  tap('tb-lamp', toggleLamp); tap('tb-crouch', () => { P.crouch = !P.crouch; }); tap('tb-use', () => { if (G.readingNote) closeNote(); else interact(); });
+  tap('tb-pause', () => pause(true));
+  $('note').addEventListener('pointerdown', () => { if (G.readingNote) closeNote(); });
+  $('keys-desktop').style.display = 'none'; $('keys-touch').style.display = '';
+}
+function updateTouchUI() {
+  if (!TOUCH) return; const hid = !!P.hidden;
+  $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
+  $('tb-use').classList.toggle('ready', !!focusTarget || hid || G.readingNote);
+  $('tb-use').textContent = hid ? 'SAIR' : G.readingNote ? 'FECHAR' : 'USAR';
+  $('tb-lamp').classList.toggle('held', P.lampOn); $('tb-crouch').classList.toggle('held', P.crouch);
 }
 
 // =====================================================================
@@ -1065,7 +1104,8 @@ function start(cont) {
   else { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } }
   setObjective(); camera.rotation.set(0, P.yaw, 0, 'YXZ');
   msg('A porta principal está trancada. Há um <b>painel de energia</b> à sua esquerda e um papel no chão.', 6);
-  if (!DEBUG) canvas.requestPointerLock?.();
+  if (TOUCH) { $('touch').classList.add('on'); try { document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape').catch(() => { })).catch(() => { }); } catch (e) { } }
+  else if (!DEBUG) canvas.requestPointerLock?.();
 }
 $('btn-new').onclick = () => start(false); $('btn-cont').onclick = () => start(true); $('btn-retry').onclick = () => respawn();
 frame();
