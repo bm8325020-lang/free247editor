@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Santa Lúcia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#d7dccf;--dim:#7d857a;--warn:#e0a040;--bad:#c0281e;--ok:#5fc27a}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;color:var(--ink);font-family:'IBM Plex Mono',ui-monospace,monospace}
+  canvas#gl{display:block;width:100vw;height:100vh}
+  #grain{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;opacity:.10;mix-blend-mode:overlay;image-rendering:pixelated}
+  #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 45%,rgba(0,0,0,.85) 100%)}
+  #danger{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 35%,rgba(120,0,0,.75) 100%);transition:opacity .2s}
+  #flash{position:fixed;inset:0;pointer-events:none;opacity:0;background:#7a0000}
+  #hidemask{position:fixed;inset:0;pointer-events:none;display:none;
+    background:repeating-linear-gradient(180deg,#000 0 7vh,rgba(0,0,0,0) 7vh 9vh);
+    -webkit-mask:radial-gradient(ellipse 40% 30% at center,transparent 0 60%,#000 100%);}
+  #hidemask.on{display:block}
+  #hidemask.under{background:linear-gradient(180deg,#050505 0 38vh,rgba(0,0,0,0) 46vh)}
+  #cross{position:fixed;left:50%;top:50%;width:4px;height:4px;margin:-2px;border-radius:50%;background:rgba(220,230,210,.55);pointer-events:none}
+  #prompt{position:fixed;left:50%;top:56%;transform:translateX(-50%);font-size:14px;letter-spacing:.08em;text-shadow:0 0 6px #000;pointer-events:none;white-space:nowrap}
+  #prompt b{color:#fff;border:1px solid var(--dim);padding:0 6px;margin-right:6px}
+  #zone{position:fixed;left:28px;top:24px;font-family:'Special Elite',serif;font-size:22px;opacity:0;transition:opacity 1.2s;text-shadow:0 0 10px #000}
+  #fuses{position:fixed;right:28px;top:24px;font-size:13px;text-align:right;line-height:1.7;text-shadow:0 0 6px #000}
+  #fuses .slots span{display:inline-block;width:14px;height:22px;margin-left:5px;border:1px solid var(--dim);vertical-align:middle}
+  #fuses .slots span.in{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+  #fuses .slots span.carry{border-color:var(--warn);background:repeating-linear-gradient(45deg,transparent 0 3px,rgba(224,160,64,.5) 3px 5px)}
+  #meters{position:fixed;left:28px;bottom:26px;font-size:11px;letter-spacing:.1em;width:200px}
+  .meter{margin-top:8px}
+  .bar{height:5px;background:rgba(255,255,255,.08);margin-top:3px}
+  .bar i{display:block;height:100%;width:100%;background:var(--ink)}
+  #heat i{background:var(--warn)}
+  #heat.hot i{background:var(--bad)}
+  #breath{display:none}
+  #msg{position:fixed;left:50%;bottom:16%;transform:translateX(-50%);max-width:70vw;text-align:center;font-size:15px;line-height:1.5;text-shadow:0 0 8px #000;pointer-events:none;transition:opacity .6s}
+  #objective{position:fixed;left:28px;top:58px;font-size:12px;color:var(--dim);max-width:340px;line-height:1.5}
+  #note{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.72)}
+  #note.on{display:flex}
+  #note .paper{width:min(560px,90vw);padding:38px 42px;background:#cfc6ae;color:#2a2418;font-family:'Special Elite',serif;font-size:17px;line-height:1.6;box-shadow:0 20px 80px #000;transform:rotate(-1deg);
+    background-image:radial-gradient(circle at 80% 20%,rgba(90,60,20,.25),transparent 40%),radial-gradient(circle at 10% 90%,rgba(60,30,10,.3),transparent 35%)}
+  #note .paper h3{margin:0 0 14px;font-size:15px;letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid #6b5f45;padding-bottom:8px}
+  #note .close{margin-top:18px;font-size:12px;opacity:.7;font-family:'IBM Plex Mono',monospace}
+  .screen{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:safe center;overflow-y:auto;background:rgba(0,0,0,.88);text-align:center;padding:16px}
+  .screen.on{display:flex}
+  .screen h1{font-family:'Special Elite',serif;font-weight:400;font-size:clamp(40px,8vw,88px);margin:0;letter-spacing:.06em;color:#c9cfc0;text-shadow:0 0 30px rgba(120,160,140,.25)}
+  .screen h2{font-weight:400;font-size:14px;letter-spacing:.35em;color:var(--dim);margin:6px 0 30px;text-transform:uppercase}
+  .screen p{max-width:620px;color:#a9b0a4;font-size:13px;line-height:1.7}
+  .keys{display:grid;grid-template-columns:auto auto;gap:4px 18px;font-size:12px;color:#a9b0a4;margin:18px 0;text-align:left}
+  .keys b{color:#fff;font-weight:600}
+  .btn{margin:8px;padding:12px 28px;border:1px solid #6d766a;background:transparent;color:var(--ink);font:inherit;letter-spacing:.2em;cursor:pointer;text-transform:uppercase}
+  .btn:hover{background:#d7dccf;color:#000}
+  #death h1{color:var(--bad)}
+  #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="grain" width="200" height="120"></canvas>
+<div id="vignette"></div>
+<div id="danger"></div>
+<div id="hidemask"></div>
+<div id="flash"></div>
+<div id="cross"></div>
+<div id="prompt"></div>
+<div id="zone"></div>
+<div id="objective"></div>
+<div id="fuses"></div>
+<div id="meters">
+  <div class="meter">LANTERNA <span id="batt-pct"></span><div class="bar" id="batt"><i></i></div></div>
+  <div class="meter">CALOR DO FOCO<div class="bar" id="heat"><i></i></div></div>
+  <div class="meter">FÔLEGO<div class="bar" id="stam"><i></i></div></div>
+  <div class="meter" id="breath">PRENDENDO A RESPIRAÇÃO<div class="bar"><i></i></div></div>
+</div>
+<div id="msg"></div>
+<div id="debug"></div>
+<div id="note"><div class="paper"><h3 id="note-title"></h3><div id="note-body"></div><div class="close">[E] / [ESC] fechar</div></div></div>
+
+<div class="screen on" id="title">
+  <h1>SANTA LÚCIA</h1>
+  <h2>sanatório &amp; necrotério · 1974</h2>
+  <p>A trava eletromagnética do portão principal está sem energia. Encontre os <b>4 fusíveis</b> espalhados pelo prédio, instale-os no painel ao lado da saída e fuja.<br>
+  Algo vive no escuro aqui dentro. A luz o machuca. Mas a luz também mostra onde você está.</p>
+  <div class="keys">
+    <b>W A S D</b><span>andar</span>
+    <b>Mouse</b><span>olhar (clique para capturar)</span>
+    <b>Shift</b><span>correr (barulho!)</span>
+    <b>C / Ctrl</b><span>agachar (silencioso)</span>
+    <b>F</b><span>ligar/desligar lanterna</span>
+    <b>Botão direito / Q</b><span>FOCO: feixe concentrado — mire no ROSTO dele</span>
+    <b>E</b><span>interagir / esconder / sair</span>
+    <b>Espaço (escondido)</b><span>prender a respiração</span>
+  </div>
+  <p style="font-size:11px">Use fones de ouvido. O som é metade do jogo.</p>
+  <div><button class="btn" id="btn-new">Novo jogo</button><button class="btn" id="btn-cont" style="display:none">Continuar</button></div>
+</div>
+<div class="screen" id="pause"><h1>PAUSA</h1><h2>clique para continuar</h2></div>
+<div class="screen" id="death"><h1>VOCÊ MORREU</h1><h2 id="death-sub">os fusíveis instalados continuam no painel</h2><button class="btn" id="btn-retry">Tentar de novo</button></div>
+<div class="screen" id="win"><h1>VOCÊ ESCAPOU</h1><h2 id="win-sub"></h2><button class="btn" onclick="location.reload()">Jogar de novo</button></div>
+
+<script type="module" src="./game.js"></script>
+</body>
+</html>
