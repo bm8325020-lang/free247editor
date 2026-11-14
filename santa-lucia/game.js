@@ -758,7 +758,7 @@ function setObjective() {
   else if (P.carried.length) o = `<b>Leve ${P.carried.length > 1 ? 'os fusíveis' : 'o fusível'} ao painel da RECEPÇÃO</b> (ao lado da porta de saída).`;
   else o = `<b>OBJETIVO:</b> achar 4 fusíveis e instalar no painel da recepção.`;
   const where = FUSES.filter(f => f.state === 'world').map(f => f.where.replace(' do necrotério', '')); if (!G.exitOpen && !G.endgame && where.length) o += `<br><span class="hint">Procure em: ${where.join(' · ')}</span>`;
-  o += `<br><span class="hint">${TOUCH ? 'Toque em MAPA' : 'Aperte M'} para ver a planta.</span>`;
+  o += `<br><span class="hint">${TOUCH ? 'MAPA' : 'M'}: ver por onde você já passou.</span>`;
   $('objective').innerHTML = o;
   $('fuses').innerHTML = `PAINEL · ${G.inserted.length}/4<div class="slots">${[0, 1, 2, 3].map(i => `<span class="${i < G.inserted.length ? 'in' : i < G.inserted.length + P.carried.length ? 'carry' : ''}"></span>`).join('')}</div>`;
 }
@@ -1174,7 +1174,7 @@ function updatePlayer(dt) {
   P.moving = moving ? spd : 0;
   P.eye = lerp(P.eye, P.crouch ? PC.crouchEye : PC.eye, Math.min(1, dt * 10));
   camera.position.set(P.pos.x, P.eye + Math.sin(P.bob) * .035 * (moving ? 1 : 0), P.pos.z);
-  const z = zoneAt(...tileOf(P.pos)); if (z && z !== P.zone) { P.zone = z; showZone(z); G.visited.add(z.id); }
+  const z = zoneAt(...tileOf(P.pos)); if (z && z !== P.zone) { P.zone = z; showZone(z); G.visited.add(z.id); } updateExplore(dt);
 }
 function updateLights(dt) {
   for (const L of lightObjs) {
@@ -1756,21 +1756,35 @@ $('btn-set-close').onclick = closeSettings; $('btn-settings').onclick = openSett
 // =====================================================================
 function toggleMap() { if (!G.started || G.dead) return; G.mapOpen = !G.mapOpen; $('map').classList.toggle('on', G.mapOpen); if (G.mapOpen) drawMap(); }
 $('btn-map-close').onclick = toggleMap;
+// só o que você já explorou: tiles vistos de perto + o rastro do caminho
+const EXPLORED = new Uint8Array(W * H); const TRAIL = []; let exploreT = 0;
+function updateExplore(dt) {
+  exploreT -= dt; if (exploreT > 0) return; exploreT = .2; const [px, py] = tileOf(P.pos);
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = px + dx, y = py + dy; if (!inB(x, y) || EXPLORED[y * W + x]) continue; const c = tc(x, y); if (Math.abs(dx) + Math.abs(dy) <= 1 || los(P.pos.x, P.pos.z, c.x, c.z)) EXPLORED[y * W + x] = 1; }
+  const last = TRAIL[TRAIL.length - 1]; if (!last || Math.hypot(last[0] - P.pos.x, last[1] - P.pos.z) > 1.2) { TRAIL.push([P.pos.x, P.pos.z]); if (TRAIL.length > 3000) TRAIL.shift(); }
+}
 function drawMap() {
-  const cv = $('map-cv'), cell = Math.max(5, Math.floor(Math.min((innerWidth - 32) / W, (innerHeight - 120) / H))); cv.width = W * cell; cv.height = H * cell; const g = cv.getContext('2d');
-  g.fillStyle = '#0c0f0d'; g.fillRect(0, 0, cv.width, cv.height);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { if (isWall(x, y) && grid[y][x] !== 'D') continue; const z = zoneAt(x, y); const seen = z && G.visited.has(z.id);
-    g.fillStyle = seen ? '#56645a' : '#252d28'; g.fillRect(x * cell, y * cell, cell, cell); if (grid[y][x] === 'D') { g.fillStyle = '#b8402e'; g.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2); } }
+  const cv = $('map-cv'), cell = Math.max(5, Math.floor(Math.min((innerWidth - 32) / W, (innerHeight - 110) / H))); cv.width = W * cell; cv.height = H * cell; const g = cv.getContext('2d');
+  g.fillStyle = '#050605'; g.fillRect(0, 0, cv.width, cv.height);
+  const ex = (x, y) => inB(x, y) && EXPLORED[y * W + x];
+  const near = (x, y) => ex(x + 1, y) || ex(x - 1, y) || ex(x, y + 1) || ex(x, y - 1);
+  const here = zoneAt(...tileOf(P.pos));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const wall = isWall(x, y) && grid[y][x] !== 'D';
+    if (wall) { if (near(x, y)) { g.fillStyle = '#2a302c'; g.fillRect(x * cell, y * cell, cell, cell); } continue; }
+    if (!ex(x, y)) continue; const z = zoneAt(x, y);
+    g.fillStyle = z && z === here ? '#6b7a6f' : '#4a564d'; g.fillRect(x * cell, y * cell, cell, cell);
+    if (grid[y][x] === 'D') { g.fillStyle = '#b8402e'; g.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2); }
+  }
+  // rastro
+  if (TRAIL.length > 1) { g.strokeStyle = 'rgba(230,200,140,.55)'; g.lineWidth = Math.max(1, cell * .18); g.setLineDash([cell * .4, cell * .35]); g.beginPath(); TRAIL.forEach(([x, z], i) => { const X = x / T * cell, Y = z / T * cell; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); g.setLineDash([]); }
   g.font = `${Math.max(9, cell * .9)}px 'IBM Plex Mono',monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
-  for (const z of ZONES) { if (['corrA', 'corrB', 'base', 'shaft'].includes(z.id)) continue; const cx = (z.r[0] + z.r[2] + 1) / 2 * cell, cy = (z.r[1] + z.r[3] + 1) / 2 * cell; g.fillStyle = G.visited.has(z.id) ? '#e6ebdf' : '#8c958a'; g.fillText(z.name.split(' —')[0].split(' / ')[0], cx, cy); }
-  for (const f of FUSES) { if (f.state !== 'world') continue; const z = zoneAt(f.x, f.y); const cx = (z.r[0] + z.r[2] + 1) / 2 * cell, cy = (z.r[1] + z.r[3] + 1) / 2 * cell + cell * 1.4;
-    g.fillStyle = '#ffb040'; g.beginPath(); g.arc(cx, cy, cell * .55, 0, 7); g.fill(); g.fillStyle = '#000'; g.fillText('?', cx, cy + 1); }
-  const pz = tc(7, 1); g.fillStyle = '#5fc27a'; g.fillRect(pz.x / T * cell - cell * .6, pz.z / T * cell - cell * .6, cell * 1.2, cell * 1.2); g.fillStyle = '#e6ebdf'; g.fillText('PAINEL', pz.x / T * cell, pz.z / T * cell + cell * 1.4);
-  g.fillStyle = '#ff5040'; g.fillText('SAÍDA', 5.5 * cell, .5 * cell);
+  for (const z of ZONES) { if (['corrA', 'corrB', 'base', 'shaft'].includes(z.id) || !G.visited.has(z.id)) continue; const cx = (z.r[0] + z.r[2] + 1) / 2 * cell, cy = (z.r[1] + z.r[3] + 1) / 2 * cell; g.fillStyle = '#e6ebdf'; g.fillText(z.name.split(' —')[0].split(' / ')[0], cx, cy); }
+  if (ex(7, 1)) { const pz = tc(7, 1); g.fillStyle = '#5fc27a'; g.fillText('PAINEL', pz.x / T * cell, pz.z / T * cell + cell); }
+  if (ex(5, 1)) { g.fillStyle = '#ff5040'; g.fillText('SAÍDA', 5.5 * cell, .5 * cell); }
   const dot = (p, col, yaw) => { const x = p.x / T * cell, y = p.z / T * cell; g.fillStyle = col; g.beginPath(); if (yaw === undefined) g.arc(x, y, cell * .5, 0, 7); else { const fx = -Math.sin(yaw), fy = -Math.cos(yaw); g.moveTo(x + fx * cell, y + fy * cell); g.lineTo(x - fy * cell * .55 - fx * cell * .4, y + fx * cell * .55 - fy * cell * .4); g.lineTo(x + fy * cell * .55 - fx * cell * .4, y - fx * cell * .55 - fy * cell * .4); } g.fill(); };
   if (NET.role !== 'solo' && R.alive && !R.dead) dot(R.pos, '#5aa8ff'); dot(P.pos, '#ffffff', P.yaw);
-  const st = (f) => f.state === 'inserted' ? '✓ no painel' : f.state === 'carried' ? (f.by === 'g' && NET.role === 'host' || f.by === 'h' && NET.role === 'guest' ? 'com seu amigo' : 'com você') : 'no prédio';
-  $('map-legend').innerHTML = FUSES.map(f => `<span class="${f.state === 'world' ? 'w' : 'ok'}">⚡ ${f.where}: ${st(f)}</span>`).join('') + `<span class="k">◆ você${NET.role !== 'solo' ? ' · ● amigo' : ''} · ■ porta fechada · ? setor com fusível</span>`;
+  $('map-legend').innerHTML = `<span class="k">◆ você${NET.role !== 'solo' ? ' · ● amigo' : ''} · ┅ seu caminho · ■ porta fechada · só aparece o que você já explorou</span>`;
 }
 
 // =====================================================================
@@ -1819,7 +1833,7 @@ function start(cont) {
   if (NET.role !== 'solo') $('partner').style.display = 'block';
   applyDiff(); if (!(cont && existing) && C.state === 'dormant') { C.wakeT = CFG.creature.wakeAfter; C.directorT = CFG.creature.director; }
   setObjective(); camera.rotation.set(0, P.yaw, 0, 'YXZ');
-  const tut = ['<b>OBJETIVO:</b> encontre os <b>4 fusíveis</b> e instale no painel ao lado da porta de saída.', `Portas fechadas abrem com <b>${TOUCH ? 'USAR' : 'E'}</b>. O botão USAR acende quando há algo para pegar.`, `Abra o <b>MAPA</b> ${TOUCH ? '' : '(M) '}para ver os setores e onde procurar.`];
+  const tut = ['<b>OBJETIVO:</b> encontre os <b>4 fusíveis</b> e instale no painel ao lado da porta de saída.', `Portas fechadas abrem com <b>${TOUCH ? 'USAR' : 'E'}</b>. O botão USAR acende quando há algo para pegar.`, `O <b>MAPA</b> ${TOUCH ? '' : '(M) '}mostra por onde você já passou. Use para não andar em círculos.`];
   tut.forEach((t, i) => setTimeout(() => { if (!G.dead) msg(t, 5.5); }, 400 + i * 6200));
   if (TOUCH) { $('touch').classList.add('on'); try { document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape').catch(() => { })).catch(() => { }); } catch (e) { } }
   else if (!DEBUG) canvas.requestPointerLock?.();
