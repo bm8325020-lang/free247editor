@@ -8,12 +8,3 @@
 -dontwarn java.lang.management.**
 -keepattributes SourceFile,LineNumberTable
 
-# In-app yt-dlp (youtubedl-android) ships no shrinker rules and reads JSON into its own classes by reflection
-# (updates, video info). Keep it and its helpers whole.
--keep class com.yausername.** { *; }
--keep class org.apache.commons.compress.** { *; }
--keep class org.apache.commons.io.** { *; }
--dontwarn org.apache.commons.compress.**
--dontwarn com.github.luben.zstd.**
--dontwarn org.brotli.dec.**
--dontwarn org.tukaani.xz.**

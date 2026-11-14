@@ -20,29 +20,6 @@ Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o 
 
 O código do app está em `android/`.
 
-### Aba Biblioteca (scenepacks para edit)
-
-1. **Buscar scenepacks:** digite, por exemplo, "gojo scenepack 4k". O app busca no YouTube e lista os vídeos, todos
-   marcados. Desmarque o que não quiser e toque em **Baixar tudo**: baixa dentro do app, na maior qualidade que o
-   celular reproduz (até 4K), um por vez, com progresso na notificação.
-2. **Downloads:** a lista do que você baixou, com status. Cada vídeo é cortado sozinho em cenas, com miniatura. Com a
-   chave da Anthropic, o Claude descreve cada cena (personagem, ação, emoção, enquadramento); com a do Groq, as falas
-   entram também. Custo estimado da descrição: uns US$ 6 por 1.000 cenas, cobrado uma vez.
-3. **Achar cena:** escreva do seu jeito ("gojo tirando a venda", "close nos olhos", "fala que é fraco").
-   **Buscar** é instantânea e grátis; **Busca inteligente** usa o Claude e entende sinônimos, gírias e erros de
-   digitação. Toque numa cena para ver e **Salvar na galeria** (Movies/Cenas), ou salve todas de uma vez.
-4. Se o YouTube parar de baixar, toque em **Atualizar o baixador**.
-5. **Importar vídeos do celular:** desde novembro de 2025 o YouTube exige que o yt-dlp resolva um desafio em JavaScript,
-   e o app não traz esse motor; por isso muitos downloads do YouTube falham. Baixe o scenepack com o app que preferir
-   e use **Importar**: o vídeo entra na Biblioteca e é cortado em cenas e descrito do mesmo jeito.
-6. **Achar cena** procura só nos vídeos que você tem. Se não estiver lá, **Procurar esse momento na internet**: o
-   Claude diz de onde é a cena e busca no YouTube.
-
-Os vídeos ficam guardados na pasta do app; apagar um vídeo na lista apaga o arquivo. Use para as suas edits e respeite
-as regras de quem publicou o scenepack.
-
-Há dois APKs: **arm64** (quase todos os celulares) e **armeabi-v7a** (celulares antigos de 32 bits).
-
 ## No computador
 
 ### Instalar (uma vez)

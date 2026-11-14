@@ -58,16 +58,13 @@ class MainActivity : Activity() {
     private lateinit var stage: TextView
     private lateinit var results: LinearLayout
     private lateinit var opts: Options
-    private lateinit var library: clipfactory.app.library.LibraryScreen
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         opts = Prefs.options(this)
-        library = clipfactory.app.library.LibraryScreen(this, ui)
-        setContentView(tabs(build(), library.build()))
-        if (intent?.getStringExtra("tab") == "library") showTab(1)
+        setContentView(build())
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
@@ -170,37 +167,6 @@ class MainActivity : Activity() {
     }
 
     private fun save() = Prefs.save(this, opts)
-
-    // ---------- tabs: Clipes | Biblioteca ----------
-    private val pages = ArrayList<View>()
-    private val tabButtons = ArrayList<Button>()
-
-    private fun showTab(i: Int) {
-        pages.forEachIndexed { k, v -> v.visibility = if (k == i) View.VISIBLE else View.GONE }
-        tabButtons.forEachIndexed { k, b ->
-            b.setTextColor(if (k == i) Color.BLACK else fg)
-            b.background = GradientDrawable().apply { setColor(if (k == i) accent else Color.rgb(40, 43, 50)); cornerRadius = dp(20).toFloat() }
-        }
-    }
-
-    private fun tabs(vararg views: View): View {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(bg) }
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(16), dp(16), dp(16), dp(4)) }
-        listOf("Clipes", "Biblioteca").forEachIndexed { i, label ->
-            val b = Button(this).apply {
-                text = label; isAllCaps = false; textSize = 15f; typeface = Typeface.DEFAULT_BOLD
-                layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = if (i == 0) dp(8) else 0 }
-                setOnClickListener { showTab(i) }
-            }
-            tabButtons.add(b); bar.addView(b)
-        }
-        root.addView(bar)
-        val frame = android.widget.FrameLayout(this)
-        for (v in views) { pages.add(v); frame.addView(v) }
-        root.addView(frame, LinearLayout.LayoutParams(-1, 0, 1f))
-        showTab(0)
-        return root
-    }
 
     private fun build(): View {
         val root = LinearLayout(this).apply {
@@ -312,11 +278,6 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == clipfactory.app.library.LibraryScreen.IMPORT_REQUEST && resultCode == RESULT_OK && data != null) {
-            val uris = data.clipData?.let { c -> (0 until c.itemCount).map { c.getItemAt(it).uri } } ?: listOfNotNull(data.data)
-            library.onImport(uris)
-            return
-        }
         if (requestCode == 1 && resultCode == RESULT_OK) data?.data?.let {
             try {
                 contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
