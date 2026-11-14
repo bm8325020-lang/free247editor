@@ -573,7 +573,7 @@ const keys = {}; let mouseR = false;
 // CRIATURA — "Paciente 17 / O Sem-Pálpebras"
 // =====================================================================
 function buildCreature() {
-  const skin = new THREE.MeshStandardMaterial({ color: 0xc4baa8, roughness: .45, metalness: 0, emissive: 0x000000 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0x9c9384, roughness: .62, metalness: 0, emissive: 0x000000 });
   const sinew = new THREE.MeshStandardMaterial({ color: 0x5b3b33, roughness: .6 });
   const voidM = new THREE.MeshBasicMaterial({ color: 0x000000 });
   const gum = new THREE.MeshBasicMaterial({ color: 0x2a0303 });
@@ -593,7 +593,7 @@ function buildCreature() {
   const skull = new THREE.Mesh(new THREE.SphereGeometry(.16, 14, 12), skin); skull.scale.set(.9, 1.45, 1.05); skull.position.y = .14; head.add(skull);
   const face = pivot(head, 0, .12, .12); // olhos sem pálpebras: órbitas negras com íris branca minúscula
   const eyes = [];
-  for (const s of [-1, 1]) { const sock = new THREE.Mesh(new THREE.SphereGeometry(.045, 10, 8), voidM); sock.position.set(s * .06, .05, .03); sock.scale.set(1, 1.2, .5); face.add(sock); const eye = new THREE.Mesh(new THREE.SphereGeometry(.03, 10, 8), new THREE.MeshBasicMaterial({ color: 0xd8d6c8 })); eye.position.set(s * .06, .05, .035); face.add(eye); const pupil = new THREE.Mesh(new THREE.SphereGeometry(.008, 6, 6), voidM); pupil.position.set(s * .06, .05, .066); face.add(pupil); eyes.push(eye); }
+  for (const s of [-1, 1]) { const sock = new THREE.Mesh(new THREE.SphereGeometry(.045, 10, 8), voidM); sock.position.set(s * .06, .05, .03); sock.scale.set(1.25, 1.45, .5); face.add(sock); const eye = new THREE.Mesh(new THREE.SphereGeometry(.021, 10, 8), new THREE.MeshStandardMaterial({ color: 0xb9b39c, roughness: .2 })); eye.position.set(s * .06, .05, .035); face.add(eye); const pupil = new THREE.Mesh(new THREE.SphereGeometry(.006, 6, 6), voidM); pupil.position.set(s * .06, .05, .057); face.add(pupil); eyes.push(eye); }
   const jaw = pivot(head, 0, -.02, .05); jaw.rotation.x = .5;
   const jawM = new THREE.Mesh(new THREE.BoxGeometry(.13, .28, .07), skin); jawM.position.set(0, -.13, .03); jaw.add(jawM);
   const mouth = new THREE.Mesh(new THREE.PlaneGeometry(.11, .26), gum); mouth.position.set(0, -.12, .07); jaw.add(mouth);
@@ -1046,6 +1046,7 @@ function updateHUD() {
 }
 const clock = new THREE.Clock(); let grainT = 0;
 function frame() {
+  if (G.trailer) return;
   requestAnimationFrame(frame); const dt = Math.min(clock.getDelta(), 1 / 20);
   if (G.started && !G.paused && !G.readingNote && !G.won) {
     if (!G.dead) { G.t += dt; updatePlayer(dt); updateCreature(dt); updateEndgame(dt); }
@@ -1112,4 +1113,21 @@ $('btn-new').onclick = () => start(false); $('btn-cont').onclick = () => start(t
 frame();
 
 // gancho de teste/depuração
-window.__game = { P, C, G, CR, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+// ----- modo trailer: o jogo para de rodar sozinho e cada quadro é avançado por script (captura determinística)
+if (new URLSearchParams(location.search).has('trailer')) {
+  document.body.classList.add('trailer'); G.trailer = true;
+  renderer.toneMappingExposure = 1.35; CR.skin.color.setHex(0x6e665b); CR.skin.roughness = .75; scene.add(new THREE.AmbientLight(0x2a3a38, .9)); scene.fog.density = .045;
+  const temp = [];
+  window.__tempLight = (x, y, int = 6, color = 0xcfe0dc, r = 9) => { const l = new THREE.PointLight(color, int, r, 2); l.position.copy(tc(x, y, WALL_H - .4)); scene.add(l); temp.push(l); return l; };
+  window.__clearTemp = () => { temp.forEach(l => scene.remove(l)); temp.length = 0; };
+  window.__setLight = (i, on) => { setLight(i, on); };
+  window.__tick = (dt) => {
+    G.t += dt; CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
+    animateCreature(dt); updateLights(dt);
+    flash.angle = P.focus ? .26 : .78; flash.penumbra = 1; flash.intensity *= 1.3; // feixe mais cinematográfico
+    camera.rotation.set(P.pitch, P.yaw, P.roll || 0, 'YXZ');
+    if (window.__post) window.__post();
+    drawGrain(); renderer.render(scene, camera);
+  };
+}
+window.__game = { P, C, G, CR, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };

@@ -27,3 +27,13 @@ Para gerar de novo após mudar o jogo:
 ANDROID_SDK=/caminho/do/sdk ./android/build-apk.sh
 ```
 Requer JDK, `platforms;android-34` e `build-tools;34.0.0`. Assina com `android/debug.keystore` (chave de **teste**, senha `android`). Para publicar na Play Store, gere uma chave própria e passe `KEYSTORE=...`.
+
+## Trailer
+`trailer/` gera o trailer a partir do jogo real, renderizado quadro a quadro:
+```bash
+python3 -m http.server 8765 &                                   # dentro de santa-lucia/
+node trailer/capture.js "http://localhost:8765/?trailer" frames 30   # quadros JPEG (Playwright)
+python3 trailer/soundtrack.py trilha.wav                         # trilha sintetizada (numpy)
+ffmpeg -framerate 30 -i frames/f%05d.jpg -i trilha.wav -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -shortest trailer.mp4
+```
+Os planos de câmera ficam em `trailer/director.js`.

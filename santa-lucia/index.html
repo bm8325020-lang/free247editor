@@ -82,6 +82,14 @@
   body.touch .screen p{margin:6px 0;line-height:1.45}
   body.touch .keys{margin:6px 0;gap:1px 14px;font-size:11px}
   body.touch .btn{padding:10px 22px;margin:4px}
+  body.trailer #cross,body.trailer #prompt,body.trailer #zone,body.trailer #objective,body.trailer #fuses,body.trailer #meters,body.trailer #msg,body.trailer #debug,body.trailer #danger,body.trailer .screen{display:none!important}
+  #card{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;pointer-events:none;background:#000;color:#cfd5c6}
+  body.trailer #card{display:flex}
+  #card .big{font-family:'Special Elite',serif;font-size:104px;letter-spacing:.06em;text-shadow:0 0 40px rgba(140,180,160,.3)}
+  #card .line{font-family:'Special Elite',serif;font-size:44px;letter-spacing:.14em}
+  #card .small{font-family:'IBM Plex Mono',monospace;font-size:18px;letter-spacing:.45em;color:#7d857a;margin-top:18px;text-transform:uppercase}
+  #card.over{background:transparent}
+  #card.over .line{position:absolute;bottom:12%;font-size:34px;text-shadow:0 0 20px #000,0 0 8px #000}
   #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
 </style>
 </head>
@@ -105,6 +113,7 @@
 </div>
 <div id="msg"></div>
 <div id="debug"></div>
+<div id="card"></div>
 <div id="note"><div class="paper"><h3 id="note-title"></h3><div id="note-body"></div><div class="close">[E] / [ESC] fechar</div></div></div>
 
 <div class="screen on" id="title">
