@@ -5,18 +5,26 @@ Nada é publicado: os arquivos ficam na sua máquina.
 
 ## No celular (APK)
 
-Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o Android pedir). Depois:
+Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o Android pedir). O app tem estas telas:
 
-1. Abra o app e toque em **Escolher vídeo**. Ou, na galeria ou em qualquer app, toque em **Compartilhar →
-   Fábrica de Clipes**.
-2. (Recomendado) Cole a chave grátis do Groq em **Chaves**. Sem ela, os clipes saem sem legenda e são escolhidos
-   só pelo áudio.
-3. Toque em **CRIAR CLIPES**. Pode bloquear a tela: o progresso fica na notificação.
-4. Os clipes aparecem no app e na galeria, pasta `Movies/Clipes`.
-5. **Postar com um toque:** cada clipe tem botões **TikTok, Shorts, Reels, Kwai e Outros**. O botão copia a legenda
-   pronta (título + "Créditos: @streamer" + hashtags, configurados em **4. Postagem**) e abre o app com o vídeo
-   carregado: é só colar a legenda e publicar. Postar 100% automático exige a API oficial de cada rede; a do
-   TikTok só publica vídeos privados até o app passar por uma auditoria deles.
+1. **Início:** toque em **Novo clipe** (ou, na galeria, **Compartilhar → Fábrica de Clipes**). Embaixo ficam seus
+   projetos. Segure um projeto para apagar.
+2. **Novo clipe:** quantos clipes (1 a 15), duração máxima, estilo da legenda (Amarelo TikTok, Branco forte,
+   Karaokê, Minimalista) e layout (Automático = webcam em cima quando houver webcam). A chave **Escolher os momentos
+   antes de montar** vem desligada: o app escolhe sozinho. Ligada, ele para depois de achar os momentos.
+3. **Processando:** etapas reais e as miniaturas dos momentos. Pode bloquear a tela: o progresso fica na notificação.
+4. **Escolher momentos** (só se a chave estiver ligada): os melhores já vêm marcados. Marque ou desmarque e toque em
+   **Montar N clipes**.
+5. **Resultados:** os clipes em tela cheia, um por vez, arrastando para cima como no TikTok. Botões:
+   - **Postar:** copia a legenda pronta (título + "Créditos: @streamer" + hashtags) e abre TikTok, Shorts, Reels,
+     Kwai ou outro app com o vídeo carregado. Você cola e publica. Nada é postado sozinho.
+   - **Editar:** muda o início e o fim (com tira de quadros e prévia), o título, o estilo da legenda e o layout.
+     **Aplicar** monta de novo só aquele clipe.
+   - **Apagar:** tira o clipe do app e da galeria.
+6. **Configurações** (engrenagem): chaves do Groq e da Anthropic com botão de testar, créditos, hashtags e os
+   padrões de um clipe novo.
+
+Os clipes também ficam na galeria, pasta `Movies/Clipes`.
 
 O código do app está em `android/`.
 

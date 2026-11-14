@@ -28,6 +28,8 @@ object Prefs {
             language = p.getString("language", "") ?: "",
             credit = p.getString("credit", "") ?: "",
             hashtags = p.getString("hashtags", "#cortes #clips") ?: "",
+            chooseMoments = p.getBoolean("chooseMoments", false),
+            captionStyle = p.getString("captionStyle", "amarelo") ?: "amarelo",
         )
     }
 
@@ -40,6 +42,8 @@ object Prefs {
             .remove("groqKey").remove("claudeKey")
             .putString("language", o.language.trim())
             .putString("credit", o.credit.trim()).putString("hashtags", o.hashtags.trim())
+            .putBoolean("chooseMoments", o.chooseMoments).putString("captionStyle", o.captionStyle)
+            .putBoolean("onboarded", true)
             .apply()
     }
 }

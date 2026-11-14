@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,19 +22,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-sealed class JobStatus {
-    data object Idle : JobStatus()
-    data class Running(val stage: String, val progress: Double) : JobStatus()
-    data class Done(val result: JobResult) : JobStatus()
-    data class Failed(val message: String) : JobStatus()
-}
+/** What the background work is doing right now (the Processing screen shows this). */
+data class Work(
+    val projectId: String? = null,
+    val phase: String = "idle", // idle | analyzing | rendering
+    val stage: String = "",
+    val progress: Double = 0.0,
+    val clipIndex: Int = -1,
+    val error: String? = null,
+)
 
 object JobState {
-    val status = MutableStateFlow<JobStatus>(JobStatus.Idle)
-    val flow: StateFlow<JobStatus> get() = status
+    val work = MutableStateFlow(Work())
+    val flow: StateFlow<Work> get() = work
 }
 
-/** Runs the job in the foreground so Android does not kill it during a long stream. */
+/**
+ * Runs the work in the foreground so Android does not stop it during a long stream:
+ *  analyze -> (the user picks moments, when that option is on) -> render each clip; also re-renders an edited clip.
+ */
 class ClipService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
@@ -42,45 +49,78 @@ class ClipService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_CANCEL) {
-            job?.cancel()
+        when (intent?.action) {
+            ACTION_CANCEL -> { job?.cancel(); return START_NOT_STICKY }
+            null -> return START_NOT_STICKY
+        }
+        // Android requires startForeground after startForegroundService, even when this request is turned down
+        startForegroundCompat(notification("Preparando…", 0))
+        if (job?.isActive == true) {
+            android.widget.Toast.makeText(this, "Espere o trabalho atual terminar.", android.widget.Toast.LENGTH_LONG).show()
             return START_NOT_STICKY
         }
-        val uri = intent?.data ?: return START_NOT_STICKY
-        if (job?.isActive == true) return START_NOT_STICKY
-        val name = intent.getStringExtra(EXTRA_NAME) ?: "video"
-        val opt = Prefs.options(this)
-        // debug builds only: a ready transcript (TSV start, end, word) so captions can be tested without a Groq key
-        val testWords = if (BuildConfig.DEBUG) intent.getStringExtra("test_words")?.let { path ->
-            java.io.File(path).readLines().filter { it.isNotBlank() }.map {
-                val p = it.split('\t'); clipfactory.core.Word(p[2], p[0].toDouble(), p[1].toDouble())
-            }
-        } else null
-        startForegroundCompat(notification("Preparando…", 0))
         wake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "clipfactory:job").apply { acquire(6 * 60 * 60 * 1000L) }
-        JobState.status.value = JobStatus.Running("Preparando", 0.0)
+        ProjectStore.load(this)
+        val opt = Prefs.options(this)
+        val action = intent.action!!
         job = scope.launch {
-            var lastPct = -1
+            var projectId = intent.getStringExtra(EXTRA_PROJECT)
             try {
-                val result = Engine(this@ClipService, uri, name, opt, testWords) { stage, p ->
-                    JobState.status.value = JobStatus.Running(stage, p)
-                    val pct = (p * 100).toInt()
-                    if (pct != lastPct) {
-                        lastPct = pct
-                        nm().notify(ID, notification(stage, pct))
+                when (action) {
+                    ACTION_ANALYZE -> {
+                        val uri = intent.data ?: return@launch
+                        projectId = "p" + System.currentTimeMillis()
+                        // debug builds only: a ready transcript (TSV start, end, word) to test captions without a key
+                        val testWords = if (BuildConfig.DEBUG) intent.getStringExtra("test_words")?.let { path ->
+                            java.io.File(path).readLines().filter { it.isNotBlank() }.map {
+                                val p = it.split('\t'); clipfactory.core.Word(p[2], p[0].toDouble(), p[1].toDouble())
+                            }
+                        } else null
+                        val pid = projectId!!
+                        set(Work(pid, "analyzing", "Abrindo o vídeo", 0.0))
+                        val p = Engine.analyze(this@ClipService, pid, uri, intent.getStringExtra(EXTRA_NAME) ?: "video", opt, testWords) { st, pr ->
+                            set(Work(pid, "analyzing", st, pr))
+                        }
+                        if (opt.chooseMoments) {
+                            set(Work(pid, "idle"))
+                            nm().notify(ID_DONE, done("Escolha os momentos", "Achei ${p.moments.size} momentos. Toque para escolher quais viram clipe."))
+                            return@launch
+                        }
+                        ProjectStore.update(this@ClipService, pid) {
+                            it.copy(clips = Engine.clipsFor(it, it.moments.filter { m -> m.preselected }.map { m -> m.id }, opt))
+                        }
+                        renderPending(pid, opt)
                     }
-                }.run()
-                JobState.status.value = JobStatus.Done(result)
-                if (result.clips.isEmpty()) {
-                    nm().notify(ID_DONE, done("Nenhum clipe saiu", result.notes.firstOrNull() ?: "Abra o app para ver o motivo."))
-                } else {
-                    nm().notify(ID_DONE, done("${result.clips.size} clipes prontos", "Salvos na galeria, pasta Movies/Clipes."))
+                    ACTION_RENDER -> {
+                        val pid = projectId ?: return@launch
+                        val ids = intent.getIntArrayExtra(EXTRA_MOMENTS)?.toList() ?: emptyList()
+                        ProjectStore.update(this@ClipService, pid) { p ->
+                            val have = p.clips.map { it.momentId }.toSet()
+                            p.copy(status = "rendering", clips = p.clips + Engine.clipsFor(p, ids.filter { it !in have }, opt))
+                        }
+                        renderPending(pid, opt)
+                    }
+                    ACTION_RERENDER -> {
+                        val pid = projectId ?: return@launch
+                        val idx = intent.getIntExtra(EXTRA_INDEX, -1)
+                        ProjectStore.update(this@ClipService, pid) { p ->
+                            p.copy(clips = p.clips.mapIndexed { i, c -> if (i == idx) c.copy(status = "pending") else c })
+                        }
+                        renderPending(pid, opt)
+                    }
                 }
             } catch (e: CancellationException) {
-                JobState.status.value = JobStatus.Failed("Cancelado.")
+                projectId?.let { id -> ProjectStore.update(this@ClipService, id) {
+                    it.copy(status = if (it.doneClips.isEmpty()) "canceled" else "done",
+                        clips = it.clips.map { c -> if (c.status == "rendering") c.copy(status = "pending") else c })
+                } }
+                set(Work(projectId, "idle", error = "Cancelado."))
             } catch (e: Throwable) {
-                JobState.status.value = JobStatus.Failed(e.message ?: e.toString())
+                Log.e("ClipService", "job failed", e)
+                projectId?.let { id -> ProjectStore.update(this@ClipService, id) { it.copy(status = if (it.doneClips.isEmpty()) "failed" else "done",
+                    notes = listOf("Erro: ${e.message ?: e}") + it.notes) } }
+                set(Work(projectId, "idle", error = e.message ?: e.toString()))
                 nm().notify(ID_DONE, done("Falhou", e.message ?: e.toString()))
             } finally {
                 wake?.let { if (it.isHeld) it.release() }
@@ -89,6 +129,43 @@ class ClipService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    private suspend fun renderPending(pid: String, opt: Options) {
+        val failed = ArrayList<String>()
+        while (true) {
+            val p = ProjectStore.get(pid) ?: return
+            val i = p.clips.indexOfFirst { it.status == "pending" }
+            if (i < 0) break
+            val todo = p.clips.count { it.status == "pending" }
+            val total = p.clips.size
+            val n = total - todo + 1
+            ProjectStore.update(this, pid) { it.copy(status = "rendering", clips = it.clips.mapIndexed { k, c -> if (k == i) c.copy(status = "rendering") else c }) }
+            set(Work(pid, "rendering", "Montando o clipe $n de $total", 0.0, i))
+            try {
+                val made = Engine.render(this, ProjectStore.get(pid)!!, i, opt) { pr ->
+                    set(Work(pid, "rendering", "Montando o clipe $n de $total", pr, i))
+                }
+                ProjectStore.update(this, pid) { it.copy(clips = it.clips.mapIndexed { k, c -> if (k == i) made else c }) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("ClipService", "clip $i failed", e)
+                failed.add(e.message?.take(100) ?: e.toString())
+                ProjectStore.update(this, pid) { it.copy(clips = it.clips.mapIndexed { k, c ->
+                    if (k == i) c.copy(status = "failed", error = e.message?.take(160) ?: e.toString()) else c }) }
+            }
+        }
+        val p = ProjectStore.get(pid) ?: return
+        ProjectStore.update(this, pid) { it.copy(status = if (it.doneClips.isEmpty()) "failed" else "done") }
+        set(Work(pid, "idle"))
+        nm().notify(ID_DONE, if (p.doneClips.isEmpty()) done("Nenhum clipe saiu", failed.firstOrNull() ?: "Abra o app para ver o motivo.")
+            else done("${p.doneClips.size} clipes prontos", "Toque para assistir e postar."))
+    }
+
+    private fun set(w: Work) {
+        JobState.work.value = w
+        if (w.phase != "idle") nm().notify(ID, notification(w.stage, (w.progress * 100).toInt()))
     }
 
     override fun onDestroy() {
@@ -146,17 +223,26 @@ class ClipService : Service() {
         private const val ID = 1
         private const val ID_DONE = 2
         const val EXTRA_NAME = "name"
+        const val EXTRA_PROJECT = "project"
+        const val EXTRA_MOMENTS = "moments"
+        const val EXTRA_INDEX = "index"
+        const val ACTION_ANALYZE = "analyze"
+        const val ACTION_RENDER = "render"
+        const val ACTION_RERENDER = "rerender"
         const val ACTION_CANCEL = "cancel"
 
-        fun start(ctx: Context, uri: Uri, name: String) {
-            ctx.startForegroundService(
-                Intent(ctx, ClipService::class.java).setData(uri).putExtra(EXTRA_NAME, name)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            )
-        }
+        fun analyze(ctx: Context, uri: Uri, name: String, testWords: String? = null) = ctx.startForegroundService(
+            Intent(ctx, ClipService::class.java).setAction(ACTION_ANALYZE).setData(uri).putExtra(EXTRA_NAME, name)
+                .putExtra("test_words", testWords).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
 
-        fun cancel(ctx: Context) {
-            ctx.startService(Intent(ctx, ClipService::class.java).setAction(ACTION_CANCEL))
-        }
+        fun render(ctx: Context, projectId: String, momentIds: List<Int>) = ctx.startForegroundService(
+            Intent(ctx, ClipService::class.java).setAction(ACTION_RENDER).putExtra(EXTRA_PROJECT, projectId)
+                .putExtra(EXTRA_MOMENTS, momentIds.toIntArray()))
+
+        fun rerender(ctx: Context, projectId: String, index: Int) = ctx.startForegroundService(
+            Intent(ctx, ClipService::class.java).setAction(ACTION_RERENDER).putExtra(EXTRA_PROJECT, projectId)
+                .putExtra(EXTRA_INDEX, index))
+
+        fun cancel(ctx: Context) = ctx.startService(Intent(ctx, ClipService::class.java).setAction(ACTION_CANCEL))
     }
 }
