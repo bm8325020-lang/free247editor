@@ -308,6 +308,38 @@ const MAT = {
   dirt: new THREE.MeshStandardMaterial({ map: TEX.dirt, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 }),
 };
 
+function box3(w, h, d, mat) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.castShadow = m.receiveShadow = true; return m; }
+
+// ----- CORPOS: lençol drapeado sobre a silhueta (cabeça, peito, quadril, pés) ou saco preto com zíper
+const TEX_SHEET = makeTex(256, (g, s) => { g.fillStyle = '#c4c0b2'; g.fillRect(0, 0, s, s); for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(80,75,60,${rand(.05, .18)})`; g.lineWidth = rand(1, 4); g.beginPath(); const y = rand(0, s); g.moveTo(0, y); g.bezierCurveTo(s * .3, y + rand(-20, 20), s * .7, y + rand(-20, 20), s, y + rand(-10, 10)); g.stroke(); } blotch(g, s, 6, 'rgba(110,95,60,.35)', .05, .2); grainy(g, s, 14); });
+const TEX_SHEET_BLOOD = makeTex(256, (g, s) => { g.drawImage(TEX_SHEET.image, 0, 0); blotch(g, s, 5, 'rgba(95,8,6,.75)', .04, .14, .15, .45); blotch(g, s, 3, 'rgba(70,6,4,.6)', .02, .06, .3, .7); });
+const MAT_SHEET = new THREE.MeshStandardMaterial({ map: TEX_SHEET, roughness: .95, side: THREE.DoubleSide });
+const MAT_SHEET_BLOOD = new THREE.MeshStandardMaterial({ map: TEX_SHEET_BLOOD, roughness: .9, side: THREE.DoubleSide });
+const MAT_BAG = new THREE.MeshStandardMaterial({ color: 0x0c0d0d, roughness: .28, metalness: .1, side: THREE.DoubleSide });
+const MAT_DEADSKIN = new THREE.MeshStandardMaterial({ color: 0x8b8f86, roughness: .6 });
+function bodyHeight(x, z) { // x: -1 (pés) .. 1 (cabeça)
+  const bumps = [[.8, 0, .1, .1, .2], [.62, 0, .05, .12, .1], [.32, 0, .22, .17, .19], [.02, 0, .18, .16, .15], [-.22, 0, .16, .19, .15],
+    [-.5, .09, .25, .06, .1], [-.5, -.09, .25, .06, .1], [-.85, .1, .05, .05, .2], [-.85, -.1, .05, .05, .2], [.2, .21, .3, .04, .09], [.2, -.21, .3, .04, .09]];
+  let h = 0; for (const [x0, z0, rx, rz, H] of bumps) h = Math.max(h, H * Math.exp(-(((x - x0) / rx) ** 2) - (((z - z0) / rz) ** 2))); return h;
+}
+function makeBody(kind = 'sheet', o = {}) {
+  const g = new THREE.Group(); const bag = kind === 'bag'; const W2 = bag ? .34 : .52;
+  const geo = new THREE.PlaneGeometry(2.0, W2 * 2, 70, 28); geo.rotateX(-Math.PI / 2); const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i), az = Math.abs(z); let y = Math.max(bodyHeight(x, z), .025);
+    if (bag) { y *= Math.min(1, (W2 - az) / .06 + .15); y = Math.max(y, .01); } else { if (az > .3) y = Math.max(-.32, y - (az - .3) * 1.6); if (Math.abs(x) > .92) y -= (Math.abs(x) - .92) * 1.8; y += Math.sin(x * 23 + z * 7) * .004; }
+    p.setY(i, y); }
+  geo.computeVertexNormals(); const m = new THREE.Mesh(geo, bag ? MAT_BAG : o.blood ? MAT_SHEET_BLOOD : MAT_SHEET); m.castShadow = m.receiveShadow = true; g.add(m);
+  if (bag) { const pts = []; for (let x = -.95; x <= .95; x += .05) pts.push(new THREE.Vector3(x, bodyHeight(x, 0) + .012, 0)); const zip = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, .006, 4), MAT.steel); g.add(zip);
+    const pull = box3(.05, .012, .025, MAT.steel); pull.position.set(.55, bodyHeight(.55, 0) + .02, 0); g.add(pull); }
+  if (o.arm) { // mão pálida escapando por baixo do lençol
+    const arm = new THREE.Group(); arm.position.set(.18, .05, W2 - .02); arm.rotation.x = -.15; g.add(arm);
+    const fa = new THREE.Mesh(new THREE.CylinderGeometry(.03, .035, .42, 7), MAT_DEADSKIN); fa.position.y = -.21; arm.add(fa);
+    const hand = box3(.07, .1, .03, MAT_DEADSKIN); hand.position.y = -.47; arm.add(hand);
+    for (let k = 0; k < 4; k++) { const f = new THREE.Mesh(new THREE.CylinderGeometry(.008, .007, .08, 5), MAT_DEADSKIN); f.position.set(-.026 + k * .017, -.56, rand(-.01, .01)); f.rotation.x = rand(-.3, .3); arm.add(f); }
+  }
+  return g;
+}
+
 // =====================================================================
 // CONSTRUÇÃO DO CENÁRIO
 // =====================================================================
@@ -380,8 +412,8 @@ function buildProps() {
       const top = box(2.0, .07, .8, MAT.metal); top.position.y = .82; g.add(top);
       const mat = box(1.9, .1, .72, MAT.mattress); mat.position.y = .9; g.add(mat);
       for (const sx of [-.9, .9]) for (const sz of [-.33, .33]) { const l = cyl(.025, .8, MAT.steel, 6); l.position.set(sx, .4, sz); g.add(l); const w = cyl(.06, .04, MAT.black); w.rotation.x = Math.PI / 2; w.position.set(sx, .06, sz); g.add(w); }
-      const z = zoneAt(x, y); if (z && z.id === 'morgue' || Math.random() < .3) { const b = new THREE.Mesh(new THREE.CapsuleGeometry(.24, 1.3, 4, 8), MAT.sheet); b.rotation.z = Math.PI / 2; b.position.y = 1.12; b.scale.set(1, 1, .7); b.castShadow = true; g.add(b); }
-      const sheet = box(1.95, .9, .02, MAT.sheet); sheet.position.set(0, .5, .41); g.add(sheet);  // lençol caído (cortina do esconderijo)
+      const z = zoneAt(x, y); if (z && z.id === 'morgue' || Math.random() < .3) { const b = makeBody(Math.random() < .3 ? 'bag' : 'sheet', { arm: Math.random() < .35, blood: Math.random() < .4 }); b.position.y = .95; b.scale.set(.95, 1, .8); g.add(b); }
+      const sheet = box(1.95, .9, .02, MAT_SHEET); sheet.position.set(0, .5, .41); g.add(sheet);  // lençol caído (cortina do esconderijo)
       g.position.copy(c); g.rotation.y = (x + y) % 2 ? 0 : rand(-.15, .15); scene.add(g);
       const spot = { type: 'under', pos: c.clone(), yaw: 0, tile: [x, y], exit: nearestFreeAround(x, y) };
       spot.camPos = c.clone().setY(.35); hideSpots.push(spot);
@@ -390,7 +422,7 @@ function buildProps() {
       const g = new THREE.Group(); const slab = box(2.1, .1, .85, MAT.steel); slab.position.y = .95; g.add(slab);
       const rim = box(2.1, .08, .05, MAT.steel); rim.position.set(0, 1.02, .42); g.add(rim); const rim2 = rim.clone(); rim2.position.z = -.42; g.add(rim2);
       const ped = cyl(.12, .9, MAT.steel); ped.position.y = .45; g.add(ped);
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(.22, 1.2, 4, 8), MAT.sheet); body.rotation.z = Math.PI / 2; body.position.y = 1.18; body.scale.set(1, 1, .75); g.add(body);
+      const body = makeBody('sheet', { blood: true, arm: Math.random() < .5 }); body.position.y = 1.0; body.scale.set(.98, 1, .78); g.add(body);
       const stain = new THREE.Mesh(new THREE.PlaneGeometry(.8, .5).rotateX(-Math.PI / 2), MAT.stain); stain.position.set(.3, 1.011, 0); g.add(stain);
       const tray = box(.6, .03, .4, MAT.steel); tray.position.set(1.3, 1.1, .6); g.add(tray);
       for (let i = 0; i < 5; i++) { const t = box(.18, .01, .015, MAT.steel); t.position.set(1.15 + i * .07, 1.12, .6); g.add(t); }
@@ -448,7 +480,7 @@ function buildItems() {
     const base = tc(f.x, f.y); let h = 0.9;
     if (f.id === 2) { // gaveta aberta do necrotério
       const tray = box(1.4, .08, .8, MAT.steel); tray.position.set(base.x + T / 2 - .7, .95, base.z); scene.add(tray);
-      const bag = new THREE.Mesh(new THREE.CapsuleGeometry(.22, .9, 4, 8), MAT.bag); bag.rotation.z = Math.PI / 2; bag.position.set(base.x + T / 2 - .55, 1.15, base.z); scene.add(bag);
+      const bag = makeBody('bag'); bag.scale.set(.68, .9, .9); bag.rotation.y = Math.PI; bag.position.set(base.x + T / 2 - .7, .99, base.z); scene.add(bag);
       g.position.set(base.x + T / 2 - 1.2, 1.05, base.z + .25);
     } else {
       const stand = box(.7, h, .5, MAT.metal); stand.position.copy(base).setY(h / 2); scene.add(stand); g.position.copy(base).setY(h + .06);
@@ -970,10 +1002,17 @@ function kill(reason) {
   C.state = 'chase'; C.speed = 0; P.lampOn = true;
   AU.jumpscare(); G.shake = 1.2; endFuga(false);
   $('flash').style.opacity = .7; setTimeout(() => $('flash').style.opacity = 0, 120);
-  setTimeout(() => { $('death-sub').textContent = reason + ' Os fusíveis instalados continuam no painel.'; $('death').classList.add('on'); document.exitPointerLock?.(); }, 1100);
+  const hh = 3 + Math.floor(G.t / 3600), mm = Math.floor(G.t / 60) % 60;
+  const rows = [['Nome', 'NÃO IDENTIFICADO'], ['Hora do óbito', `0${hh}:${String(mm).padStart(2, '0')}`], ['Local', P.zone ? P.zone.name : 'desconhecido'], ['Causa', reason],
+    ['Fusíveis no painel', `${G.inserted.length} de 4`], ['Destino', `Gaveta nº ${17 + G.deaths}`]];
+  setTimeout(() => {
+    document.body.classList.add('over'); $('d-num').textContent = String(1974000 + 17 + G.deaths); $('d-rows').innerHTML = rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('');
+    $('death').classList.add('on'); fitScreen($('death'), '.tag'); document.exitPointerLock?.(); $('d-tag').classList.remove('in'); void $('d-tag').offsetWidth; $('d-tag').classList.add('in');
+    AU.tone && AU.tone({ f: 55, f2: 40, dur: 3, vol: .25, verb: .8 });
+  }, 1100);
 }
 function respawn() {
-  $('death').classList.remove('on'); G.dead = false;
+  $('death').classList.remove('on'); document.body.classList.remove('over'); G.dead = false;
   for (const id of P.carried) { const f = FUSES[id]; f.state = 'world'; f.obj.visible = true; f.obj.position.copy(f.home); for (const li of f.lights) setLight(li, true); }
   P.carried = []; computeLightmap(); endFuga(false); for (const F of FUGAS) F.armed = false;
   P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
@@ -994,10 +1033,25 @@ function updateEndgame(dt) {
   if (G.endgame.t >= CFG.endgame.duration) { G.exitOpen = true; AU.doorOpen(exitDoor.getWorldPosition(new THREE.Vector3())); AU.alarm.gain.setTargetAtTime(.03, AU.ctx.currentTime, .5); msg('<b>A PORTA ABRIU. CORRA.</b>', 5); }
   setObjective();
 }
+function fitScreen(el, inner) { // encolhe o conteúdo para caber na tela (celular na horizontal)
+  const box = el.querySelector(inner); box.style.transform = ''; const btn = el.querySelector('.btn');
+  const need = [...el.children].reduce((h, c) => h + c.offsetHeight + 24, 24), k = Math.min(1, innerHeight / need, (innerWidth - 24) / box.offsetWidth);
+  box.style.transform = `scale(${k})`; box.style.margin = `${-(1 - k) * box.offsetHeight / 2}px 0`;
+}
 function win() {
-  G.won = true; document.exitPointerLock?.(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
-  const m = Math.floor(G.t / 60), s = Math.floor(G.t % 60);
-  $('win-sub').textContent = `tempo ${m}:${String(s).padStart(2, '0')} · mortes ${G.deaths} · documentos ${G.notesRead.size}/${NOTES.length}`; $('win').classList.add('on');
+  if (G.won) return; G.won = true; document.exitPointerLock?.(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
+  // "foto" do jornal: a porta aberta, vista de dentro
+  const d = tc(5, 3); camera.position.set(d.x + .3, 1.5, d.z + 1.5); camera.rotation.set(.05, 0, 0, 'YXZ'); CR.root.visible = false; renderer.render(scene, camera);
+  let photo = ''; try { photo = renderer.domElement.toDataURL('image/jpeg', .8); } catch (e) { }
+  const m = Math.floor(G.t / 60), s = Math.floor(G.t % 60), notes = G.notesRead.size;
+  const rank = G.deaths === 0 ? 'ALTA MÉDICA' : G.deaths <= 2 ? 'TRANSFERÊNCIA' : G.deaths <= 5 ? 'LIBERDADE CONDICIONAL' : 'FUGA DESESPERADA';
+  $('w-photo').style.backgroundImage = photo ? `url(${photo})` : 'none';
+  $('w-time').textContent = `${m}:${String(s).padStart(2, '0')}`; $('w-deaths').textContent = G.deaths; $('w-notes').textContent = `${notes}/${NOTES.length}`; $('w-rank').textContent = rank;
+  $('w-body').innerHTML = `Na madrugada de ontem, um sobrevivente foi encontrado no portão principal do Sanatório Santa Lúcia, desativado desde março. Ele afirma ter passado <b>${m} minutos</b> preso no prédio antes de restabelecer a energia da trava eletromagnética.` +
+    (notes >= NOTES.length ? ' Em seu bolso, a polícia encontrou o prontuário completo do <b>Paciente 17</b>. O Dr. Vasconcellos segue desaparecido.' : ' A polícia não comenta o relato de uma "criatura sem pálpebras" vagando pelos corredores.');
+  $('win-flash').classList.add('on'); AU.tone && AU.tone({ f: 220, dur: 3, vol: .06, type: 'sine', verb: .9 });
+  setTimeout(() => { document.body.classList.add('over'); $('win').classList.add('on'); fitScreen($('win'), '.paper'); }, 1600);
+  setTimeout(() => $('w-last').classList.add('in'), 5200);
 }
 
 // =====================================================================
@@ -1191,7 +1245,6 @@ function buildObstacles(F) {
     scene.add(g); OBST.push({ g, box, type, crouch, landed: false, falling: false, hit: false, at: c, horiz, side });
   }
 }
-function box3(w, h, d, mat) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.castShadow = m.receiveShadow = true; return m; }
 function startFuga(F) {
   if (G.fuga || G.endgame) return; F.armed = false; G.fuga = F; fugaBeat = 0; buildObstacles(F);
   C.pos.copy(tc(...F.spawn)); C.state = 'chase'; C.path = []; C.repath = 0; CR.root.visible = true; C.knownHide = null;
@@ -1250,13 +1303,13 @@ const fwdOf = () => new THREE.Vector3(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
 const inZone = (id) => P.zone && P.zone.id === id;
 const SCARES = [
   { id: 'gaveta', when: () => inZone('morgue') && P.pos.x > tc(33, 0).x, run() { // gaveta abre sozinha com um corpo
-      const c = tc(41, 11); const tray = box3(1.4, .08, .8, MAT.steel), bag = new THREE.Mesh(new THREE.CapsuleGeometry(.22, .9, 4, 8), MAT.bag); bag.rotation.z = Math.PI / 2; bag.position.y = .2; tray.add(bag);
+      const c = tc(41, 11); const tray = box3(1.4, .08, .8, MAT.steel), bag = makeBody('bag', { arm: true }); bag.scale.set(.68, .9, .9); bag.rotation.y = Math.PI; bag.position.y = .04; tray.add(bag);
       tray.position.set(c.x + T / 2 + .7, 1.35, c.z); scene.add(tray); AU.slam(c.clone().setY(1.3), 1); G.shake = .6; screenFlash('#000', .5, 60);
       tween(.18, k => tray.position.x = lerp(c.x + T / 2 + .7, c.x + T / 2 - .7, k)); setTimeout(() => AU.whisper(c.clone().setY(1.3), .3), 700); } },
   { id: 'corredor', when: () => P.zone && P.zone.id === 'corrA' && G.awakeOnce && fwdOf().x > .7 && P.pos.x < tc(30, 0).x && C.state !== 'chase', run() { // ele no fim do corredor
       const [x] = tileOf(P.pos); const at = tc(Math.min(41, x + 8), 4); if (!los(P.pos.x, P.pos.z, at.x, at.z)) return false; showPhantom(at, P.pos, .5); } },
   { id: 'armario', when: () => inZone('admin') && P.pos.distanceTo(tc(9, 9)) < 3.2, run() { // corpo cai de dentro do armário
-      const c = tc(9, 9); const body = new THREE.Mesh(new THREE.CapsuleGeometry(.24, 1.2, 4, 8), MAT.sheet); body.castShadow = true; const piv = new THREE.Group(); piv.position.set(c.x, 0, c.z - .6); body.position.y = .85; piv.add(body); scene.add(piv);
+      const c = tc(9, 9); const body = makeBody('sheet', { arm: true, blood: true }); body.scale.set(.88, 1, .7); const inner = new THREE.Group(); inner.rotation.z = Math.PI / 2; inner.add(body); const outer = new THREE.Group(); outer.rotation.y = Math.PI / 2; outer.position.y = .88; outer.add(inner); const piv = new THREE.Group(); piv.position.set(c.x, 0, c.z - .55); piv.add(outer); scene.add(piv);
       AU.slam(c.clone().setY(1.2), 1); G.shake = .8; screenFlash('#000', .6, 70); tween(.45, k => piv.rotation.x = k * k * 1.45, () => { AU.tone({ f: 70, f2: 35, dur: .3, vol: .6, at: c, verb: .4 }); }); } },
   { id: 'apagao', when: () => inZone('lab'), run() { // tudo apaga; quando volta, ele está na sua frente
       G.blackout = 1.8; AU.tone({ f: 120, f2: 30, dur: .6, vol: .3, type: 'sawtooth', verb: .5 }); setTimeout(() => AU.whisper(null, .35), 300); setTimeout(() => AU.whisper(null, .3), 900);
@@ -1313,4 +1366,4 @@ if (new URLSearchParams(location.search).has('trailer')) {
     drawGrain(); renderer.render(scene, camera);
   };
 }
-window.__game = { P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+window.__game = { win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };

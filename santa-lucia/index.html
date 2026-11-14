@@ -90,7 +90,51 @@
   #card .small{font-family:'IBM Plex Mono',monospace;font-size:18px;letter-spacing:.45em;color:#7d857a;margin-top:18px;text-transform:uppercase}
   #card.over{background:transparent}
   #card.over .line{position:absolute;bottom:12%;font-size:34px;text-shadow:0 0 20px #000,0 0 8px #000}
-  #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
+  body.over #touch,body.over #meters,body.over #fuses,body.over #objective,body.over #prompt,body.over #cross,body.over #zone,body.over #msg,body.over #danger{display:none!important}
+  #death{background:#000;gap:22px}
+  #death .glitch{font-family:'Special Elite',serif;font-size:clamp(40px,7vw,78px);color:#b3201a;letter-spacing:.08em;position:relative;animation:jit 2.4s infinite}
+  #death .glitch::before,#death .glitch::after{content:attr(data-t);position:absolute;left:0;top:0;width:100%;opacity:.7}
+  #death .glitch::before{color:#0ff;mix-blend-mode:screen;animation:gl1 1.7s infinite steps(2)}
+  #death .glitch::after{color:#f00;mix-blend-mode:screen;animation:gl2 1.3s infinite steps(2)}
+  @keyframes gl1{0%,92%{transform:none;clip-path:inset(0 0 0 0);opacity:0}93%{transform:translate(-4px,1px);clip-path:inset(20% 0 55% 0);opacity:.8}96%{transform:translate(3px,-2px);clip-path:inset(60% 0 10% 0)}}
+  @keyframes gl2{0%,88%{transform:none;opacity:0}90%{transform:translate(5px,0);clip-path:inset(40% 0 35% 0);opacity:.8}94%{transform:translate(-3px,2px);clip-path:inset(5% 0 80% 0)}}
+  @keyframes jit{0%,96%{transform:none}97%{transform:translate(2px,-1px) skewX(4deg)}98%{transform:translate(-2px,1px)}}
+  .tag{position:relative;width:min(470px,88vw);padding:22px 26px 20px 52px;background:#c9bf9f;color:#2b2416;font-family:'Special Elite',serif;text-align:left;box-shadow:0 18px 60px rgba(0,0,0,.9);rotate:-2deg;
+    background-image:radial-gradient(circle at 85% 15%,rgba(110,70,20,.3),transparent 35%),radial-gradient(circle at 15% 85%,rgba(80,40,10,.35),transparent 40%),repeating-linear-gradient(0deg,transparent 0 27px,rgba(60,50,30,.18) 27px 28px);
+    clip-path:polygon(0 0,100% 0,100% 100%,0 100%,0 62%,-1% 50%,0 38%);opacity:0}
+  .tag.in{animation:tagin .9s cubic-bezier(.2,.9,.3,1.2) forwards}
+  @keyframes tagin{from{opacity:0;translate:0 40px;rotate:-8deg}to{opacity:1;translate:0 0;rotate:-2deg}}
+  .tag .hole{position:absolute;left:18px;top:50%;width:16px;height:16px;margin-top:-8px;border-radius:50%;background:#000;box-shadow:inset 0 0 0 3px #8a7f62}
+  .tag .t-head{font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.75}
+  .tag .t-title{font-size:24px;margin:4px 0 12px;border-bottom:2px solid #2b2416;padding-bottom:6px}
+  .tag .t-title span{font-size:14px;float:right;margin-top:8px}
+  .tag .row{display:flex;justify-content:space-between;gap:12px;font-size:14px;line-height:1.75;border-bottom:1px dotted rgba(43,36,22,.4)}
+  .tag .row span{opacity:.7}.tag .row b{font-weight:400;text-align:right}
+  .tag .stamp{position:absolute;right:18px;top:16px;border:3px solid rgba(160,20,15,.85);color:rgba(160,20,15,.85);font-size:30px;letter-spacing:.15em;padding:2px 10px;transform:rotate(-14deg);mix-blend-mode:multiply}
+  #win-flash{position:fixed;inset:0;background:#f4f1e6;opacity:0;pointer-events:none;transition:opacity 1.4s}
+  #win-flash.on{opacity:1}
+  #win{background:#e9e4d4;gap:14px}
+  #win .paper{width:min(860px,94vw);padding:22px 30px;background:#efe9d8;color:#1d1a14;font-family:Georgia,'Times New Roman',serif;box-shadow:0 10px 40px rgba(0,0,0,.25);text-align:left;rotate:.6deg;
+    background-image:radial-gradient(circle at 90% 10%,rgba(150,120,60,.18),transparent 30%),radial-gradient(circle at 5% 95%,rgba(150,110,50,.2),transparent 35%)}
+  #win .mast{font-family:'Special Elite',serif;text-align:center;font-size:clamp(28px,5vw,52px);letter-spacing:.06em;border-bottom:3px double #1d1a14}
+  #win .dateline{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:4px 0;border-bottom:1px solid #1d1a14}
+  #win .headline{font-family:'Special Elite',serif;font-size:clamp(22px,3.8vw,40px);line-height:1.05;margin:12px 0 4px}
+  #win .sub{font-style:italic;font-size:15px;margin-bottom:12px}
+  #win .cols{display:grid;grid-template-columns:1.05fr 1fr;gap:20px}
+  #win .photo{aspect-ratio:4/3;background:#333 center/cover;filter:grayscale(1) contrast(1.6) brightness(1.15);position:relative;border:1px solid #1d1a14}
+  #win .photo span{position:absolute;left:0;right:0;bottom:-22px;font-size:11px;font-style:italic;color:#1d1a14;filter:none}
+  #win p{font-size:14px;line-height:1.55;margin:0 0 12px;text-align:justify;color:#1d1a14;max-width:none}
+  #win p::first-letter{font-size:38px;float:left;line-height:.9;margin:2px 6px 0 0;font-family:'Special Elite',serif}
+  #win .stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;border-top:1px solid #1d1a14;padding-top:8px}
+  #win .stats small{display:block;font-size:10px;letter-spacing:.15em;text-transform:uppercase;opacity:.65}
+  #win .stats b{font-family:'Special Elite',serif;font-size:18px;font-weight:400}
+  #win .last{margin-top:26px;font-size:13px;font-style:italic;color:#8a1a12;opacity:0;transition:opacity 2s}
+  #win .last.in{opacity:1}
+  #win .btn{color:#1d1a14;border-color:#1d1a14}#win .btn:hover{background:#1d1a14;color:#efe9d8}
+  @media (max-height:520px){#win .paper{padding:12px 18px}#win .cols{gap:12px}#win p{font-size:12px;margin-bottom:6px}#win .sub{margin-bottom:6px}#win .headline{margin:6px 0 2px}#win .last{margin-top:22px}}
+  .fit{transform-origin:center center}
+  #death .glitch{line-height:1}
+    #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
 </style>
 </head>
 <body>
@@ -155,8 +199,34 @@
   <button class="tbtn big" id="tb-breath" style="display:none">AR</button>
 </div>
 <div class="screen" id="pause"><h1>PAUSA</h1><h2>clique para continuar</h2></div>
-<div class="screen" id="death"><h1>VOCÊ MORREU</h1><h2 id="death-sub">os fusíveis instalados continuam no painel</h2><button class="btn" id="btn-retry">Tentar de novo</button></div>
-<div class="screen" id="win"><h1>VOCÊ ESCAPOU</h1><h2 id="win-sub"></h2><button class="btn" onclick="location.reload()">Jogar de novo</button></div>
+<div class="screen" id="death">
+  <div class="glitch" data-t="VOCÊ MORREU">VOCÊ MORREU</div>
+  <div class="tag" id="d-tag">
+    <div class="hole"></div>
+    <div class="t-head">Sanatório Santa Lúcia · Necrotério</div>
+    <div class="t-title">Ficha de óbito <span>nº <i id="d-num"></i></span></div>
+    <div id="d-rows"></div>
+    <div class="stamp">ÓBITO</div>
+  </div>
+  <button class="btn" id="btn-retry">Tentar de novo</button>
+</div>
+<div id="win-flash"></div>
+<div class="screen" id="win">
+  <div class="paper">
+    <div class="mast">O CORREIO DA SERRA</div>
+    <div class="dateline"><span>Ano XLI · Nº 12.844</span><span>Sexta-feira, 15 de março de 1974</span><span>Cr$ 1,00</span></div>
+    <div class="headline">SOBREVIVENTE DEIXA O SANATÓRIO SANTA LÚCIA</div>
+    <div class="sub">Homem diz ter fugido de "algo que não fecha os olhos"</div>
+    <div class="cols">
+      <div class="photo" id="w-photo"><span>O portão principal, encontrado aberto pela polícia.</span></div>
+      <div><p id="w-body"></p>
+        <div class="stats"><div><small>Tempo</small><b id="w-time"></b></div><div><small>Mortes</small><b id="w-deaths"></b></div><div><small>Documentos</small><b id="w-notes"></b></div><div><small>Classificação</small><b id="w-rank"></b></div></div>
+      </div>
+    </div>
+    <div class="last" id="w-last">Nota da redação: no necrotério do sanatório, a gaveta nº 18 foi encontrada trancada — por dentro.</div>
+  </div>
+  <button class="btn" onclick="location.reload()">Jogar de novo</button>
+</div>
 
 <script type="module" src="./game.js"></script>
 </body>
