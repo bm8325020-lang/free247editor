@@ -144,6 +144,7 @@
   #polaroid span{position:absolute;left:0;right:0;bottom:6px;text-align:center;font:15px 'Special Elite',serif;color:#3a2f22}
   body.touch #polaroid{right:auto;left:16px;bottom:auto;top:90px;width:130px}
   #tb-photo{right:196px;bottom:112px}
+  #tb-throw{right:278px;bottom:70px;font-size:9px}
   #lobby{margin-top:14px;padding-top:12px;border-top:1px solid rgba(215,220,207,.15)}
   #lobby .lobby-t{font-size:11px;letter-spacing:.2em;color:var(--dim);margin-bottom:6px}
   #lobby .or{font-size:12px;color:var(--dim);margin:0 6px}
@@ -227,6 +228,7 @@
   <div class="meter">LANTERNA <span id="batt-pct"></span><div class="bar" id="batt"><i></i></div></div>
   <div class="meter">CALOR DO FOCO<div class="bar" id="heat"><i></i></div></div>
   <div class="meter">FÔLEGO<div class="bar" id="stam"><i></i></div></div>
+  <div class="meter" id="inv" style="color:#c9b98a"></div>
   <div class="meter" id="film" style="display:none">POLAROID · <span id="film-n">0</span> foto(s)</div>
   <div class="meter" id="breath">PRENDENDO A RESPIRAÇÃO<div class="bar"><i></i></div></div>
 </div>
@@ -248,6 +250,7 @@
     <b>C / Ctrl</b><span>agachar (silencioso)</span>
     <b>F</b><span>ligar/desligar lanterna</span>
     <b>M</b><span>mapa · <b>V</b> microfone (cooperativo)</span>
+    <b>R / G</b><span>foto (Polaroid) · jogar garrafa</span>
     <b>Botão direito / Q</b><span>FOCO: feixe concentrado — mire no ROSTO dele</span>
     <b>E</b><span>interagir / esconder / sair</span>
     <b>Espaço (escondido)</b><span>prender a respiração</span>
@@ -280,6 +283,7 @@
   <button class="tbtn big" id="tb-use">USAR</button>
   <button class="tbtn big" id="tb-breath" style="display:none">AR</button>
   <button class="tbtn" id="tb-photo" style="display:none">FOTO</button>
+  <button class="tbtn" id="tb-throw" style="display:none">JOGAR</button>
 </div>
 <div id="intro"><p>Março de 1974. Você acorda no chão da recepção do Sanatório Santa Lúcia.</p><p>As portas foram trancadas. Alguém tirou os fusíveis do portão.</p><p>E algo, lá embaixo, acabou de acordar.</p><span>toque para pular</span></div>
 <div class="screen" id="credits"><h1 class="st">CRÉDITOS</h1>

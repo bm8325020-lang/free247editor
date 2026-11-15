@@ -4,7 +4,7 @@ import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const BOT = new URLSearchParams(location.search).has('bot');
-const VERSION = '2.7';
+const VERSION = '2.8';
 const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -596,7 +596,7 @@ const AU = {
     s.connect(f).connect(g); g.connect(o.at ? this.spatial(o.at) : this.master); const v = ctx.createGain(); v.gain.value = o.verb ?? .4; g.connect(v).connect(this.verbIn); s.start(0, o.off || 0, o.dur); return s; },
   voice(at) { if (this.voices.length) this.playBuf(pick(this.voices), { at, vol: .8, rate: rand(.88, .96), lp: 3200, verb: .7 }); else { this.whisper(at, .45); setTimeout(() => this.whisper(at, .35), 900); } },
   loadSamples() {
-    for (const n of ['cansado', 'medo']) fetch(`sounds/breath/${n}.ogg`).then(r => r.arrayBuffer()).then(b => this.ctx.decodeAudioData(b)).then(buf => { this.breathBuf[n] = buf; if (n === 'medo' || n === 'cansado') this.startBreathLoop(n, buf); }).catch(() => { });
+    for (const n of ['cansado', 'medo']) fetch(`sounds/breath/${n}.ogg`).then(r => r.arrayBuffer()).then(b => this.ctx.decodeAudioData(b)).then(buf => { this.breathBuf[n] = buf; if (n === 'medo' || n === 'cansado') this.startBreathLoop(n, buf); if (n === 'medo') this.startCreatureBreath(buf); }).catch(() => { });
     for (const n of ['voz1', 'voz2', 'voz3', 'voz4']) fetch(`sounds/voice/${n}.ogg`).then(r => r.ok ? r.arrayBuffer() : Promise.reject()).then(b => this.ctx.decodeAudioData(b)).then(buf => this.voices.push(buf)).catch(() => { });
     const load = (set, names) => names.forEach(n => fetch(`sounds/steps/${n}.ogg`).then(r => r.arrayBuffer()).then(b => this.ctx.decodeAudioData(b)).then(buf => this.samples[set].push({ n, buf })).catch(() => { }));
     load('stone', ['stonel1', 'stoner1', 'stonel2', 'stoner2', 'stonel3', 'stoner3']); load('grit', ['sandl1', 'sandr1', 'sandl2', 'sandr2', 'sandl3', 'sandr3']);
@@ -621,6 +621,7 @@ const AU = {
   },
   // respiração do jogador: dois loops gravados (medo / cansaço) misturados conforme o estado
   breathLoops: {},
+  startCreatureBreath(buf) { const ctx = this.ctx, s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.playbackRate.value = .62; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400; const g = ctx.createGain(); g.gain.value = 0; s.connect(f).connect(g).connect(this.cOcc); s.start(0, Math.random() * buf.duration); this.cBreath = g; },
   startBreathLoop(n, buf) { const ctx = this.ctx, s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 5000; const g = ctx.createGain(); g.gain.value = 0;
     s.connect(f).connect(g).connect(this.master); s.start(0, Math.random() * buf.duration); this.breathLoops[n] = { s, g, f }; },
   cstep(p, heavy) { // passo da criatura: baque + articulação estalando
@@ -648,6 +649,7 @@ const AU = {
   radio(p) { this.burst({ f: 2500, q: .4, dur: rand(.4, 1), vol: .18, at: p, type: 'highpass', verb: .2 }); this.tone({ f: 50, dur: .5, vol: .06, type: 'square', at: p, verb: .1 }); if (Math.random() < .6) setTimeout(() => this.whisper(p, .3), 250); },
   slam(p, vol = 1) { this.tone({ f: 95, f2: 38, dur: .5, vol: .6 * vol, at: p, verb: .7 }); this.burst({ f: 420, q: 2, dur: .35, vol: .5 * vol, at: p, verb: .7 }); this.tone({ f: rand(1200, 1700), dur: 1.4, vol: .06 * vol, type: 'triangle', at: p, verb: .9 }); },
   crash(p) { for (let i = 0; i < 6; i++) setTimeout(() => { this.burst({ f: rand(300, 3000), q: rand(1, 6), dur: rand(.1, .4), vol: .35, at: p, verb: .6 }); }, i * rand(30, 90)); this.tone({ f: 70, f2: 30, dur: .6, vol: .6, at: p, verb: .7 }); for (let i = 0; i < 4; i++) setTimeout(() => this.tone({ f: rand(2500, 5000), dur: .15, vol: .05, type: 'triangle', at: p, verb: .8 }), 150 + i * rand(40, 120)); },
+  glass(p) { this.burst({ f: 5200, q: .8, dur: .35, vol: .45, at: p, verb: .5, type: 'highpass' }); for (let i = 0; i < 7; i++) setTimeout(() => this.tone({ f: rand(2800, 6500), dur: rand(.08, .25), vol: .07, type: 'triangle', at: p, verb: .6 }), i * rand(25, 70)); this.tone({ f: 200, f2: 90, dur: .15, vol: .2, at: p, verb: .3 }); },
   ring() { for (let i = 0; i < 2; i++) setTimeout(() => { this.tone({ f: 440, dur: .8, vol: .07, type: 'square', verb: .4, a: .01 }); this.tone({ f: 480, dur: .8, vol: .07, type: 'square', verb: .4, a: .01 }); }, i * 1100); },
   tom(vol = .5) { this.tone({ f: 95, f2: 45, dur: .3, vol, verb: .3 }); this.burst({ f: 1500, q: .8, dur: .06, vol: vol * .4, type: 'lowpass', verb: .2 }); },
   jumpscare() { // grito sem espacialização, distorcido, na cara
@@ -791,6 +793,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' || e.code === 'ControlLeft') P.crouch = !P.crouch;
   if (e.code === 'KeyE') interact();
   if (e.code === 'KeyR' && !G.readingNote) takePhoto();
+  if (e.code === 'KeyG' && !G.readingNote) throwBottle();
   if (e.code === 'KeyM') toggleMap();
   if (e.code === 'KeyV') toggleMic();
   if (e.code === 'Space') e.preventDefault();
@@ -806,9 +809,9 @@ addEventListener('mousemove', (e) => {
   const s = .0022 * SET.sens / 100; P.yaw -= e.movementX * s; P.pitch = clamp(P.pitch - e.movementY * s, -1.35, 1.35);
 });
 document.addEventListener('pointerlockchange', () => { if (!TOUCH && document.pointerLockElement !== canvas && G.started && !G.dead && !G.won && !G.readingNote) pause(true); });
-function pause(v) { G.paused = v; $('pause').classList.toggle('on', v); try { if (AU.ctx) v ? AU.ctx.suspend() : AU.ctx.resume(); } catch (e) { } }
+function pause(v) { G.paused = v; if (v) G.pausedAt = performance.now(); $('pause').classList.toggle('on', v); try { if (AU.ctx) v ? AU.ctx.suspend() : AU.ctx.resume(); } catch (e) { } }
 window.__pauseGame = () => { if (G.started && !G.dead && !G.won && !G.paused) pause(true); };
-$('pause').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && b.id !== 'btn-resume') return; if (!G.started) return; pause(false); if (!TOUCH) canvas.requestPointerLock?.(); });
+$('pause').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && b.id !== 'btn-resume') return; if (!G.started) return; if (performance.now() - (G.pausedAt || 0) < 450) return; if (TOUCH && !b) return; pause(false); if (!TOUCH) canvas.requestPointerLock?.(); });
 
 // =====================================================================
 // INTERAÇÃO
@@ -828,6 +831,10 @@ function interact() {
   const it = focusTarget; if (!it) return;
   if (NET.role === 'guest' && ['fuse', 'panel', 'door', 'exit'].includes(it.type)) { if (it.type === 'exit' && !G.exitOpen) msg('Trancada. <b>O painel precisa de 4 fusíveis.</b>'); else NET.send({ t: 'a', k: it.type, i: it.type === 'fuse' ? it.fuse.id : it.type === 'door' ? DOORS.indexOf(it.door) : 0 }); return; }
   if (it.type === 'fuse') pickFuse(it.fuse);
+  else if (it.type === 'bottle') { it.gone = true; it.obj.visible = false; P.bottles = (P.bottles || 0) + 1; AU.pickup(); msg(`Garrafa (${P.bottles}). ${TOUCH ? 'Toque em JOGAR' : 'Aperte G'} para arremessar: o barulho <b>atrai ele para longe</b>.`, 4); }
+  else if (it.type === 'syringe') { it.gone = true; it.obj.visible = false; P.syringes = (P.syringes || 0) + 1; AU.pickup(); msg('<b>Seringa de adrenalina.</b> Se o fôlego acabar numa perseguição, ela é aplicada sozinha.', 5); }
+  else if (it.type === 'key18') { it.gone = true; it.obj.visible = false; P.key18 = true; AU.pickup(); msg('Uma chave pequena e enferrujada. Etiqueta: <b>"18"</b>.', 5); }
+  else if (it.type === 'drawer18') openDrawer18(it);
   else if (it.type === 'door') toggleDoor(it.door, true);
   else if (it.type === 'camera') { it.gone = true; it.obj.visible = false; P.hasCam = true; P.film = 3; AU.pickup(); msg('<b>Câmera Polaroid</b> (3 fotos). Aperte <b>R</b> / <b>FOTO</b>: o flash <b>cega ele</b> por alguns segundos. E as fotos mostram o que os olhos não veem.', 7); }
   else if (it.type === 'film') { it.gone = true; it.obj.visible = false; P.film = (P.film || 0) + 2; AU.pickup(); msg('Filme Polaroid: <b>+2 fotos</b>.'); }
@@ -854,7 +861,7 @@ function usePanel() {
   for (const id of list) { G.inserted.push(id); FUSES[id].state = 'inserted'; }
   list.length = 0; refreshPanel(); AU.clunk(panel.position); emitNoise(panel.position, CFG.noise.fuseInsert, true); save();
   msg(G.inserted.length < 4 ? `Fusível instalado. <b>${G.inserted.length}/4</b>. Progresso salvo.` : '<b>4/4.</b> O gerador está partindo…'); setObjective();
-  if (G.inserted.length >= 4) startEndgame();
+  if (G.inserted.length >= 4) startEndgame(); else if (G.inserted.length === 2 && !G.outageDone && NET.role !== 'guest') { G.outageDone = true; after(6, startOutage); }
 }
 function refreshPanel() { panelSlots.forEach((s, i) => { const on = i < G.inserted.length; s.fuse.visible = on; s.lamp.material.color.setHex(on ? 0x00ff40 : 0x550000); }); }
 function openNote(it) { G.readingNote = true; G.notesRead.add(it.idx); save(); $('note-title').textContent = it.note.title; $('note-body').innerHTML = it.note.body; $('note').classList.add('on'); AU.burst({ f: 3000, q: .6, dur: .3, vol: .06, verb: 0 }); }
@@ -1134,11 +1141,11 @@ function win() {
   const d = tc(5, 3); camera.position.set(d.x + .3, 1.5, d.z + 1.5); camera.rotation.set(.05, 0, 0, 'YXZ'); CR.root.visible = false; renderer.render(scene, camera);
   let photo = ''; try { photo = renderer.domElement.toDataURL('image/jpeg', .8); } catch (e) { }
   const m = Math.floor(G.t / 60), s = Math.floor(G.t % 60), notes = G.notesRead.size;
-  const rank = G.deaths === 0 ? 'ALTA MÉDICA' : G.deaths <= 2 ? 'TRANSFERÊNCIA' : G.deaths <= 5 ? 'LIBERDADE CONDICIONAL' : 'FUGA DESESPERADA';
+  const rank = G.secret ? 'A VERDADE SOBRE O PACIENTE 17' : G.deaths === 0 ? 'ALTA MÉDICA' : G.deaths <= 2 ? 'TRANSFERÊNCIA' : G.deaths <= 5 ? 'LIBERDADE CONDICIONAL' : 'FUGA DESESPERADA';
   $('w-photo').style.backgroundImage = photo ? `url(${photo})` : 'none';
   $('w-time').textContent = `${m}:${String(s).padStart(2, '0')}`; $('w-deaths').textContent = G.deaths; $('w-notes').textContent = `${notes}/${NOTES.length}`; $('w-rank').textContent = rank;
   $('w-body').innerHTML = `Na madrugada de ontem, um sobrevivente foi encontrado no portão principal do Sanatório Santa Lúcia, desativado desde março. Ele afirma ter passado <b>${m} minutos</b> preso no prédio antes de restabelecer a energia da trava eletromagnética.` +
-    (notes >= NOTES.length ? ' Em seu bolso, a polícia encontrou o prontuário completo do <b>Paciente 17</b>. O Dr. Vasconcellos segue desaparecido.' : ' A polícia não comenta o relato de uma "criatura sem pálpebras" vagando pelos corredores.');
+    (G.secret ? ' No necrotério, peritos abriram a gaveta 18, trancada por dentro, e encontraram o corpo do <b>Dr. Abelardo Vasconcellos</b> — sem pálpebras. A polícia agora investiga quem, de fato, era o Paciente 17.' : notes >= NOTES.length ? ' Em seu bolso, a polícia encontrou o prontuário completo do <b>Paciente 17</b>. O Dr. Vasconcellos segue desaparecido.' : ' A polícia não comenta o relato de uma "criatura sem pálpebras" vagando pelos corredores.');
   $('win-flash').classList.add('on'); AU.tone && AU.tone({ f: 220, dur: 3, vol: .06, type: 'sine', verb: .9 });
   setTimeout(() => { document.body.classList.add('over'); $('win').classList.add('on'); fitScreen($('win'), '.paper'); }, 1600);
   setTimeout(() => $('w-last').classList.add('in'), 5200);
@@ -1180,10 +1187,11 @@ function updatePlayer(dt) {
   const moving = !!(f || s); const autoRun = SET.autoRun && TI.stickId !== null && mag > .92;
   P.sprinting = moving && (keys.ShiftLeft || keys.ShiftRight || P.runLatch || autoRun) && !P.exhausted && !P.crouch && f > .3;
   if (P.runLatch) { if (!moving || P.exhausted) { P.runIdle = (P.runIdle || 0) + dt; if (P.runIdle > .5 || P.exhausted) P.runLatch = false; } else P.runIdle = 0; }
-  if (P.sprinting) { P.stamina -= dt; if (P.stamina <= 0) { P.exhausted = true; AU.burst({ f: 700, q: 1, dur: .8, vol: .15 }); } }
+  if (P.sprinting) { P.stamina -= dt; if (P.stamina <= 0 && P.syringes > 0 && (C.state === 'chase' || G.fuga)) { P.syringes--; P.stamina = PC.staminaMax; P.adren = 6; AU.tone({ f: 300, f2: 900, dur: .4, vol: .15, verb: .2 }); buzz([60, 40, 60]); screenFlash('#fff', .25, 80); msg('<b>ADRENALINA!</b>', 2); } if (P.stamina <= 0) { P.exhausted = true; AU.burst({ f: 700, q: 1, dur: .8, vol: .15 }); } }
   else { P.stamina = Math.min(PC.staminaMax, P.stamina + PC.staminaRegen * dt); if (P.stamina > PC.staminaMax * .3) P.exhausted = false; }
   if (G.fuga) { P.stamina = PC.staminaMax; P.exhausted = false; } P.stumble = Math.max(0, (P.stumble || 0) - dt);
-  const spd = (P.crouch ? (G.fuga ? 2.2 : PC.crouch) : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .9 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag)) * (P.stumble > 0 ? .6 : 1);
+  P.adren = Math.max(0, (P.adren || 0) - dt); if (P.adren > 0) { P.stamina = PC.staminaMax; P.exhausted = false; }
+  const spd = (P.adren > 0 ? 1.15 : 1) * (P.crouch ? (G.fuga ? 2.2 : PC.crouch) : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .9 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag)) * (P.stumble > 0 ? .6 : 1);
   if (moving) {
     const dir = new THREE.Vector3(-Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, 0, -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s).normalize();
     P.pos.addScaledVector(dir, spd * dt); collide(P.pos, PC.radius); collide(P.pos, PC.radius);
@@ -1221,7 +1229,7 @@ function updateAudio(dt) {
   AU.cOcc.frequency.setTargetAtTime(occluded ? 500 : 7000, t, .1);
   const chase = C.state === 'chase' || C.state === 'hunt';
   const breathing = active ? (C.state === 'search' && C.sniff > 0 ? .1 : .28 + .2 * Math.sin(G.t * (chase ? 5 : 1.7))) : 0;
-  AU.breath.gain.setTargetAtTime(Math.max(0, breathing) * (C.state === 'search' && C.sniff > 0 ? 3 : 1), t, .08);
+  const bv = Math.max(0, breathing) * (C.state === 'search' && C.sniff > 0 ? 2.2 : 1); if (AU.cBreath) { AU.cBreath.gain.setTargetAtTime(active ? .55 + bv * .8 : 0, t, .3); AU.breath.gain.setTargetAtTime(0, t, .1); } else AU.breath.gain.setTargetAtTime(bv, t, .08);
   AU.growl.gain.setTargetAtTime(active && chase ? .08 : 0, t, .3); AU.growlOsc.frequency.setTargetAtTime(chase ? 58 + Math.sin(G.t * 9) * 6 : 50, t, .05);
   if (active && Math.random() < dt * (chase ? 3 : .8)) AU.tone({ f: rand(1500, 2600), dur: .015, vol: .12, type: 'square', at: cp, verb: .3 }); // estalos
   // zumbido das lâmpadas
@@ -1249,7 +1257,7 @@ function updateHUD() {
   $('breath').style.display = P.hidden ? 'block' : 'none'; $('breath').querySelector('i').style.width = (P.breath / CFG.player.breathMax * 100) + '%';
   focusTarget = findInteractable();
   let pr = ''; if (P.hidden) pr = '<b>E</b>sair'; else if (focusTarget) pr = `<b>E</b>${focusTarget.type === 'panel' && P.carried.length ? `Instalar ${P.carried.length} fusível(is)` : focusTarget.type === 'door' ? (focusTarget.door.open ? 'Fechar porta' : 'Abrir porta') : focusTarget.label}`;
-  $('film').style.display = P.hasCam ? 'block' : 'none'; $('film-n').textContent = P.film || 0;
+  $('film').style.display = P.hasCam ? 'block' : 'none'; $('film-n').textContent = P.film || 0; $('inv').textContent = [P.bottles ? `garrafas ${P.bottles}` : '', P.syringes ? `adrenalina ${P.syringes}` : '', P.key18 ? 'chave 18' : ''].filter(Boolean).join(' · ');
   $('prompt').innerHTML = pr;
   if (G.msgT > 0) { G.msgT -= 1 / 60; if (G.msgT <= 0) $('msg').style.opacity = 0; }
   if (DEBUG) $('debug').textContent = `state ${C.state}  t ${C.stateT.toFixed(1)}\nexp ${C.exposure.toFixed(2)} res ${C.resistance.toFixed(2)}\nsees ${C.sees} dist ${C.pos.distanceTo(P.pos).toFixed(1)}\nlight@P ${lightAt(P.pos).toFixed(2)} @C ${lightAt(C.pos).toFixed(2)}\nsusp ${C.suspicion.toFixed(2)}`;
@@ -1300,7 +1308,7 @@ if (TOUCH) {
   layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
   const hold = (id, key) => { const b = $(id); b.addEventListener('pointerdown', (e) => { e.stopPropagation(); keys[key] = true; b.classList.add('held'); }); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { keys[key] = false; b.classList.remove('held'); }); };
   const tap = (id, fn) => $(id).addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (G.started && !G.dead && !G.won) fn(); });
-  hold('tb-focus', 'KeyQ'); tap('tb-run', () => { P.runLatch = !P.runLatch; P.runIdle = 0; }); hold('tb-breath', 'Space'); tap('tb-photo', takePhoto);
+  hold('tb-focus', 'KeyQ'); tap('tb-run', () => { P.runLatch = !P.runLatch; P.runIdle = 0; }); hold('tb-breath', 'Space'); tap('tb-photo', takePhoto); tap('tb-throw', throwBottle);
   tap('tb-lamp', toggleLamp); tap('tb-crouch', () => { P.crouch = !P.crouch; }); tap('tb-use', () => { if (G.readingNote) closeNote(); else interact(); });
   tap('tb-pause', () => pause(true)); tap('tb-map', toggleMap); tap('tb-mic', toggleMic);
   $('note').addEventListener('pointerdown', () => { if (G.readingNote) closeNote(); });
@@ -1308,7 +1316,7 @@ if (TOUCH) {
 }
 function updateTouchUI() {
   if (!TOUCH) return; const hid = !!P.hidden;
-  $('tb-photo').style.display = P.hasCam && !hid ? '' : 'none'; $('tb-mic').style.display = NET.role !== 'solo' ? '' : 'none'; $('tb-mic').classList.toggle('held', VOICE.on); $('tb-run').classList.toggle('held', !!P.runLatch || P.sprinting); $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
+  $('tb-photo').style.display = P.hasCam && !hid ? '' : 'none'; $('tb-throw').style.display = P.bottles > 0 && !hid ? '' : 'none'; $('tb-throw').textContent = `JOGAR ${P.bottles || ''}`; $('tb-mic').style.display = NET.role !== 'solo' ? '' : 'none'; $('tb-mic').classList.toggle('held', VOICE.on); $('tb-run').classList.toggle('held', !!P.runLatch || P.sprinting); $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
   $('tb-use').classList.toggle('ready', !!focusTarget || hid || G.readingNote);
   const ft = focusTarget; $('tb-use').textContent = hid ? 'SAIR' : G.readingNote ? 'FECHAR' : !ft ? 'USAR' : ft.type === 'door' ? (ft.door.open ? 'FECHAR' : 'ABRIR') : ft.type === 'locker' ? 'ESCONDER' : ft.type === 'note' ? 'LER' : ft.type === 'panel' ? 'PAINEL' : ft.type === 'exit' ? 'SAÍDA' : 'PEGAR';
   $('tb-lamp').classList.toggle('held', P.lampOn); $('tb-crouch').classList.toggle('held', P.crouch);
@@ -1319,9 +1327,9 @@ function updatePlayerBreath(dt, fear) {
   const L = AU.breathLoops; if (!AU.ctx || !L.medo) return; const t = AU.ctx.currentTime;
   const hold = P.holding || G.dead || G.won; const tired = P.exhausted || P.sprinting || G.fuga ? 1 : clamp(1 - P.stamina / CFG.player.staminaMax, 0, 1) * .8;
   const scared = clamp(fear, 0, 1.3);
-  const gm = hold ? 0 : .05 + scared * .32, gc = hold || !L.cansado ? 0 : tired * .42;
-  L.medo.g.gain.setTargetAtTime(gm * SET.breath / 100, t, hold ? .05 : .4); L.medo.s.playbackRate.setTargetAtTime(.85 + scared * .3, t, .5); L.medo.f.frequency.setTargetAtTime(P.crouch ? 1800 : 2600 + scared * 2500, t, .3);
-  if (L.cansado) { L.cansado.g.gain.setTargetAtTime(gc * SET.breath / 100, t, hold ? .05 : .3); L.cansado.s.playbackRate.setTargetAtTime(.92 + tired * .12, t, .5); }
+  const gm = hold || scared < .4 ? 0 : Math.min(.3, (scared - .4) * .45), gc = hold || !L.cansado || tired < .3 ? 0 : (tired - .3) * .5; // calmo = silêncio
+  L.medo.g.gain.setTargetAtTime(gm * SET.breath / 100, t, hold ? .05 : .4); L.medo.s.playbackRate.setTargetAtTime(1, t, .5); L.medo.f.frequency.setTargetAtTime(P.crouch ? 1800 : 2600 + scared * 2500, t, .3);
+  if (L.cansado) { L.cansado.g.gain.setTargetAtTime(gc * SET.breath / 100, t, hold ? .05 : .3); L.cansado.s.playbackRate.setTargetAtTime(1, t, .5); }
   if (P.wasHolding && !P.holding && P.hidden && AU.breathBuf.cansado) AU.playBuf(AU.breathBuf.cansado, { vol: .5, dur: .9, verb: .1 }); // solta o ar
   P.wasHolding = P.holding;
   if (gc > .3 && Math.random() < dt * .8) emitNoise(P.pos, 3.5); // ofegar faz barulho
@@ -1881,10 +1889,50 @@ function perfWatch(dt) { // nos primeiros segundos, se estiver lento, baixa os g
     else perfDone = true; }
 }
 
+
+// =====================================================================
+// CONTEÚDO NOVO: garrafas, adrenalina, apagão, gaveta 18 (final secreto)
+// =====================================================================
+const MAT_GLASS = new THREE.MeshStandardMaterial({ color: 0x3f5a3a, roughness: .15, metalness: .1, transparent: true, opacity: .85 });
+function mkBottle() { const g = new THREE.Group(); const b = cyl(.04, .2, MAT_GLASS); b.position.y = .1; g.add(b); const n = cyl(.015, .08, MAT_GLASS); n.position.y = .24; g.add(n); return g; }
+function buildExtras() {
+  for (const [x, y] of [[4, 6], [18, 9], [33, 7], [12, 10], [16, 18], [36, 19], [11, 25], [25, 29], [34, 28], [8, 15]]) { if (isSolid(x, y)) continue; const g = mkBottle(); g.position.copy(tc(x, y)); g.position.x += rand(-.6, .6); g.position.z += rand(-.6, .6); g.rotation.z = Math.random() < .5 ? Math.PI / 2 : 0; if (g.rotation.z) g.position.y = .04; scene.add(g); interactables.push({ type: 'bottle', pos: g.position.clone().setY(.2), obj: g, label: 'Pegar garrafa' }); }
+  for (const [x, y] of [[22, 12], [40, 20], [3, 29]]) { const g = new THREE.Group(); const b = cyl(.012, .14, new THREE.MeshStandardMaterial({ color: 0xd8e0e0, transparent: true, opacity: .8 })); b.rotation.z = Math.PI / 2; g.add(b); const lq = cyl(.008, .09, new THREE.MeshBasicMaterial({ color: 0xff4020 })); lq.rotation.z = Math.PI / 2; g.add(lq);
+    g.position.copy(tc(x, y, .9)); const stand = box3(.5, .88, .4, MAT.metal); stand.position.copy(tc(x, y, .44)); scene.add(stand); scene.add(g); interactables.push({ type: 'syringe', pos: g.position.clone(), obj: g, label: 'Pegar seringa de adrenalina' }); }
+  // chave da gaveta 18 (sorteada) e a gaveta
+  const ks = pick([[15, 2], [27, 1], [9, 15], [19, 30], [26, 16]]); const key = new THREE.Group(); const kb = box3(.06, .01, .12, MAT.rust); key.add(kb); const tag = box3(.05, .005, .05, MAT.paper); tag.position.set(0, .006, .09); key.add(tag);
+  key.position.copy(tc(ks[0], ks[1], .02)); key.rotation.y = rand(0, 6); scene.add(key); interactables.push({ type: 'key18', pos: key.position.clone().setY(.2), obj: key, label: 'Pegar chave' });
+  const d = tc(41, 12); interactables.push({ type: 'drawer18', pos: new THREE.Vector3(d.x + T / 2 - .1, 1.0, d.z), label: 'Gaveta 18', opened: false });
+}
+function openDrawer18(it) {
+  if (it.opened) return; if (!P.key18) { AU.burst({ f: 900, q: 6, dur: .2, vol: .3, at: it.pos, verb: .3 }); msg('A gaveta <b>18</b> está trancada… <i>por dentro?</i> Há uma fechadura pequena.', 4); return; }
+  it.opened = true; it.gone = true; G.secret = true; const c = tc(41, 12); const tray = box3(1.4, .08, .8, MAT.steel); tray.position.set(c.x + T / 2 + .7, 1.0, c.z); scene.add(tray);
+  const body = makeBody('sheet', { blood: true, arm: true }); body.scale.set(.68, .9, .85); body.rotation.y = Math.PI; body.position.y = .05; tray.add(body);
+  const coat = box3(.5, .02, .4, new THREE.MeshStandardMaterial({ color: 0xdedbd0, roughness: 1 })); coat.position.set(.25, .1, 0); tray.add(coat);
+  AU.slam(c.clone().setY(1), 1); AU.creak(c.clone().setY(1), .4); G.shake = .5; focusOn(c.clone().setY(1).setX(c.x + T / 2 - .5), 1.6, { speed: 10 });
+  tween(1.2, k => tray.position.x = lerp(c.x + T / 2 + .7, c.x + T / 2 - .7, k * k));
+  after(1.5, () => { G.readingNote = true; $('note-title').textContent = 'Crachá preso ao jaleco'; $('note-body').innerHTML = '<b>Dr. Abelardo Vasconcellos</b> — Diretor Clínico.<br><br>O corpo está aqui há semanas. As pálpebras foram removidas com precisão cirúrgica.<br><br>Se o diretor está nesta gaveta… quem trancou o sanatório? <i>E quem é o Paciente 17?</i>'; $('note').classList.add('on'); });
+}
+function throwBottle() {
+  if (!G.started || G.paused || G.dead || P.hidden || !(P.bottles > 0)) return; P.bottles--;
+  const eye = camera.getWorldPosition(new THREE.Vector3()), dir = camera.getWorldDirection(new THREE.Vector3()); let end = eye.clone();
+  for (let i = 1; i <= 50; i++) { const p = eye.clone().addScaledVector(dir, i * .3); if (isWall(...tileOf(p)) || p.y < .1) break; end = p; } end.y = Math.max(.05, end.y);
+  const b = mkBottle(); b.position.copy(eye); scene.add(b); const from = eye.clone(), dist = from.distanceTo(end), dur = clamp(dist / 14, .2, .9);
+  AU.burst({ f: 1200, q: 1, dur: .12, vol: .08, verb: 0 });
+  tween(dur, k => { b.position.lerpVectors(from, end, k); b.position.y += Math.sin(k * Math.PI) * dist * .15; b.rotation.x += .4; }, () => {
+    scene.remove(b); AU.glass(end); emitNoise(end.clone().setY(0), 20, true); if (C.state === 'chase' && NET.role !== 'guest' && !C.sees) { C.lastKnown = end.clone().setY(0); setState('investigate'); C.goal = C.lastKnown; planPath(C.goal); } });
+}
+function startOutage() { // a energia do prédio inteiro cai
+  if (G.endgame || G.dead) return; const was = lightObjs.map(L => L.on); lightObjs.forEach(L => L.on = false); computeLightmap();
+  AU.tone({ f: 120, f2: 25, dur: 1.4, vol: .35, type: 'sawtooth', verb: .7 }); AU.bang(tc(20, 20, 2)); G.shake = .4; msg('<b>A energia do prédio caiu.</b> No escuro, ele é mais rápido.', 5);
+  if (C.state !== 'dormant' && NET.role !== 'guest') { const pl = players()[0]; if (pl) { setState('hunt'); C.repath = 0; } }
+  after(20, () => { lightObjs.forEach((L, i) => L.on = was[i]); for (const f of FUSES) if (f.state !== 'world') for (const li of f.lights) setLight(li, false); computeLightmap(); AU.zap(P.pos.clone().setY(2.5)); msg('As luzes voltaram.', 2.5); });
+}
+
 // =====================================================================
 // BOOT
 // =====================================================================
-buildLevel(); buildProps(); buildExit(); buildItems(); buildLights(); buildDoors(); buildHidden(); computeLightmap();
+buildLevel(); buildProps(); buildExit(); buildItems(); buildLights(); buildDoors(); buildHidden(); buildExtras(); computeLightmap();
 const existing = loadSave(); if (existing && existing.inserted.length) $('btn-cont').style.display = '';
 applyAll();
 function start(cont) {
