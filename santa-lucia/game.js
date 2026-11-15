@@ -373,7 +373,7 @@ function buildLevel() {
   // decalques de sujeira / sangue
   const dGeo = new THREE.PlaneGeometry(1, 1); dGeo.rotateX(-Math.PI / 2);
   for (const [x, y] of floorTiles) {
-    if (Math.random() < 0.35) { const d = new THREE.Mesh(dGeo, MAT.dirt); d.position.copy(tc(x, y, 0.005)); d.position.x += rand(-.6, .6); d.position.z += rand(-.6, .6); d.scale.setScalar(rand(1.2, 2.6)); d.rotation.y = rand(0, 6); scene.add(d); }
+    if (Math.random() < (TOUCH ? .15 : .35)) { const d = new THREE.Mesh(dGeo, MAT.dirt); d.position.copy(tc(x, y, 0.005)); d.position.x += rand(-.6, .6); d.position.z += rand(-.6, .6); d.scale.setScalar(rand(1.2, 2.6)); d.rotation.y = rand(0, 6); scene.add(d); }
     const z = zoneAt(x, y);
     if (z && ['morgue', 'autopsy', 'cells', 'cellar', 'ward'].includes(z.id) && Math.random() < 0.12) { const d = new THREE.Mesh(dGeo, MAT.stain); d.position.copy(tc(x, y, 0.008)); d.scale.setScalar(rand(0.8, 2)); d.rotation.y = rand(0, 6); scene.add(d); }
     if (Math.random() < 0.05) { const p = new THREE.Mesh(new THREE.PlaneGeometry(.22, .3).rotateX(-Math.PI / 2), MAT.paper); p.position.copy(tc(x, y, 0.01)); p.position.x += rand(-1, 1); p.position.z += rand(-1, 1); p.rotation.y = rand(0, 6); scene.add(p); }
@@ -520,7 +520,8 @@ function buildLights() {
     const fix = new THREE.Mesh(L.type === 'emergency' ? new THREE.SphereGeometry(.12, 10, 8) : new THREE.BoxGeometry(1.1, .06, .22), new THREE.MeshBasicMaterial({ color: L.color }));
     fix.position.copy(p).setY(WALL_H - .05); if (L.type === 'emergency') fix.position.y = WALL_H - .3; scene.add(fix);
     if (i === 5) { const lamp = new THREE.Mesh(new THREE.CylinderGeometry(.35, .5, .25, 16, 1, true), MAT.steel); lamp.position.set(p.x, WALL_H - .7, p.z); scene.add(lamp); fix.position.y = WALL_H - .8; }
-    lightObjs.push({ ...L, pl, fix, on: true, flick: 1, off: 0, idx: i });
+    let cone = null; if (L.type !== 'emergency') { cone = new THREE.Mesh(new THREE.CylinderGeometry(.25, 1.7, WALL_H - .1, 16, 1, true), new THREE.MeshBasicMaterial({ color: L.color, transparent: true, opacity: .05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })); cone.position.set(p.x, (WALL_H - .1) / 2, p.z); scene.add(cone); }
+    lightObjs.push({ ...L, pl, fix, cone, on: true, flick: 1, off: 0, idx: i });
   });
 }
 let lightmap = [...Array(H)].map(() => new Float32Array(W));
@@ -688,15 +689,16 @@ const keys = {}; let mouseR = false;
 function buildCreature() {
   const skin = new THREE.MeshStandardMaterial({ color: 0x9c9384, roughness: .62, metalness: 0, emissive: 0x000000 });
   const sinew = new THREE.MeshStandardMaterial({ color: 0x5b3b33, roughness: .6 });
+  const flesh = new THREE.MeshStandardMaterial({ color: 0x2e2824, roughness: .8 });
   const voidM = new THREE.MeshBasicMaterial({ color: 0x000000 });
   const gum = new THREE.MeshBasicMaterial({ color: 0x2a0303 });
-  const limb = (len, r0, r1, mat = skin, up = false) => { const g = new THREE.CylinderGeometry(r1, r0, len, 7); g.translate(0, up ? len / 2 : -len / 2, 0); const m = new THREE.Mesh(g, mat); m.castShadow = true; return m; };
+  const limb = (len, r0, r1, mat = flesh, up = false) => { const g = new THREE.CylinderGeometry(r1, r0, len, 7); g.translate(0, up ? len / 2 : -len / 2, 0); const m = new THREE.Mesh(g, mat); m.castShadow = true; return m; };
   const pivot = (parent, x, y, z) => { const p = new THREE.Group(); p.position.set(x, y, z); parent.add(p); return p; };
   const root = new THREE.Group();
   const hips = pivot(root, 0, 1.22, 0);
-  const pelvis = new THREE.Mesh(new THREE.SphereGeometry(.15, 10, 8), skin); pelvis.scale.set(1.4, .8, 1); hips.add(pelvis);
+  const pelvis = new THREE.Mesh(new THREE.SphereGeometry(.15, 10, 8), flesh); pelvis.scale.set(1.4, .8, 1); hips.add(pelvis);
   const spine = pivot(hips, 0, .05, 0); spine.rotation.x = .6;
-  const torso = limb(1.0, .1, .17, skin, true); spine.add(torso);
+  const torso = limb(1.0, .1, .17, flesh, true); spine.add(torso);
   for (let i = 0; i < 6; i++) { const rib = new THREE.Mesh(new THREE.TorusGeometry(.15 - i * .004, .012, 4, 12, Math.PI), sinew); rib.position.set(0, .35 + i * .1, .02); rib.rotation.y = Math.PI / 2; rib.rotation.z = Math.PI / 2; rib.scale.set(1, 1, 1.1); spine.add(rib); }
   const vert = limb(1.0, .025, .025, sinew, true); vert.position.z = -.14; spine.add(vert);
   const chest = pivot(spine, 0, 1.0, 0);
@@ -728,6 +730,16 @@ function buildCreature() {
   const smoke = new THREE.Points(smokeGeo, new THREE.PointsMaterial({ color: 0x9a9a90, size: .18, transparent: true, opacity: 0, depthWrite: false }));
   scene.add(smoke);
   scene.add(root);
+  // cabelo comprido e embaraçado caindo sobre o rosto
+  const hairM = new THREE.MeshStandardMaterial({ color: 0x0b0908, roughness: .9 });
+  for (let i = 0; i < 38; i++) { const a = rand(-2.6, 2.6), len = rand(.45, .95), st = new THREE.Mesh(new THREE.CylinderGeometry(.006, .003, len, 3).translate(0, -len / 2, 0), hairM);
+    st.position.set(Math.sin(a) * .11, .3, Math.cos(a) * .1 - .01); st.rotation.set(rand(-.25, .25) + (Math.abs(a) < .9 ? -.35 : 0), 0, rand(-.2, .2)); head.add(st); }
+  // camisola hospitalar rasgada e manchada
+  const gownTex = makeTex(256, (g, s2) => { g.clearRect(0, 0, s2, s2); g.fillStyle = '#9d9a88'; g.beginPath(); g.moveTo(0, 0); g.lineTo(s2, 0); let x = s2; while (x > 0) { g.lineTo(x, s2 * rand(.7, .98)); x -= rand(8, 22); } g.lineTo(0, s2 * .85); g.fill();
+    blotch(g, s2, 7, 'rgba(70,40,20,.55)', .05, .2); blotch(g, s2, 5, 'rgba(90,8,6,.7)', .03, .12, .1, .7); for (let i = 0; i < 14; i++) { g.clearRect(rand(0, s2), rand(s2 * .3, s2 * .9), rand(3, 10), rand(6, 24)); } grainy(g, s2, 20); });
+  const gown = new THREE.Mesh(new THREE.CylinderGeometry(.2, .33, 1.05, 14, 1, true), new THREE.MeshStandardMaterial({ map: gownTex, side: THREE.DoubleSide, alphaTest: .5, transparent: false, roughness: 1 }));
+  gown.position.y = .42; gown.castShadow = true; spine.add(gown);
+
   return { root, hips, spine, chest, neck, head, face, jaw, arms, legs, skin, eyes, smoke, smokeT: 0 };
 }
 const CR = buildCreature();
@@ -1184,7 +1196,7 @@ function updateLights(dt) {
     if (L.on && L.type === 'emergency') k = .55 + .45 * Math.sin(G.t * 2.2 + L.idx);
     if (C.state !== 'dormant' && L.on && C.pos.distanceTo(L.pl.position) < 4 && Math.random() < .5) k *= .3; // luz falha perto dele
     if (G.blackout > 0) k = 0; if (G.fuga && L.on) k *= Math.random() < .25 ? .1 : 1;
-    L.pl.intensity = L.int * k; L.fix.material.color.setHex(L.color).multiplyScalar(k);
+    L.pl.intensity = L.int * k; L.fix.material.color.setHex(L.color).multiplyScalar(k); if (L.cone) L.cone.material.opacity = .055 * k;
   }
   // lanterna
   const L = CFG.lamp; const dC = C.state !== 'dormant' ? C.pos.distanceTo(P.pos) : 99;
@@ -1194,7 +1206,7 @@ function updateLights(dt) {
   flash.intensity = (P.focus ? 95 : 38) * fl; flash.angle = P.focus ? .22 : .5; flash.distance = (P.focus ? L.focusRange : L.range) + 4; flash.penumbra = P.focus ? .3 : .6;
   flash.color.setHex(P.focus ? 0xffffff : 0xfff0d0);
 }
-let heartT = 0, ambT = 3, dripT = 1, stepPh = 0;
+let heartT = 0, ambT = 3, dripT = 1, stepPh = 0, chaseBeat = 0;
 function updateAudio(dt) {
   if (!AU.ctx) return; AU.setListener(camera); const t = AU.ctx.currentTime;
   const cp = C.pos.clone().setY(1.9); AU.cPan.positionX.value = cp.x; AU.cPan.positionY.value = cp.y; AU.cPan.positionZ.value = cp.z;
@@ -1217,6 +1229,8 @@ function updateAudio(dt) {
     if (r < .3) AU.bang(p); else if (r < .5) AU.moan(p); else if (r < .65) AU.creak(p, .25); else if (r < .8) AU.radio(p); else if (r < .92) AU.whisper(p, .25); else AU.scream(p); } }
   if (active && CR.root.visible) { const sp = Math.floor(C.phase / Math.PI); if (sp !== stepPh) { stepPh = sp; if (C.speed > .3) AU.cstep(C.pos.clone().setY(.2), chase || G.fuga ? 1 : .55); } if (chase && Math.random() < dt * .35) AU.scrape(cp); }
   if (active && C.pos.distanceTo(P.pos) < 9 && Math.random() < dt * .12) AU.whisper(cp, .22);
+  if (active && chase && !G.fuga && C.pos.distanceTo(P.pos) < 26) { chaseBeat -= dt; if (chaseBeat <= 0) { chaseBeat = .3; AU.tom(.28); } } // tambores da perseguição
+  if (!G.introDone && G.t > 18 && C.state === 'dormant') { G.introDone = true; const far = tc(30, 25, 2); AU.scream(far); AU.bang(tc(20, 12, 2)); for (const L of lightObjs) L.off = rand(.3, .9); G.shake = .3; } // primeiro sinal de vida
   dripT -= dt; if (dripT <= 0) { dripT = rand(1, 5); const p = P.pos.clone().add(new THREE.Vector3(rand(-6, 6), 2.5, rand(-6, 6))); AU.drip(p); }
 }
 function updateHUD() {
@@ -1269,7 +1283,8 @@ if (TOUCH) {
     if (e.pointerId === TI.stickId) { let dx = e.clientX - TI.ox, dy = e.clientY - TI.oy; const d = Math.hypot(dx, dy); if (d > R) { dx *= R / d; dy *= R / d; } TI.x = dx / R; TI.y = dy / R; knob.style.transform = `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`; }
     else if (e.pointerId === TI.lookId && !G.paused && !G.dead && !G.lookLock) { const sns = .0055 * SET.sens / 100; P.yaw -= (e.clientX - TI.lx) * sns; P.pitch = clamp(P.pitch - (e.clientY - TI.ly) * sns, -1.35, 1.35); TI.lx = e.clientX; TI.ly = e.clientY; }
   });
-  const up = (e) => { if (e.pointerId === TI.stickId) { TI.stickId = null; TI.x = TI.y = 0; base.style.display = 'none'; } if (e.pointerId === TI.lookId) TI.lookId = null; };
+  const rest = () => { base.style.cssText = `display:block;left:110px;top:${innerHeight - 110}px;opacity:.45`; knob.style.transform = 'translate(-50%,-50%)'; }; rest(); addEventListener('resize', rest);
+  const up = (e) => { if (e.pointerId === TI.stickId) { TI.stickId = null; TI.x = TI.y = 0; rest(); } if (e.pointerId === TI.lookId) TI.lookId = null; };
   layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
   const hold = (id, key) => { const b = $(id); b.addEventListener('pointerdown', (e) => { e.stopPropagation(); keys[key] = true; b.classList.add('held'); }); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => { keys[key] = false; b.classList.remove('held'); }); };
   const tap = (id, fn) => $(id).addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (G.started && !G.dead && !G.won) fn(); });
@@ -1283,7 +1298,7 @@ function updateTouchUI() {
   if (!TOUCH) return; const hid = !!P.hidden;
   $('tb-photo').style.display = P.hasCam && !hid ? '' : 'none'; $('tb-mic').style.display = NET.role !== 'solo' ? '' : 'none'; $('tb-mic').classList.toggle('held', VOICE.on); $('tb-run').classList.toggle('held', !!P.runLatch || P.sprinting); $('tb-breath').style.display = hid ? '' : 'none'; $('tb-run').style.display = hid ? 'none' : ''; $('tb-focus').style.display = hid ? 'none' : '';
   $('tb-use').classList.toggle('ready', !!focusTarget || hid || G.readingNote);
-  $('tb-use').textContent = hid ? 'SAIR' : G.readingNote ? 'FECHAR' : 'USAR';
+  const ft = focusTarget; $('tb-use').textContent = hid ? 'SAIR' : G.readingNote ? 'FECHAR' : !ft ? 'USAR' : ft.type === 'door' ? (ft.door.open ? 'FECHAR' : 'ABRIR') : ft.type === 'locker' ? 'ESCONDER' : ft.type === 'note' ? 'LER' : ft.type === 'panel' ? 'PAINEL' : ft.type === 'exit' ? 'SAÍDA' : 'PEGAR';
   $('tb-lamp').classList.toggle('held', P.lampOn); $('tb-crouch').classList.toggle('held', P.crouch);
 }
 
@@ -1450,7 +1465,7 @@ const SCARES = [
   { id: 'recepcao', when: () => inZone('reception') && P.carried.length > 0, run() { // voltando com o fusível: ele está ao lado da porta
       const at = tc(3, 1); for (const L of lightObjs) L.off = rand(.2, .5); later(() => showPhantom(at, P.pos, .3), 250); } },
 ];
-let scareCd = 20;
+let scareCd = 12;
 function updateScares(dt) {
   scareCd -= dt; if (scareCd > 0 || G.fuga || G.endgame || P.hidden || C.state === 'chase') return;
   for (const S of SCARES) { if (S.done || !S.when()) continue; const r = S.run(); if (r === false) continue; S.done = true; scareCd = 25; break; }
@@ -1723,8 +1738,8 @@ const SET_KEY = 'santa_lucia_cfg_v1';
 const SET = Object.assign({ vol: 90, steps: 70, amb: 100, breath: 80, voice: 100, gfx: TOUCH ? 'medio' : 'alto', bright: 100, sens: 100, diff: 'normal', autoRun: true }, (() => { try { return JSON.parse(localStorage.getItem(SET_KEY)) || {}; } catch (e) { return {}; } })());
 const saveSet = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(SET)); } catch (e) { } };
 const DIFF = { // o "Normal" antigo virou o Difícil
-  facil: { react: 1.4, chaseDark: 3.3, chaseLit: 2.5, seeDark: 6.5, seeLit: 13, seeFlashlight: 19, hideSuspicion: 2.8, wakeAfter: 150, director: 75, resistStep: .2, killDist: 1.1, fuga: .9, drain: .22 },
-  normal: { react: 1.0, chaseDark: 3.7, chaseLit: 2.7, seeDark: 7.5, seeLit: 15, seeFlashlight: 22, hideSuspicion: 2.1, wakeAfter: 110, director: 55, resistStep: .28, killDist: 1.18, fuga: .95, drain: .28 },
+  facil: { react: 1.4, chaseDark: 3.3, chaseLit: 2.5, seeDark: 6.5, seeLit: 13, seeFlashlight: 19, hideSuspicion: 2.8, wakeAfter: 100, director: 75, resistStep: .2, killDist: 1.1, fuga: .9, drain: .22 },
+  normal: { react: 1.0, chaseDark: 3.7, chaseLit: 2.7, seeDark: 7.5, seeLit: 15, seeFlashlight: 22, hideSuspicion: 2.1, wakeAfter: 65, director: 55, resistStep: .28, killDist: 1.18, fuga: .95, drain: .28 },
   dificil: { react: .6, chaseDark: 4.2, chaseLit: 3.0, seeDark: 9, seeLit: 17, seeFlashlight: 26, hideSuspicion: 1.7, wakeAfter: 75, director: 40, resistStep: .35, killDist: 1.25, fuga: 1, drain: .32 } };
 function applyDiff() {
   const d = DIFF[SET.diff] || DIFF.normal, CC = CFG.creature; for (const k of ['chaseDark', 'chaseLit', 'seeDark', 'seeLit', 'seeFlashlight', 'hideSuspicion', 'wakeAfter', 'director', 'resistStep', 'killDist']) CC[k] = d[k];
@@ -1732,9 +1747,10 @@ function applyDiff() {
   if (NET.role !== 'solo') { CC.chaseDark *= 1.07; CC.chaseLit *= 1.07; CC.director *= .8; } // dois jogadores: ele fica mais forte
 }
 function applyGfx() {
-  if (G.trailer) return; const pr = { baixo: .6, medio: 1, alto: Math.min(devicePixelRatio, 1.5) }[SET.gfx] || 1;
+  if (G.trailer) return; const pr = { baixo: .6, medio: TOUCH ? .85 : 1, alto: Math.min(devicePixelRatio, 1.5) }[SET.gfx] || 1;
   renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
-  const sm = SET.gfx === 'alto' ? 1024 : 512; flash.castShadow = SET.gfx !== 'baixo';
+  const sm = 1024; flash.castShadow = SET.gfx === 'alto';
+  for (const m of [...Object.values(MAT), MAT_DOOR]) { if (!m || !m.isMaterial) continue; if (m.userData.bump === undefined) m.userData.bump = m.bumpMap || null; const want = SET.gfx === 'alto' ? m.userData.bump : null; if (m.bumpMap !== want) { m.bumpMap = want; m.needsUpdate = true; } }
   if (flash.shadow.mapSize.x !== sm) { flash.shadow.mapSize.set(sm, sm); if (flash.shadow.map) { flash.shadow.map.dispose(); flash.shadow.map = null; } }
   renderer.toneMappingExposure = 1.15 * SET.bright / 100; $('grain').style.display = SET.gfx === 'baixo' ? 'none' : '';
 }

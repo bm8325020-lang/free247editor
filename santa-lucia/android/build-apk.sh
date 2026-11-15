@@ -8,7 +8,7 @@ cp -r "$HERE/../sounds" "$OUT/assets/www/"
 cp "$HERE/../peerjs.min.js" "$OUT/assets/www/"
 "$BT/aapt2" compile --dir "$HERE/res" -o "$OUT/res.zip"
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$JAR" --manifest "$HERE/AndroidManifest.xml" -A "$OUT/assets" "$OUT/res.zip" \
-  --min-sdk-version 24 --target-sdk-version 34 --version-code 11 --version-name 2.3
+  --min-sdk-version 24 --target-sdk-version 34 --version-code 12 --version-name 2.4
 javac -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$JAR" -d "$OUT/classes" $(find "$HERE/src" -name '*.java')
 "$BT/d8" --release --lib "$JAR" --min-api 24 --output "$OUT/dex" $(find "$OUT/classes" -name '*.class')
 (cd "$OUT/dex" && zip -q "$OUT/base.apk" classes.dex)
