@@ -35,6 +35,7 @@ data class Options(
     val hook: Boolean = true,
     val groqKey: String = "",
     val claudeKey: String = "",
+    val coarenaKey: String = "", // free alternative to claudeKey (coarena.ai)
     val language: String = "",
     val credit: String = "",
     val hashtags: String = "",
@@ -110,10 +111,12 @@ object Engine {
 
         val ranked = Hype.rescore(cands, ex, words, info.durationS, s.maxSeconds)
         var picked: List<Clip>? = null
-        if (opt.claudeKey.isNotBlank() && !opt.live) {
-            report("Claude escolhendo os melhores", 0.7)
-            picked = ClaudePicker.pick(opt.claudeKey.trim(), ranked.take(max(opt.clips * 3, 12)), words, opt.clips, language)
-            if (picked == null) notes.add("Claude indisponível; usei o seletor automático.")
+        if ((opt.claudeKey.isNotBlank() || opt.coarenaKey.isNotBlank()) && !opt.live) {
+            report("A IA está escolhendo os melhores", 0.7)
+            val top = ranked.take(max(opt.clips * 3, 12))
+            if (opt.claudeKey.isNotBlank()) picked = ClaudePicker.pick(opt.claudeKey.trim(), top, words, opt.clips, language)
+            if (picked == null && opt.coarenaKey.isNotBlank()) picked = CoarenaPicker.pick(opt.coarenaKey, top, words, opt.clips, language)
+            if (picked == null) notes.add("A IA não respondeu; usei o seletor automático.")
             else picked = picked.fold(ArrayList()) { acc, c -> if (acc.all { c.end <= it.start || c.start >= it.end }) acc.add(c); acc }
         }
         val strong = ranked.count { Hype.isStrong(it, s) }
@@ -138,7 +141,7 @@ object Engine {
                     (if (best.size >= LIVE_MAX) " (parei em $LIVE_MAX)." else "."))
         } else if (best.size < opt.clips) {
             notes.add(0, Hype.explain(opt.clips, if (picked == null) strong else null, best.size,
-                if (picked == null) "automático" else "Claude", best.size, emptyList()).replace("Saíram", "Achei"))
+                if (picked == null) "automático" else "IA", best.size, emptyList()).replace("Saíram", "Achei"))
         }
         project = project.copy(language = language, words = words.filter { w -> all.any { w.start >= it.start - 6 && w.start < it.end + 6 } },
             moments = moments, notes = notes, status = if (opt.chooseMoments) "choosing" else "rendering")

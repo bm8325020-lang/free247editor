@@ -34,6 +34,28 @@ object KeyCheck {
         }
     }
 
+    fun coarena(key: String): Result {
+        if (key.isBlank()) return Result(false, "Sem chave: o seletor automático escolhe os momentos.")
+        val http = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
+        val req = Request.Builder().url("https://coarena.ai/api/v1/limits").header("Authorization", "Bearer ${key.trim()}").build()
+        return try {
+            http.newCall(req).execute().use { r ->
+                when {
+                    r.isSuccessful -> {
+                        val d = org.json.JSONObject(r.body?.string().orEmpty()).optJSONObject("data")
+                        val left = d?.optJSONObject("today")?.optDouble("left_usd", Double.NaN) ?: Double.NaN
+                        Result(true, "Coarena funcionando: a IA grátis escolhe os momentos e escreve os títulos" +
+                            (if (!left.isNaN()) " (cota de hoje: US$ %.2f).".format(left) else "."))
+                    }
+                    r.code == 401 || r.code == 403 -> Result(false, "Chave da Coarena recusada (${r.code}). Gere outra em coarena.ai.")
+                    else -> Result(false, "A Coarena respondeu com erro ${r.code}. Tente mais tarde.")
+                }
+            }
+        } catch (e: IOException) {
+            Result(false, "Sem conexão com a Coarena. Verifique a internet.")
+        }
+    }
+
     fun anthropic(key: String): Result {
         if (key.isBlank()) return Result(false, "Sem chave: o seletor automático escolhe os momentos.")
         if (!key.trim().startsWith("sk-ant-")) return Result(false, "Isso não parece uma chave da Anthropic (começa com sk-ant-).")

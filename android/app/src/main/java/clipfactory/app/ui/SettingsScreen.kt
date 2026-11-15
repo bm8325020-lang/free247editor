@@ -50,6 +50,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var groqMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
     var claudeMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
+    var coarenaMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         TopBar("Configurações", onBack)
@@ -64,7 +65,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                         scope.launch { groqMsg = withContext(Dispatchers.IO) { KeyCheck.groq(opt.groqKey) } }
                     }
                     groqMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
-                    Field("Chave da Anthropic", opt.claudeKey, secret = true, hint = "Escolhe os momentos e escreve os títulos") { set(opt.copy(claudeKey = it)) }
+                    Field("Chave da Coarena (grátis)", opt.coarenaKey, secret = true,
+                        hint = "IA grátis que escolhe os momentos e escreve os títulos. coarena.ai") { set(opt.copy(coarenaKey = it)) }
+                    SoftButton("Testar Coarena", icon = Icons.Filled.Wifi) {
+                        coarenaMsg = KeyCheck.Result(true, "Testando…")
+                        scope.launch { coarenaMsg = withContext(Dispatchers.IO) { KeyCheck.coarena(opt.coarenaKey) } }
+                    }
+                    coarenaMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
+                    Field("Chave da Anthropic", opt.claudeKey, secret = true, hint = "Paga. Se tiver as duas, usa esta primeiro") { set(opt.copy(claudeKey = it)) }
                     SoftButton("Testar Anthropic", icon = Icons.Filled.Wifi) {
                         claudeMsg = KeyCheck.Result(true, "Testando…")
                         scope.launch { claudeMsg = withContext(Dispatchers.IO) { KeyCheck.anthropic(opt.claudeKey) } }

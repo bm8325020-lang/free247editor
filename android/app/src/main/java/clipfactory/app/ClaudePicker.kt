@@ -43,15 +43,14 @@ object ClaudePicker {
         )
         .build()
 
-    /** Returns Claude's picks (best first) or null if unavailable, so the built-in scorer takes over. */
-    fun pick(key: String, cands: List<Clip>, words: List<Word>, count: Int, language: String?): List<Clip>? {
-        if (key.isBlank() || cands.isEmpty()) return null
+    /** The candidates as the model sees them (shared with CoarenaPicker). */
+    fun prompt(cands: List<Clip>, words: List<Word>, count: Int, language: String?): String {
         val blocks = cands.mapIndexed { i, c ->
             val said = words.filter { it.start >= c.start && it.start < c.end }.joinToString(" ") { it.text }
                 .ifBlank { "(no speech, game audio only)" }
             "[$i] ${hms(c.start)}-${hms(c.end)}  audio_spike=%.1f  hype_words=%.1f\n    $said".format(c.audio, c.hype)
         }
-        val prompt = """You are the clipper for a gaming streamer. These are candidate moments from a stream or gameplay
+        return """You are the clipper for a gaming streamer. These are candidate moments from a stream or gameplay
 video, found by audio spikes (screams, laughs, explosions) and hype words. For each you get the time range, how hard
 the audio spiked, a hype-word score, and what the streamer said.
 
@@ -66,6 +65,33 @@ reason (one short sentence), virality 1-100.
 
 Candidates:
 """ + blocks.joinToString("\n")
+    }
+
+    /** {"clips":[{id,title,reason,virality}]} -> the chosen candidates, best first. */
+    fun parse(text: String, cands: List<Clip>, count: Int, picker: String): List<Clip>? {
+        val arr = JSONObject(text).getJSONArray("clips")
+        val used = HashSet<Int>()
+        val out = ArrayList<Clip>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val id = o.getInt("id")
+            if (id !in cands.indices || !used.add(id)) continue
+            val c = cands[id].copy()
+            c.title = o.getString("title").trim()
+            c.hook = c.title
+            c.reason = o.optString("reason").trim()
+            c.score = o.optInt("virality", 70).coerceIn(1, 100)
+            c.picker = picker
+            out.add(c)
+            if (out.size >= count) break
+        }
+        return out.ifEmpty { null }
+    }
+
+    /** Returns Claude's picks (best first) or null if unavailable, so the built-in scorer takes over. */
+    fun pick(key: String, cands: List<Clip>, words: List<Word>, count: Int, language: String?): List<Clip>? {
+        if (key.isBlank() || cands.isEmpty()) return null
+        val prompt = prompt(cands, words, count, language)
         return try {
             val client = AnthropicOkHttpClient.builder().apiKey(key).build()
             val params = MessageCreateParams.builder()
@@ -82,23 +108,7 @@ Candidates:
             val msg = client.messages().create(params)
             if (msg.stopReason().orElse(null) == StopReason.REFUSAL) return null
             val text = msg.content().mapNotNull { b -> b.text().orElse(null)?.text() }.joinToString("")
-            val arr = JSONObject(text).getJSONArray("clips")
-            val used = HashSet<Int>()
-            val out = ArrayList<Clip>()
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val id = o.getInt("id")
-                if (id !in cands.indices || !used.add(id)) continue
-                val c = cands[id].copy()
-                c.title = o.getString("title").trim()
-                c.hook = c.title
-                c.reason = o.getString("reason").trim()
-                c.score = o.getInt("virality").coerceIn(1, 100)
-                c.picker = "claude"
-                out.add(c)
-                if (out.size >= count) break
-            }
-            out.ifEmpty { null }
+            parse(text, cands, count, "claude")
         } catch (e: Exception) {
             Log.w("ClaudePicker", "Claude unavailable, using the built-in scorer", e)
             null

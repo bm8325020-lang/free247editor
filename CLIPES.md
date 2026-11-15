@@ -26,8 +26,13 @@ Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o 
    insanos**. O arquivo baixado não traz o chat, então contam o áudio e o que foi falado. Uma live de horas demora
    (o celular precisa ouvir tudo); deixe carregando.
    Para o YouTube: baixe a live gravada (ex.: SnapTube) → Compartilhar → Fábrica de Clipes → Live gravada.
-7. **Configurações** (engrenagem): chaves do Groq e da Anthropic com botão de testar, créditos, hashtags e os
+7. **Configurações** (engrenagem): chaves do Groq, da Coarena e da Anthropic com botão de testar, créditos, hashtags e os
    padrões de um clipe novo.
+
+**IA grátis para escolher os momentos (Coarena):** crie uma chave grátis em coarena.ai (página da API) e cole em
+Configurações → **Chave da Coarena**. Ela escolhe os melhores momentos e escreve os títulos, sem pagar (usa os
+modelos grátis do dia: GPT-6 Luna, DeepSeek e Gemini, nessa ordem, se um falhar). Se você tiver também a chave da
+Anthropic, o app usa a Anthropic primeiro.
 
 Os clipes também ficam na galeria, pasta `Movies/Clipes`.
 

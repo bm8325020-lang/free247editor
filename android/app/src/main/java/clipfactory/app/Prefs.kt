@@ -25,6 +25,7 @@ object Prefs {
             hook = p.getBoolean("hook", true),
             groqKey = secret(ctx, "groqKey"),
             claudeKey = secret(ctx, "claudeKey"),
+            coarenaKey = secret(ctx, "coarenaKey"),
             language = p.getString("language", "") ?: "",
             credit = p.getString("credit", "") ?: "",
             hashtags = p.getString("hashtags", "#cortes #clips") ?: "",
@@ -41,6 +42,7 @@ object Prefs {
             .putBoolean("captions", o.captions).putBoolean("hook", o.hook)
             .putString("groqKey_enc", SecureKeys.encrypt(o.groqKey.trim()))
             .putString("claudeKey_enc", SecureKeys.encrypt(o.claudeKey.trim()))
+            .putString("coarenaKey_enc", SecureKeys.encrypt(o.coarenaKey.trim()))
             .remove("groqKey").remove("claudeKey")
             .putString("language", o.language.trim())
             .putString("credit", o.credit.trim()).putString("hashtags", o.hashtags.trim())
