@@ -2,6 +2,8 @@ package clipfactory.app.ui
 
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -67,6 +69,30 @@ fun EditorScreen(projectId: String, index: Int, onBack: () -> Unit, onApplied: (
     val projects by ProjectStore.projects.collectAsState()
     val p = projects.firstOrNull { it.id == projectId } ?: return
     val clip = p.clips.getOrNull(index) ?: return
+    // a video that came in through "Share" can only be read while that share lasts; after the app restarts,
+    // ask for the file once more (with lasting access) instead of failing on "Apply"
+    val readable = remember(p.source) {
+        runCatching { ctx.contentResolver.openFileDescriptor(Uri.parse(p.source), "r")?.close(); true }.getOrDefault(false)
+    }
+    val repick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { ctx.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            ProjectStore.update(ctx, projectId) { it.copy(source = uri.toString()) }
+        }
+    }
+    if (!readable) {
+        Column(Modifier.fillMaxSize()) {
+            TopBar("Editar clipe", onBack)
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Preciso do vídeo original de novo", style = MaterialTheme.typography.titleLarge, color = C.text)
+                Text("Ele veio pelo Compartilhar, e o Android só deixa abrir enquanto o compartilhamento dura. " +
+                    "Escolha o mesmo arquivo (\"${p.name}\") uma vez e depois disso a edição fica liberada sempre.",
+                    style = MaterialTheme.typography.bodyMedium, color = C.muted)
+                BigButton("Escolher o vídeo", icon = Icons.Filled.Check) { repick.launch(arrayOf("video/*")) }
+            }
+        }
+        return
+    }
     val m = p.moments.firstOrNull { it.id == clip.momentId }
     val dur = if (p.durationS > 0) p.durationS else clip.edit.end + 30
     val lo = max(0.0, min(clip.edit.start, m?.start ?: clip.edit.start) - 15)

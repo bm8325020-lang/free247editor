@@ -35,6 +35,7 @@ from .layout import choose_layout, facecam_from_samples, facecam_sample
 from .media import probe, slugify
 from .render import render_clip
 from .report import write_report
+from .telegram import Telegram, post_text
 from .transcribe import transcribe_ranges
 
 SEG = 10  # seconds per recorded segment
@@ -59,6 +60,14 @@ DEFAULTS = {
     "qualidade": "best",
     "clip_oficial_twitch": False,
 }
+
+
+TG = None  # Telegram delivery, when TELEGRAM_BOT_TOKEN is set
+
+
+def notify_error(ch, msg):
+    if TG:
+        TG.send_error(ch, f"{ch}: {msg}")
 
 
 def log(ch, msg):
@@ -225,6 +234,8 @@ class Channel(threading.Thread):
         self.pending = []
         self.made = []
         self.cam_samples = collections.deque(maxlen=60)  # one frame every ~30 s of live, for webcam detection
+        self.live = False
+        self.live_since = None
 
     # ---------- recording ----------
     def live_now(self):
@@ -411,6 +422,7 @@ class Channel(threading.Thread):
         segs = [s for s in list(self.segments) if s["end"] > a and s["start"] < b and s["path"].exists()]
         if not segs:
             log(self.name, "corte perdido: os segmentos já tinham saído do buffer")
+            notify_error(self.name, "perdi um corte (o vídeo já tinha saído do buffer)")
             return
         day = datetime.now().strftime("%Y-%m-%d")
         folder = ROOT / "outbox" / "live" / self.key / day
@@ -431,6 +443,7 @@ class Channel(threading.Thread):
                 self.render(src, segs[0]["start"], p, folder, work, stamp)
             except Exception as e:
                 log(self.name, f"render falhou: {str(e)[:200]}")
+                notify_error(self.name, f"falhou ao montar um clipe: {str(e)[:150]}")
             finally:
                 if not self.cfg.get("keep_work"):
                     src.unlink(missing_ok=True)
@@ -474,6 +487,9 @@ class Channel(threading.Thread):
         write_report(folder, f"{self.name} ao vivo ({datetime.now():%d/%m})", self.made,
                      {"explanation": f"{len(self.made)} momentos cortados automaticamente nesta live."})
         log(self.name, f"CLIPE PRONTO: {folder / name}")
+        if TG:
+            credit = self.spec.get("creditos") or self.opts.get("creditos") or self.name
+            TG.send_clip(folder / name, post_text(title, credit, self.opts.get("hashtags", "#cortes #clips")))
 
     # ---------- main loop ----------
     def run(self):
@@ -485,6 +501,9 @@ class Channel(threading.Thread):
                     self.stopped.wait(60)
                     continue
                 log(self.name, "AO VIVO: gravando buffer e lendo o chat")
+                if not self.live and TG:
+                    TG.send(f"🔴 {self.name} entrou ao vivo. Estou vigiando.")
+                self.live, self.live_since = True, self.live_since or time.time()
                 self.start_recorder()
                 if self.simulated:
                     chat = SimulatedChat(self.spec.get("chat", []), self.chat_sink)
@@ -506,13 +525,31 @@ class Channel(threading.Thread):
                         last_status = time.time()
                     self.stopped.wait(1)
                 log(self.name, "a gravação parou (live acabou ou caiu); reconectando")
+                if not self.simulated and not self.live_now():
+                    self.end_live()
             except Exception as e:
                 log(self.name, f"erro: {str(e)[:200]}")
+                notify_error(self.name, f"erro: {str(e)[:150]}")
                 self.stopped.wait(15)
             finally:
                 if chat:
                     chat.stop.set()
                 self.stop_recorder()
+
+
+    def end_live(self):
+        if self.live and TG:
+            TG.send(f"⚫ A live de {self.name} acabou. {len(self.made)} clipe(s) nesta live.")
+        self.live, self.live_since = False, None
+        self.made = []
+
+    def describe(self):
+        if not self.live:
+            return f"⚫ {self.name} ({self.platform}): offline. Checo a cada minuto."
+        mins = int((time.time() - (self.live_since or time.time())) / 60)
+        msgs = sum(1 for w, _, _ in list(self.chat) if w >= time.time() - 60)
+        return (f"🔴 {self.name} ({self.platform}): ao vivo há {mins} min, {msgs} msgs/min no chat, "
+                f"{len(self.made)} clipe(s) nesta live.")
 
 
 def load_channels():
@@ -557,6 +594,15 @@ def main(argv=None):
         cfg["layout"] = "pip"  # live clips: webcam small in the corner (videos use the stacked layout)
     lock = threading.Lock()
     workers = [Channel(c, opts, cfg, lock) for c in chans]
+    global TG
+    tg = Telegram(status=lambda: "\n".join(w.describe() for w in workers))
+    if tg.enabled:
+        TG = tg
+        tg.start()
+        if tg.chat:
+            tg.send(f"▶️ Bot ligado. Vigiando: {', '.join(w.name for w in workers)}.")
+        else:
+            print("Telegram: mande /start para o seu bot no Telegram para receber os clipes.", file=sys.stderr)
     for w in workers:
         w.start()
     print(f"Vigiando {len(workers)} canal(is). Clipes em outbox/live/. Ctrl+C para parar.", file=sys.stderr)

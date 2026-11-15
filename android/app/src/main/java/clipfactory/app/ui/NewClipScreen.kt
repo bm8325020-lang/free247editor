@@ -54,6 +54,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun NewClipScreen(uri: Uri, name: String, onBack: () -> Unit, onStarted: () -> Unit) {
     val ctx = LocalContext.current
+    // keep access to the video after the app closes, when the app that shared it allows that
+    remember(uri) { runCatching { ctx.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
     var opt by remember { mutableStateOf(Prefs.options(ctx)) }
     val frame by produceState<Pair<ImageBitmap?, Double>>(null to 0.0, uri) {
         value = withContext(Dispatchers.IO) {

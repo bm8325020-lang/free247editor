@@ -91,6 +91,37 @@ clipe oficial na Twitch no mesmo instante e mostra o link.
 
 Precisa de um computador ligado o tempo todo. No celular não funciona: o Android encerra apps em segundo plano.
 
+## Bot de lives na nuvem, só pelo celular (Oracle + Telegram)
+
+O bot roda num computador da Oracle que fica ligado 24 h (plano grátis) e manda cada clipe para o seu Telegram,
+com a legenda pronta. Você não precisa de PC. Funciona com **Twitch**; o YouTube costuma bloquear servidores.
+
+**1. Crie o bot do Telegram (2 minutos)**
+1. No Telegram, abra **@BotFather** e mande `/newbot`.
+2. Dê um nome (ex.: Meus Cortes) e um usuário terminado em `bot` (ex.: meuscortes_bot).
+3. Ele responde com um **token** (algo como `123456:ABC-...`). Copie. Não mostre para ninguém.
+
+**2. Prepare o script**
+1. Abra o arquivo `deploy/oracle-init.sh` (no GitHub, botão "Raw") e copie tudo.
+2. Cole num app de notas e preencha só o bloco "PREENCHA": canal da Twitch, de onde vem a autorização, créditos,
+   hashtags, o token do Telegram e (recomendado) a chave grátis do Groq.
+
+**3. Crie a máquina na Oracle** (no Chrome do celular, ative "Site para computador")
+1. Crie a conta em oracle.com/cloud/free (pede cartão só para verificação).
+2. Menu → Compute → Instances → **Create instance**.
+3. Imagem: **Canonical Ubuntu**. Shape: **Ampere** (VM.Standard.A1.Flex), 2 OCPUs e 12 GB.
+   Se der "out of capacity", tente outro "Availability domain" ou outro horário.
+4. Em **Show advanced options → Management**, escolha **Paste cloud-init script** e cole o script preenchido.
+5. **Create**. Em uns 15 minutos o bot está instalado e ligado.
+
+**4. Ligue o Telegram**
+Abra o seu bot no Telegram e mande `/start`. Ele responde "Pronto!". Daí em diante:
+- quando a live começar: "🔴 entrou ao vivo";
+- a cada momento bom: o **vídeo vertical** + a legenda. Segure o vídeo → Salvar, copie o texto e poste;
+- `/status` mostra o que ele está vigiando.
+
+O bot religa sozinho se a máquina reiniciar, e a cada reinício baixa as correções novas do código.
+
 ## O que ele faz sozinho
 
 1. **Ouve a live inteira** e marca onde o áudio explode em relação ao próprio ritmo da live: gritos, risadas,
