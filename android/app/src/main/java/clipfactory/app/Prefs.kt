@@ -30,6 +30,8 @@ object Prefs {
             hashtags = p.getString("hashtags", "#cortes #clips") ?: "",
             chooseMoments = p.getBoolean("chooseMoments", false),
             captionStyle = p.getString("captionStyle", "amarelo") ?: "amarelo",
+            live = p.getBoolean("live", false),
+            liveLevel = p.getInt("liveLevel", 1),
         )
     }
 
@@ -43,6 +45,7 @@ object Prefs {
             .putString("language", o.language.trim())
             .putString("credit", o.credit.trim()).putString("hashtags", o.hashtags.trim())
             .putBoolean("chooseMoments", o.chooseMoments).putString("captionStyle", o.captionStyle)
+            .putBoolean("live", o.live).putInt("liveLevel", o.liveLevel)
             .putBoolean("onboarded", true)
             .apply()
     }

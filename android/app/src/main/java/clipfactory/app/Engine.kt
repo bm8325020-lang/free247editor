@@ -40,7 +40,14 @@ data class Options(
     val hashtags: String = "",
     val chooseMoments: Boolean = false, // off: fully automatic; on: the user picks the moments before rendering
     val captionStyle: String = "amarelo",
+    // a recorded live: no clip count, every strong moment becomes a clip (up to LIVE_MAX); webcam in the corner
+    val live: Boolean = false,
+    val liveLevel: Int = 1, // 0 more clips, 1 balanced, 2 only the huge moments
 )
+
+const val LIVE_MAX = 50
+private val LIVE_SPIKE = doubleArrayOf(1.0, 1.5, 2.2)
+private val LIVE_HYPE = doubleArrayOf(2.0, 3.0, 4.5)
 
 /**
  * Long video in, vertical clips out, in two steps so the user can step in between:
@@ -103,7 +110,7 @@ object Engine {
 
         val ranked = Hype.rescore(cands, ex, words, info.durationS, s.maxSeconds)
         var picked: List<Clip>? = null
-        if (opt.claudeKey.isNotBlank()) {
+        if (opt.claudeKey.isNotBlank() && !opt.live) {
             report("Claude escolhendo os melhores", 0.7)
             picked = ClaudePicker.pick(opt.claudeKey.trim(), ranked.take(max(opt.clips * 3, 12)), words, opt.clips, language)
             if (picked == null) notes.add("Claude indisponível; usei o seletor automático.")
@@ -112,8 +119,8 @@ object Engine {
         val strong = ranked.count { Hype.isStrong(it, s) }
         val best = picked ?: Hype.pick(ranked, words, s)
         // extra candidates the user can choose from: more strong moments that do not overlap the best ones
-        val extra = Hype.pick(ranked.filter { c -> best.all { c.end <= it.start || c.start >= it.end } }, words,
-            s.copy(clips = max(4, opt.clips)))
+        val extra = if (opt.live) emptyList() else Hype.pick(ranked.filter { c -> best.all { c.end <= it.start || c.start >= it.end } },
+            words, s.copy(clips = max(4, opt.clips)))
         // extras rank below the chosen ones
         val floor = (best.minOfOrNull { it.score } ?: 70) - 1
         extra.forEach { it.score = minOf(it.score, floor).coerceAtLeast(1) }
@@ -125,7 +132,11 @@ object Engine {
         val moments = all.mapIndexed { i, c ->
             Moment(i, c.start, c.end, c.peak, c.title, c.hook, c.reason, c.score, c.text, thumbs.getOrElse(i) { "" }, i < best.size)
         }
-        if (best.size < opt.clips) {
+        if (opt.live) {
+            notes.add(0, if (best.isEmpty()) "Live: nenhum momento forte o bastante (sem chat no arquivo, só áudio e fala contam)."
+                else "Live: ${best.size} momento(s) forte(s) achado(s), sem limite de quantidade" +
+                    (if (best.size >= LIVE_MAX) " (parei em $LIVE_MAX)." else "."))
+        } else if (best.size < opt.clips) {
             notes.add(0, Hype.explain(opt.clips, if (picked == null) strong else null, best.size,
                 if (picked == null) "automático" else "Claude", best.size, emptyList()).replace("Saíram", "Achei"))
         }
@@ -138,7 +149,8 @@ object Engine {
     /** The clips to make for the chosen moments (default edit from the moment and the user's defaults). */
     fun clipsFor(project: Project, momentIds: List<Int>, opt: Options): List<PClip> = momentIds.mapNotNull { id ->
         project.moments.firstOrNull { it.id == id }?.let { m ->
-            PClip(m.id, m.title, m.score, m.reason, ClipEdit(m.start, m.end, if (opt.hook) m.hook else "", opt.captionStyle, opt.layout))
+            PClip(m.id, m.title, m.score, m.reason, ClipEdit(m.start, m.end, if (opt.hook) m.hook else "", opt.captionStyle,
+                if (opt.live && opt.layout == "auto") "pip" else opt.layout))
         }
     }
 
@@ -182,8 +194,11 @@ object Engine {
     }
 
     private fun settings(opt: Options) = Settings(
-        clips = opt.clips, minSeconds = 15.0, maxSeconds = opt.maxSeconds.toDouble(),
+        clips = if (opt.live) LIVE_MAX else opt.clips, minSeconds = 15.0, maxSeconds = opt.maxSeconds.toDouble(),
         targetSeconds = min(28.0, opt.maxSeconds.toDouble()).coerceAtLeast(15.0),
+        // a live has hours of small spikes: with no count to stop at, only clearly big moments pass
+        minAudioSpike = if (opt.live) LIVE_SPIKE[opt.liveLevel.coerceIn(0, 2)] else 1.0,
+        minHype = if (opt.live) LIVE_HYPE[opt.liveLevel.coerceIn(0, 2)] else 2.0,
     )
 
     /** Loudness and webcam samples, from the cache when this video was analysed before. */

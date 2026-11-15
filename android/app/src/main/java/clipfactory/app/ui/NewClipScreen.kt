@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import clipfactory.app.CaptionStyles
 import clipfactory.app.ClipService
+import clipfactory.app.LIVE_MAX
 import clipfactory.app.Options
 import clipfactory.app.Prefs
 import kotlinx.coroutines.Dispatchers
@@ -92,10 +93,32 @@ fun NewClipContent(name: String, frame: ImageBitmap?, durationS: Double, opt: Op
                 }
             }
             Card {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionTitle("O que é este vídeo?")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("Vídeo", !opt.live) { onChange(opt.copy(live = false)) }
+                        Chip("Live gravada", opt.live) { onChange(opt.copy(live = true)) }
+                    }
+                    if (opt.live) Text("Sem limite de clipes: cada momento forte da live vira um clipe (até $LIVE_MAX), " +
+                        "com a webcam no canto. O arquivo baixado não traz o chat, então contam o áudio (grito, risada, " +
+                        "explosão) e o que foi falado.", style = MaterialTheme.typography.bodyMedium, color = C.muted)
+                    if (opt.live) {
+                        Text("Quão exigente", style = MaterialTheme.typography.titleMedium, color = C.text)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Mais clipes", "Equilibrado", "Só os insanos").forEachIndexed { i, l ->
+                                Chip(l, opt.liveLevel == i) { onChange(opt.copy(liveLevel = i)) }
+                            }
+                        }
+                    }
+                }
+            }
+            Card {
                 Column {
-                    SectionTitle("Quantos clipes", "Até ${opt.clips}: momentos fracos não viram clipe só para completar.")
-                    Slider(opt.clips.toFloat(), { onChange(opt.copy(clips = it.toInt())) }, valueRange = 1f..15f, steps = 13,
-                        colors = SliderDefaults.colors(thumbColor = C.accent, activeTrackColor = C.accent))
+                    if (!opt.live) {
+                        SectionTitle("Quantos clipes", "Até ${opt.clips}: momentos fracos não viram clipe só para completar.")
+                        Slider(opt.clips.toFloat(), { onChange(opt.copy(clips = it.toInt())) }, valueRange = 1f..15f, steps = 13,
+                            colors = SliderDefaults.colors(thumbColor = C.accent, activeTrackColor = C.accent))
+                    }
                     SectionTitle("Duração máxima: ${opt.maxSeconds} s")
                     Slider(opt.maxSeconds.toFloat(), { onChange(opt.copy(maxSeconds = (it / 5).toInt() * 5)) }, valueRange = 20f..60f,
                         colors = SliderDefaults.colors(thumbColor = C.accent, activeTrackColor = C.accent))
@@ -122,13 +145,16 @@ fun NewClipContent(name: String, frame: ImageBitmap?, durationS: Double, opt: Op
                 Column {
                     SectionTitle("Layout")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LAYOUTS.forEach { (k, label) -> Chip(label, opt.layout == k) { onChange(opt.copy(layout = k)) } }
+                        LAYOUTS.forEach { (k, label) ->
+                            val shown = if (opt.live && k == "auto") "Automático (webcam no canto)" else label
+                            Chip(shown, opt.layout == k) { onChange(opt.copy(layout = k)) }
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(4.dp))
         }
-        BigButton("Criar clipes", Modifier.padding(16.dp), icon = Icons.Filled.AutoAwesome, onClick = onStart)
+        BigButton(if (opt.live) "Clipar a live" else "Criar clipes", Modifier.padding(16.dp), icon = Icons.Filled.AutoAwesome, onClick = onStart)
     }
 }
 

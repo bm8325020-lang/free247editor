@@ -21,7 +21,12 @@ Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o 
    - **Editar:** muda o início e o fim (com tira de quadros e prévia), o título, o estilo da legenda e o layout.
      **Aplicar** monta de novo só aquele clipe.
    - **Apagar:** tira o clipe do app e da galeria.
-6. **Configurações** (engrenagem): chaves do Groq e da Anthropic com botão de testar, créditos, hashtags e os
+6. **Live gravada:** em Novo clipe, toque em **Live gravada**. Não tem limite de clipes: cada momento forte vira
+   um clipe (até 50), com a webcam no canto. Escolha quão exigente: **Mais clipes**, **Equilibrado** ou **Só os
+   insanos**. O arquivo baixado não traz o chat, então contam o áudio e o que foi falado. Uma live de horas demora
+   (o celular precisa ouvir tudo); deixe carregando.
+   Para o YouTube: baixe a live gravada (ex.: SnapTube) → Compartilhar → Fábrica de Clipes → Live gravada.
+7. **Configurações** (engrenagem): chaves do Groq e da Anthropic com botão de testar, créditos, hashtags e os
    padrões de um clipe novo.
 
 Os clipes também ficam na galeria, pasta `Movies/Clipes`.
