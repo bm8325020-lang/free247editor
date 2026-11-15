@@ -8,7 +8,7 @@
     if (g.P.carried.length) return { k: 'panel', x: 7, y: 1 };
     if (g.G.endgame) return { k: 'wait', x: 3, y: 4 };
     const fs = g.FUSES.filter(f => f.state === 'world'); if (!fs.length) return { k: 'wait', x: 6, y: 3 };
-    const f = fs.sort((a, b) => g.tc(a.x, a.y).distanceTo(g.P.pos) - g.tc(b.x, b.y).distanceTo(g.P.pos))[0]; return { k: 'fuse', x: f.x, y: f.y, f };
+    let f = fs.find(o => o === st.target); if (!f) { f = fs.sort((a, b) => g.tc(a.x, a.y).distanceTo(g.P.pos) - g.tc(b.x, b.y).distanceTo(g.P.pos))[0]; st.target = f; } return { k: 'fuse', x: f.x, y: f.y, f }; // mantém o alvo
   }
   function tick() {
     if (st.done) return; const G = g.G, P = g.P;
