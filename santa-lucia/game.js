@@ -3,6 +3,7 @@
 import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
+const BOT = new URLSearchParams(location.search).has('bot');
 const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -134,7 +135,7 @@ const LIGHTS = [
   { x: 36, y: 4, type: 'flicker', color: 0xd0e8d8, int: 6, r: 8 },     // 11 corredor fundo
 ];
 let PLAYER_START = [5, 5];
-const CREATURE_SPAWNS = [[10, 29], [38, 29], [39, 12]];
+const CREATURE_SPAWNS = [[10, 29], [38, 29], [39, 12], [20, 19], [3, 10], [24, 1]];
 
 const SOLID = new Set(['#', 'X', 'L', 'S', 'T', 'c', 'W', 'K', 'G', 'D']);  // 'B' (painel) é de parede: tile andável
 const inB = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
@@ -838,7 +839,7 @@ function pickFuse(f, by = 'h') {
   if (f.state !== 'world') return; f.state = 'carried'; f.by = by; f.obj.visible = false; if (by === 'h') { P.carried.push(f.id); AU.pickup(); } else R.carried.push(f.id); AU.zap(f.obj.position);
   for (const li of f.lights) setLight(li, false); computeLightmap();
   emitNoise(f.obj.position, CFG.noise.fusePickup, true);
-  if (C.state === 'dormant') { C.wakeT = 2.5; }
+  if (C.state === 'dormant') { C.wakeT = 2.5; const far = CREATURE_SPAWNS.slice().sort((a, b) => tc(...b).distanceTo(P.pos) - tc(...a).distanceTo(P.pos))[0]; C.pos.copy(tc(...far)); } // acorda longe de você
   for (const F of FUGAS) if (F.armedBy === f.id) F.armed = true;
   if (by === 'h') msg(`Fusível encontrado (<i>${f.where}</i>). <b>As luzes do setor caíram.</b> Algo ouviu isso.`, 5); else msg(`Seu amigo pegou um fusível (<i>${f.where}</i>).`, 4); setObjective();
 }
@@ -1085,8 +1086,8 @@ function kill(reason) {
 function respawn() {
   if (NET.role !== 'solo') { coopRespawn(); return; }
   $('death').classList.remove('on'); document.body.classList.remove('over'); G.dead = false;
-  for (const id of P.carried) { const f = FUSES[id]; f.state = 'world'; f.obj.visible = true; f.obj.position.copy(f.home); for (const li of f.lights) setLight(li, true); }
-  P.carried = []; computeLightmap(); endFuga(false); for (const F of FUGAS) F.armed = false;
+  const keepFuse = SET.diff !== 'dificil'; if (!keepFuse) for (const id of P.carried) { const f = FUSES[id]; f.state = 'world'; f.obj.visible = true; f.obj.position.copy(f.home); for (const li of f.lights) setLight(li, true); }
+  if (!keepFuse) P.carried = []; computeLightmap(); endFuga(false); for (const F of FUGAS) F.armed = false;
   P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
   const far = CREATURE_SPAWNS.slice().sort((a, b) => tc(...b).distanceTo(P.pos) - tc(...a).distanceTo(P.pos))[0];
   C.pos.copy(tc(...far)); C.exposure = 0; C.knownHide = null; C.suspicion = 0; C.path = []; C.state = 'dormant'; C.wakeT = 8; CR.root.visible = false;
@@ -1095,8 +1096,7 @@ function respawn() {
 }
 function coopRespawn() {
   $('death').classList.remove('on'); document.body.classList.remove('over'); G.dead = false;
-  if (NET.role === 'host') { for (const id of P.carried) dropFuse(FUSES[id]); spawnGuard(); } else NET.send({ t: 'a', k: 'drop' });
-  P.carried = []; P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
+  const keep = SET.diff !== 'dificil'; if (!keep) { if (NET.role === 'host') { for (const id of P.carried) dropFuse(FUSES[id]); } else NET.send({ t: 'a', k: 'drop' }); P.carried = []; } if (NET.role === 'host') spawnGuard(); P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
   setObjective(); pause(false); if (!TOUCH) canvas.requestPointerLock?.();
 }
 function spawnGuard() { // proteção ao renascer: ele não fica de tocaia na recepção
@@ -1149,7 +1149,7 @@ function collide(pos, r) {
   }
   for (const o of OBST) { if (!o.landed || (o.crouch && P.crouch)) continue; const b = o.box;
     const cx = clamp(pos.x, b[0], b[1]), cz = clamp(pos.z, b[2], b[3]); const dx = pos.x - cx, dz = pos.z - cz, d = Math.hypot(dx, dz);
-    if (d < r) { if (d > 1e-5) { pos.x += dx / d * (r - d); pos.z += dz / d * (r - d); } else pos.x += r; if (!o.hit) { o.hit = true; P.stumble = .7; G.shake = Math.max(G.shake, .5); AU.tone({ f: 80, f2: 40, dur: .25, vol: .5 }); } } }
+    if (d < r) { if (d > 1e-5) { pos.x += dx / d * (r - d); pos.z += dz / d * (r - d); } else pos.x += r; if (!o.hit) { o.hit = true; P.stumble = .45; G.shake = Math.max(G.shake, .5); AU.tone({ f: 80, f2: 40, dur: .25, vol: .5 }); } } }
 }
 function updatePlayer(dt) {
   const PC = CFG.player, L = CFG.lamp;
@@ -1176,7 +1176,7 @@ function updatePlayer(dt) {
   if (P.sprinting) { P.stamina -= dt; if (P.stamina <= 0) { P.exhausted = true; AU.burst({ f: 700, q: 1, dur: .8, vol: .15 }); } }
   else { P.stamina = Math.min(PC.staminaMax, P.stamina + PC.staminaRegen * dt); if (P.stamina > PC.staminaMax * .3) P.exhausted = false; }
   if (G.fuga) { P.stamina = PC.staminaMax; P.exhausted = false; } P.stumble = Math.max(0, (P.stumble || 0) - dt);
-  const spd = (P.crouch ? (G.fuga ? 2.2 : PC.crouch) : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .9 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag)) * (P.stumble > 0 ? .45 : 1);
+  const spd = (P.crouch ? (G.fuga ? 2.2 : PC.crouch) : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .9 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag)) * (P.stumble > 0 ? .6 : 1);
   if (moving) {
     const dir = new THREE.Vector3(-Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, 0, -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s).normalize();
     P.pos.addScaledVector(dir, spd * dt); collide(P.pos, PC.radius); collide(P.pos, PC.radius);
@@ -1261,6 +1261,7 @@ function frame() {
   if (G.dead && G.scare > 0) { G.scare -= dt; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); camera.lookAt(head); camera.rotation.z += rand(-.08, .08); CR.jaw.rotation.x = 1.3; }
   else { updateLookLock(dt); G.shake = Math.max(0, (G.shake || 0) - dt * 1.5); const sh = G.shake * G.shake * .06; camera.rotation.set(P.pitch + rand(-sh, sh), P.yaw + rand(-sh, sh), rand(-sh, sh) * .5 + (G.stareRoll || 0), 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
   if (G.started) { updateHUD(); updateTouchUI(); }
+  if (BOT) return; // robô de teste: só a lógica, sem desenhar (roda rápido)
   grainT += dt; if (grainT > 1 / 24) { grainT = 0; drawGrain(); }
   renderer.render(scene, camera);
 }
@@ -1357,9 +1358,9 @@ function buildObstacles(F, seed = 1, from = P.pos) {
 function startFuga(F, seed = (Math.random() * 1e9) | 0, from = P.pos) {
   if (G.fuga || G.endgame) return; F.armed = false; G.fuga = F; fugaBeat = 0; buildObstacles(F, seed, from);
   if (NET.role === 'host') NET.evt({ k: 'fuga', id: F.id, seed, x: from.x, z: from.z });
-  C.pos.copy(tc(...F.spawn)); C.state = 'chase'; C.path = []; C.repath = 0; CR.root.visible = true; C.knownHide = null;
+  const [fx] = tileOf(from); const row = F.id === 'leste' ? 4 : 25; C.pos.copy(tc(Math.min(F.id === 'leste' ? 42 : 41, fx + 7), row)); C.state = 'chase'; C.path = []; C.repath = 0; CR.root.visible = true; C.knownHide = null; C.reactT = 1.8; C.blindT = 0;
   if (!fugaRed) { fugaRed = new THREE.PointLight(0xff2010, 0, 9, 2); scene.add(fugaRed); }
-  AU.jumpscare(); AU.stinger(); G.shake = 1; screenFlash('#7a0000', .55, 140); CR.root.position.copy(C.pos); focusOn(() => { const v = new THREE.Vector3(); CR.head.getWorldPosition(v); return v; }, 1.1, { speed: 10, fov: 55 });
+  AU.jumpscare(); AU.stinger(); G.shake = 1; screenFlash('#7a0000', .55, 140); CR.root.position.copy(C.pos); focusOn(() => { const v = new THREE.Vector3(); CR.head.getWorldPosition(v); return v; }, .8, { speed: 12, fov: 55 });
   msg('<b style="font-size:26px;color:#ff5040">CORRA!</b><br>Segure correr · desvie do entulho · <b>agache</b> sob as vigas', 5);
 }
 function updateFuga(dt) {
@@ -1371,7 +1372,7 @@ function updateFuga(dt) {
     if (o.type === 'cart') { const from = o.g.position.clone(), to = from.clone(); to[o.horiz ? 'z' : 'x'] += o.side * 2.2; AU.creak(o.at.clone().setY(1), .3); tween(.45, k => o.g.position.lerpVectors(from, to, k), () => { o.landed = true; AU.slam(o.at, .5); }); }
     else { const y0 = o.g.position.y, y1 = o.type === 'beam' ? 1.15 : 0; if (o.type === 'beam') AU.creak(o.at.clone().setY(2.5), .35);
       tween(o.type === 'beam' ? .35 : .5, k => { o.g.position.y = lerp(y0, y1, k * k); o.g.rotation.z = (o.type === 'beam' ? 0 : k * .3 * o.side); }, () => { o.landed = true; AU.crash(o.at.clone().setY(1)); G.shake = Math.max(G.shake, .35);
-        const b = o.box; if (P.pos.x > b[0] - .3 && P.pos.x < b[1] + .3 && P.pos.z > b[2] - .3 && P.pos.z < b[3] + .3 && !(o.crouch && P.crouch)) { P.stumble = .9; G.shake = 1; screenFlash('#300', .5, 90); } }); }
+        const b = o.box; if (P.pos.x > b[0] - .3 && P.pos.x < b[1] + .3 && P.pos.z > b[2] - .3 && P.pos.z < b[3] + .3 && !(o.crouch && P.crouch)) { P.stumble = .6; G.shake = 1; screenFlash('#300', .5, 90); } }); }
   }
   // tambores
   fugaBeat -= dt; if (fugaBeat <= 0) { fugaBeat = .22; AU.tom(.35); }
@@ -1381,6 +1382,7 @@ function updateFuga(dt) {
 }
 function updateFugaCreature(dt) {
   if (C.blindT > 0) { blindTick(dt); return; }
+  if (C.reactT > 0) { C.reactT -= dt; C.speed = 0; const pl = players()[0]; if (pl) faceTowards(pl.pos, dt, 8); CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw; return; } // urra antes de correr
   const pls = players(); if (!pls.length) return; TGT = pls.reduce((a, b) => a.pos.distanceTo(C.pos) < b.pos.distanceTo(C.pos) ? a : b);
   const d = C.pos.distanceTo(TGT.pos); const sp = (d > 16 ? 5.6 : d < 5 ? 4.35 : 4.6) * (CFG.creature.fugaMul || 1); // elástico: sempre colado, nunca impossível
   C.repath -= dt; if (C.repath <= 0) { C.repath = .25; planPath(TGT.pos); } moveAlong(sp, dt); C.state = 'chase';
@@ -1877,4 +1879,4 @@ if (new URLSearchParams(location.search).has('trailer')) {
     drawGrain(); renderer.render(scene, camera);
   };
 }
-window.__game = { get VOICE_nodes() { return VOICE.nodes; }, NET, R, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+window.__game = { keys, astar, tileOf, isSolid, interact, usePanel, players, get focusTarget() { return focusTarget; }, get VOICE_nodes() { return VOICE.nodes; }, NET, R, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
