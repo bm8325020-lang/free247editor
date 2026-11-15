@@ -17,7 +17,7 @@ const T = 2.4;          // tamanho do tile (m)
 const WALL_H = 3.0;
 const CFG = {
   player: { walk: 2.9, sprint: 4.9, crouch: 1.4, radius: 0.32, eye: 1.62, crouchEye: 0.95,
-            staminaMax: 4.5, staminaRegen: 0.55, breathMax: 6, breathRegen: 0.8 },
+            staminaMax: 7, staminaRegen: 0.9, breathMax: 6, breathRegen: 0.8 },
   noise:  { walk: 6, sprint: 15, crouch: 1.8, fusePickup: 32, fuseInsert: 22, door: 40 },
   lamp:   { battery: 100, drain: 0.32, focusDrain: 2.6,          // %/s
             range: 15, focusRange: 20, halfCone: 14, focusHalfCone: 7,  // graus
@@ -26,7 +26,7 @@ const CFG = {
   creature: { patrol: 1.5, investigate: 2.5, hunt: 3.3, chaseDark: 4.35, chaseLit: 3.1,
               flinchMul: 0.45, killDist: 1.25, fovHalf: 62,
               seeFlashlight: 26, seeLit: 17, seeDark: 9, seeCrouchDark: 5.5, closeSense: 2.6,
-              loseTime: 2.6, searchTime: 18, retreatTime: 5.5, stagger: 0.9,
+              loseTime: 1.7, searchTime: 18, retreatTime: 5.5, stagger: 0.9,
               resistStep: 0.35, resistMax: 1.6, resistDecay: 0.015,
               hideSuspicion: 1.7, hideSenseDist: 3.4, wakeAfter: 75, director: 40 },
   endgame: { duration: 30 },
@@ -846,7 +846,7 @@ function closeNote() { G.readingNote = false; $('note').classList.remove('on'); 
 function enterHide(spot) {
   P.hidden = spot; P.lampOn = false; P.lastEnterHide = G.t; C.suspicion = 0;
   // ele viu você entrar?
-  if (C.sees || (G.t - C.lastSeenT) < 1.2) C.knownHide = spot;
+  if (C.sees || (G.t - C.lastSeenT) < .8) C.knownHide = spot;
   $('hidemask').className = 'on' + (spot.type === 'under' ? ' under' : '');
   AU.burst({ f: 700, q: 4, dur: .35, vol: .25, verb: .4 }); emitNoise(spot.pos, 3.5);
   msg(spot.type === 'locker' ? 'Escondido. Segure <b>Espaço</b> para prender a respiração quando ele estiver perto.' : 'Debaixo da maca. Segure <b>Espaço</b> para não respirar alto.', 3);
@@ -872,7 +872,7 @@ function emitNoise(pos, radius, important = false) {
 // =====================================================================
 function setState(s) {
   if (C.state === s) return; const prev = C.state; C.state = s; C.stateT = 0;
-  if (s === 'chase' && prev !== 'chase') { AU.stinger(); }
+  if (s === 'chase' && prev !== 'chase') { AU.stinger(); C.reactT = prev === 'retreat' ? .35 : (DIFF[SET.diff] || DIFF.normal).react; }
   if (s === 'search') { C.searchPts = []; }
 }
 const lightCost = (x, y) => lightmap[y][x] * 5;
@@ -962,6 +962,7 @@ function updateCreature(dt) {
       break;
     }
     case 'chase': {
+      if (C.reactT > 0) { C.reactT -= dt; C.speed = 0; faceTowards(TGT.pos, dt, 8); C.flinch = 0; break; } // grita antes de correr: sua janela de fuga
       C.repath -= dt; if (C.repath <= 0) { C.repath = .35; if (C.lastKnown) planPath(C.lastKnown); }
       const sp = (inLit ? CC.chaseLit : CC.chaseDark) * flinchMul * (G.endgame ? 1.08 : 1);
       const arrived = moveAlong(sp, dt); if (sees) { C.lostT = 0; if (C.pos.distanceTo(TGT.pos) < 4) { const to = TGT.pos.clone().sub(C.pos); to.y = 0; to.normalize(); C.pos.addScaledVector(to, sp * dt * .5); faceTowards(TGT.pos, dt, 10); } }
@@ -1161,9 +1162,9 @@ function updatePlayer(dt) {
   P.sprinting = moving && (keys.ShiftLeft || keys.ShiftRight || P.runLatch || autoRun) && !P.exhausted && !P.crouch && f > .3;
   if (P.runLatch) { if (!moving || P.exhausted) { P.runIdle = (P.runIdle || 0) + dt; if (P.runIdle > .5 || P.exhausted) P.runLatch = false; } else P.runIdle = 0; }
   if (P.sprinting) { P.stamina -= dt; if (P.stamina <= 0) { P.exhausted = true; AU.burst({ f: 700, q: 1, dur: .8, vol: .15 }); } }
-  else { P.stamina = Math.min(PC.staminaMax, P.stamina + PC.staminaRegen * dt); if (P.stamina > PC.staminaMax * .45) P.exhausted = false; }
+  else { P.stamina = Math.min(PC.staminaMax, P.stamina + PC.staminaRegen * dt); if (P.stamina > PC.staminaMax * .3) P.exhausted = false; }
   if (G.fuga) { P.stamina = PC.staminaMax; P.exhausted = false; } P.stumble = Math.max(0, (P.stumble || 0) - dt);
-  const spd = (P.crouch ? (G.fuga ? 2.2 : PC.crouch) : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .75 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag)) * (P.stumble > 0 ? .45 : 1);
+  const spd = (P.crouch ? (G.fuga ? 2.2 : PC.crouch) : P.sprinting ? PC.sprint : PC.walk * (P.exhausted ? .9 : 1)) * (P.sprinting ? 1 : Math.max(.35, mag)) * (P.stumble > 0 ? .45 : 1);
   if (moving) {
     const dir = new THREE.Vector3(-Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, 0, -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s).normalize();
     P.pos.addScaledVector(dir, spd * dt); collide(P.pos, PC.radius); collide(P.pos, PC.radius);
@@ -1722,9 +1723,9 @@ const SET_KEY = 'santa_lucia_cfg_v1';
 const SET = Object.assign({ vol: 90, steps: 70, amb: 100, breath: 80, voice: 100, gfx: TOUCH ? 'medio' : 'alto', bright: 100, sens: 100, diff: 'normal', autoRun: true }, (() => { try { return JSON.parse(localStorage.getItem(SET_KEY)) || {}; } catch (e) { return {}; } })());
 const saveSet = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(SET)); } catch (e) { } };
 const DIFF = { // o "Normal" antigo virou o Difícil
-  facil: { chaseDark: 3.55, chaseLit: 2.7, seeDark: 6.5, seeLit: 13, seeFlashlight: 19, hideSuspicion: 2.8, wakeAfter: 150, director: 75, resistStep: .2, killDist: 1.1, fuga: .9, drain: .22 },
-  normal: { chaseDark: 3.95, chaseLit: 2.9, seeDark: 7.5, seeLit: 15, seeFlashlight: 22, hideSuspicion: 2.1, wakeAfter: 110, director: 55, resistStep: .28, killDist: 1.18, fuga: .95, drain: .28 },
-  dificil: { chaseDark: 4.35, chaseLit: 3.1, seeDark: 9, seeLit: 17, seeFlashlight: 26, hideSuspicion: 1.7, wakeAfter: 75, director: 40, resistStep: .35, killDist: 1.25, fuga: 1, drain: .32 } };
+  facil: { react: 1.4, chaseDark: 3.3, chaseLit: 2.5, seeDark: 6.5, seeLit: 13, seeFlashlight: 19, hideSuspicion: 2.8, wakeAfter: 150, director: 75, resistStep: .2, killDist: 1.1, fuga: .9, drain: .22 },
+  normal: { react: 1.0, chaseDark: 3.7, chaseLit: 2.7, seeDark: 7.5, seeLit: 15, seeFlashlight: 22, hideSuspicion: 2.1, wakeAfter: 110, director: 55, resistStep: .28, killDist: 1.18, fuga: .95, drain: .28 },
+  dificil: { react: .6, chaseDark: 4.2, chaseLit: 3.0, seeDark: 9, seeLit: 17, seeFlashlight: 26, hideSuspicion: 1.7, wakeAfter: 75, director: 40, resistStep: .35, killDist: 1.25, fuga: 1, drain: .32 } };
 function applyDiff() {
   const d = DIFF[SET.diff] || DIFF.normal, CC = CFG.creature; for (const k of ['chaseDark', 'chaseLit', 'seeDark', 'seeLit', 'seeFlashlight', 'hideSuspicion', 'wakeAfter', 'director', 'resistStep', 'killDist']) CC[k] = d[k];
   CC.fugaMul = d.fuga; CFG.lamp.drain = d.drain;
