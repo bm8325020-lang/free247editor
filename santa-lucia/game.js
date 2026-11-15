@@ -4,6 +4,7 @@ import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const BOT = new URLSearchParams(location.search).has('bot');
+const VERSION = '2.6';
 const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -1065,6 +1066,9 @@ function animateCreature(dt) {
 // =====================================================================
 // MORTE / CHECKPOINT / FINAL
 // =====================================================================
+const TIPS = ['Quando ele te vê, ele <b>grita antes de correr</b>. Use esse segundo para virar um corredor.', 'Feche uma <b>porta</b> atrás de você: ele perde tempo arrombando.', 'Lanterna ligada te deixa visível de longe. No escuro, <b>agachado</b>, ele quase não te vê.',
+  'Segure <b>FOCO</b> mirando no <b>rosto</b> dele: ele recua. Mas a lanterna esquenta.', 'Escondido, segure <b>AR</b> quando ele chegar perto.', 'O <b>flash da Polaroid</b> cega ele por 5 segundos.', 'Se ele te viu entrar no esconderijo, o esconderijo não protege.',
+  'Correr faz barulho. Andar agachado quase não faz.', 'Ele é mais lento em salas iluminadas.', 'Use o <b>MAPA</b> para não andar em círculos.'];
 function kill(reason) {
   if (G.dead || G.won) return; G.dead = true; G.deaths++; save(); G.scare = 1.1;
   if (P.hidden) { const s = P.hidden; P.hidden = null; $('hidemask').className = ''; }
@@ -1078,6 +1082,7 @@ function kill(reason) {
     ['Fusíveis no painel', `${G.inserted.length} de 4`], ['Destino', `Gaveta nº ${17 + G.deaths}`]];
   setTimeout(() => {
     document.body.classList.add('over'); $('d-num').textContent = String(1974000 + 17 + G.deaths); $('d-rows').innerHTML = rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('');
+    $('d-tip').innerHTML = 'Dica: ' + pick(TIPS) + (SET.diff !== 'dificil' && P.carried.length ? '<br>Você mantém o fusível que carregava.' : '');
     $('death').classList.add('on'); fitScreen($('death'), '.tag'); document.exitPointerLock?.(); $('d-tag').classList.remove('in'); void $('d-tag').offsetWidth; $('d-tag').classList.add('in');
     AU.tone && AU.tone({ f: 55, f2: 40, dur: 3, vol: .25, verb: .8 });
     if (NET.role !== 'solo') { const btn = $('btn-retry'); let n = 10; btn.disabled = true; btn.textContent = `Voltando em ${n}s`; const iv = setInterval(() => { n--; if (n <= 0) { clearInterval(iv); btn.disabled = false; btn.textContent = 'Voltar à recepção'; } else btn.textContent = `Voltando em ${n}s`; }, 1000); }
@@ -1118,7 +1123,7 @@ function updateEndgame(dt) {
 }
 function fitScreen(el, inner) { // encolhe o conteúdo para caber na tela (celular na horizontal)
   const box = el.querySelector(inner); box.style.transform = ''; const btn = el.querySelector('.btn');
-  const need = [...el.children].reduce((h, c) => h + c.offsetHeight + 24, 24), k = Math.min(1, innerHeight / need, (innerWidth - 24) / box.offsetWidth);
+  const need = [...el.children].filter(c => c.offsetParent !== null || c === box).reduce((h, c) => h + c.offsetHeight + 12, 16), others = need - box.offsetHeight, k = clamp(Math.min((innerHeight - others) / box.offsetHeight, (innerWidth - 24) / box.offsetWidth), .3, 1);
   box.style.transform = `scale(${k})`; box.style.margin = `${-(1 - k) * box.offsetHeight / 2}px 0`;
 }
 function win() {
@@ -1860,6 +1865,9 @@ function start(cont) {
 $('btn-host').onclick = hostRoom; $('btn-join').onclick = joinRoom; $('join-code').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') joinRoom(); });
 $('btn-new').onclick = () => start(false); $('btn-cont').onclick = () => start(true); $('btn-retry').onclick = () => respawn();
 frame();
+document.querySelectorAll('.ver').forEach(e => e.textContent = 'v' + VERSION);
+$('btn-credits').onclick = () => { $('title').classList.remove('on'); $('credits').classList.add('on'); }; $('btn-cred-close').onclick = () => { $('credits').classList.remove('on'); $('title').classList.add('on'); };
+Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 2500))]).then(() => requestAnimationFrame(() => $('loading').classList.add('off')));
 
 // gancho de teste/depuração
 // ----- modo trailer: o jogo para de rodar sozinho e cada quadro é avançado por script (captura determinística)

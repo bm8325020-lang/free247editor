@@ -2,10 +2,9 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Santa Lúcia</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="fonts/fonts.css" rel="stylesheet">
 <style>
   :root{--ink:#d7dccf;--dim:#7d857a;--warn:#e0a040;--bad:#c0281e;--ok:#5fc27a}
   *{box-sizing:border-box}
@@ -180,10 +179,27 @@
   #tb-mic{top:14px;left:calc(50% + 34px);width:52px;height:44px;border-radius:8px;font-size:10px}
   body.touch #mic-ind{right:16px;top:70px}
   @media (max-height:520px){.set-grid{gap:4px 18px;font-size:11px}.seg button{padding:5px 3px}}
+  #loading{position:fixed;inset:0;z-index:50;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;transition:opacity .6s}
+  #loading.off{opacity:0;pointer-events:none}
+  #loading .lt{font-family:'Special Elite',serif;font-size:clamp(34px,7vw,64px);color:#c9cfc0;letter-spacing:.08em}
+  #loading .ls{font-size:12px;letter-spacing:.3em;color:#7d857a;text-transform:uppercase}
+  #loading .lb{width:200px;height:3px;background:rgba(255,255,255,.1);overflow:hidden}
+  #loading .lb i{display:block;height:100%;width:40%;background:#c9cfc0;animation:lb 1.1s infinite ease-in-out}
+  @keyframes lb{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+  #d-tip{max-width:560px;font-size:13px;color:#c9b98a;line-height:1.5;text-align:center;padding:0 12px}
+  #credits .cred{max-width:640px;text-align:left}
+  #credits .cred p{font-size:12px;margin:6px 0}
+  body.touch .tbtn,body.touch #fuses,body.touch #mic-ind{margin-right:env(safe-area-inset-right,0px)}
+  body.touch #objective,body.touch #zone,body.touch #partner{margin-left:env(safe-area-inset-left,0px)}
+  body.touch #death{gap:6px;justify-content:center}
+  body.touch #death .glitch{font-size:34px}
+  body.touch #d-tip{font-size:11px}
+  body.touch #death .btn{padding:8px 20px;margin:2px}
   #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
 </style>
 </head>
 <body>
+<div id="loading"><div class="lt">SANTA LÚCIA</div><div class="ls">carregando o sanatório…</div><div class="lb"><i></i></div></div>
 <canvas id="gl"></canvas>
 <canvas id="grain" width="200" height="120"></canvas>
 <div id="vignette"></div>
@@ -212,7 +228,7 @@
 
 <div class="screen on" id="title">
   <h1>SANTA LÚCIA</h1>
-  <h2>sanatório &amp; necrotério · 1974</h2>
+  <h2>sanatório &amp; necrotério · 1974 · <span class="ver"></span></h2>
   <p>A trava eletromagnética do portão principal está sem energia. Encontre os <b>4 fusíveis</b> espalhados pelo prédio, instale-os no painel ao lado da saída e fuja.<br>
   Algo vive no escuro aqui dentro. A luz o machuca. Mas a luz também mostra onde você está.</p>
   <div class="keys" id="keys-desktop">
@@ -237,7 +253,7 @@
     <b>AR</b><span>escondido: segure para prender a respiração</span>
   </div>
   <p style="font-size:11px">Use fones de ouvido. O som é metade do jogo.</p>
-  <div><button class="btn" id="btn-new">Jogar sozinho</button><button class="btn" id="btn-cont" style="display:none">Continuar</button><button class="btn" id="btn-settings">Configurações</button></div>
+  <div><button class="btn" id="btn-new">Jogar sozinho</button><button class="btn" id="btn-cont" style="display:none">Continuar</button><button class="btn" id="btn-settings">Configurações</button><button class="btn" id="btn-credits">Créditos</button></div>
   <div id="lobby"><div class="lobby-t">COM UM AMIGO (cooperativo · 2 jogadores · precisa de internet)</div>
     <button class="btn" id="btn-host">Criar sala</button><span class="or">ou</span><input id="join-code" maxlength="4" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn" id="btn-join">Entrar</button>
     <div id="lobby-msg"></div></div>
@@ -255,6 +271,15 @@
   <button class="tbtn big" id="tb-breath" style="display:none">AR</button>
   <button class="tbtn" id="tb-photo" style="display:none">FOTO</button>
 </div>
+<div class="screen" id="credits"><h1 class="st">CRÉDITOS</h1>
+  <div class="cred">
+    <p><b>Santa Lúcia</b> — jogo original. Versão <span class="ver"></span>.</p>
+    <p><b>Motor 3D:</b> three.js (licença MIT) · <b>Rede:</b> PeerJS (licença MIT)</p>
+    <p><b>Fontes:</b> Special Elite, de Astigmatic (Apache 2.0) · IBM Plex Mono, de IBM (SIL Open Font License 1.1)</p>
+    <p><b>Sons (domínio público, CC0):</b> "Fantozzi's Footsteps" de Fantozzi · "Breathing Tired" · "horror breathing" — via OpenGameArt.org. Demais sons gerados pelo próprio jogo.</p>
+    <p>Personagens, lugares e acontecimentos são fictícios. Contém violência e sustos.</p>
+  </div>
+  <button class="btn" id="btn-cred-close">Voltar</button></div>
 <div class="screen" id="pause"><h1>PAUSA</h1><h2>o jogo continua rodando no cooperativo</h2><div><button class="btn" id="btn-resume">Continuar</button><button class="btn" id="btn-settings2">Configurações</button><button class="btn" id="btn-quit">Sair para o menu</button></div></div>
 <div class="screen" id="settings"><h1 class="st">CONFIGURAÇÕES</h1>
   <div class="set-grid">
@@ -281,6 +306,7 @@
     <div id="d-rows"></div>
     <div class="stamp">ÓBITO</div>
   </div>
+  <div id="d-tip"></div>
   <button class="btn" id="btn-retry">Tentar de novo</button>
 </div>
 <div id="win-flash"></div>
