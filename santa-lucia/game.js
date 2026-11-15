@@ -4,7 +4,7 @@ import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const BOT = new URLSearchParams(location.search).has('bot');
-const VERSION = '2.9';
+const VERSION = '3.0';
 const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -791,6 +791,7 @@ addEventListener('keydown', (e) => {
   if (G.readingNote && (e.code === 'KeyE' || e.code === 'Escape')) { closeNote(); return; }
   if (e.code === 'KeyF') toggleLamp();
   if (e.code === 'KeyC' || e.code === 'ControlLeft') P.crouch = !P.crouch;
+  if (G.grab && (e.code === 'KeyE' || e.code === 'Space')) { grabTap(); return; }
   if (e.code === 'KeyE') interact();
   if (e.code === 'KeyR' && !G.readingNote) takePhoto();
   if (e.code === 'KeyG' && !G.readingNote) throwBottle();
@@ -829,6 +830,7 @@ function findInteractable() {
 function interact() {
   if (P.hidden) { leaveHide(); return; }
   const it = focusTarget; if (!it) return;
+  if (it.type === 'fuse' && it.fuse.locked) { openLock(it.fuse); return; }
   if (NET.role === 'guest' && ['fuse', 'panel', 'door', 'exit'].includes(it.type)) { if (it.type === 'exit' && !G.exitOpen) msg('Trancada. <b>O painel precisa de 4 fusíveis.</b>'); else NET.send({ t: 'a', k: it.type, i: it.type === 'fuse' ? it.fuse.id : it.type === 'door' ? DOORS.indexOf(it.door) : 0 }); return; }
   if (it.type === 'fuse') pickFuse(it.fuse);
   else if (it.type === 'bottle') { it.gone = true; it.obj.visible = false; P.bottles = (P.bottles || 0) + 1; AU.pickup(); msg(`Garrafa (${P.bottles}). ${TOUCH ? 'Toque em JOGAR' : 'Aperte G'} para arremessar: o barulho <b>atrai ele para longe</b>.`, 4); }
@@ -871,9 +873,9 @@ function enterHide(spot) {
   P.hidden = spot; P.lampOn = false; P.lastEnterHide = G.t; C.suspicion = 0;
   // ele viu você entrar?
   if (C.sees || (G.t - C.lastSeenT) < .8) C.knownHide = spot;
-  $('hidemask').className = 'on' + (spot.type === 'under' ? ' under' : '');
+  $('hidemask').className = 'on' + (spot.type === 'under' ? ' under' : spot.type === 'drawer' ? ' drawer' : ''); if (spot.type === 'drawer') { P.yaw = spot.yaw; P.pitch = 0; }
   AU.burst({ f: 700, q: 4, dur: .35, vol: .25, verb: .4 }); emitNoise(spot.pos, 3.5);
-  msg(spot.type === 'locker' ? 'Escondido. Segure <b>Espaço</b> para prender a respiração quando ele estiver perto.' : 'Debaixo da maca. Segure <b>Espaço</b> para não respirar alto.', 3);
+  msg(spot.type === 'drawer' ? 'Dentro da gaveta, no frio, entre os mortos. Segure <b>Espaço</b> se ele chegar perto.' : spot.type === 'locker' ? 'Escondido. Segure <b>Espaço</b> para prender a respiração quando ele estiver perto.' : 'Debaixo da maca. Segure <b>Espaço</b> para não respirar alto.', 3);
 }
 function leaveHide() { const s = P.hidden; P.hidden = null; $('hidemask').className = ''; const [ex, ey] = s.exit; P.pos.copy(tc(ex, ey)); P.yaw = Math.atan2(-(ex - s.tile[0]), -(ey - s.tile[1])); AU.burst({ f: 700, q: 4, dur: .35, vol: .25, verb: .4 }); emitNoise(P.pos, 4); }
 
@@ -908,7 +910,7 @@ let TGT = P;
 function players() { const a = []; if (!G.dead) a.push(P); if (NET.role !== 'solo' && R.alive && !R.dead) a.push(R); return a; }
 function killTgt(reason) {
   const coop = NET.role === 'host';
-  if (TGT === P) kill(reason); else { R.dead = true; R.hidden = null; NET.evt({ k: 'die', r: reason }); AU.scream(R.pos.clone().setY(1.6)); msg('<b>Seu amigo morreu.</b> Ele volta na recepção em alguns segundos.', 4); }
+  if (TGT === P) { if (canGrab()) { startGrab(reason); return; } kill(reason); } else { R.dead = true; R.hidden = null; NET.evt({ k: 'die', r: reason }); AU.scream(R.pos.clone().setY(1.6)); msg('<b>Seu amigo morreu.</b> Ele volta na recepção em alguns segundos.', 4); }
   if (coop) after(1.3, () => { // ele arrasta o corpo para longe: respiro para quem ficou
     const far = ROOM_CENTERS.map(r => tc(r.x, r.y)).sort((a, b) => b.distanceTo(TGT.pos) - a.distanceTo(TGT.pos))[0]; C.retreatTo = far; C.state = 'retreat'; C.stateT = 0; C.path = []; C.knownHide = null; C.suspicion = 0; });
 }
@@ -1007,6 +1009,7 @@ function updateCreature(dt) {
       break;
     }
     case 'vent': { ventTick(dt); break; }
+    case 'grab': { C.speed = 0; faceTowards(P.pos, dt, 12); break; }
     case 'retreat': {
       if (C.stateT < CC.stagger) { C.speed = 0; break; }
       if (C.stateT < CC.stagger + .05) planPath(C.retreatTo);
@@ -1018,17 +1021,17 @@ function updateCreature(dt) {
   // ---------- esconderijo: suspeita por proximidade e respiração
   if (TGT.hidden && !C.knownHide && ['search', 'investigate', 'hunt', 'patrol'].includes(C.state)) {
     const d = C.pos.distanceTo(TGT.hidden.pos);
-    if (d < CC.hideSenseDist) { const rate = (TGT.holding ? 0 : 1) * (TGT.hidden.type === 'under' ? 1.3 : 1) * (G.endgame ? 1.4 : 1); C.suspicion += rate * dt; if (C.state !== 'search') { setState('search'); C.lastKnown = TGT.hidden.pos.clone(); } }
+    if (d < CC.hideSenseDist) { const rate = (TGT.holding ? 0 : 1) * (TGT.hidden.type === 'under' ? 1.3 : TGT.hidden.type === 'drawer' ? .7 : 1) * (G.endgame ? 1.4 : 1); C.suspicion += rate * dt; if (C.state !== 'search') { setState('search'); C.lastKnown = TGT.hidden.pos.clone(); } }
     else { if (C.suspicion > 1 && TGT === P) award('esconde'); C.suspicion = Math.max(0, C.suspicion - dt * .5); }
     if (C.suspicion > CC.hideSuspicion) { killTgt('Ele ouviu sua respiração.'); return; }
   }
   // ---------- contato = morte
-  for (const pl of pls) if (!pl.hidden && C.state !== 'retreat' && C.state !== 'vent' && C.pos.distanceTo(pl.pos) < CC.killDist) { TGT = pl; killTgt('Ele te pegou no escuro.'); break; }
+  for (const pl of pls) if (!pl.hidden && C.state !== 'retreat' && C.state !== 'vent' && C.state !== 'grab' && C.pos.distanceTo(pl.pos) < CC.killDist) { TGT = pl; killTgt('Ele te pegou no escuro.'); break; }
   CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
 }
 // --------- lanterna contra a criatura
 function lampVsCreature(dt) {
-  if (C.state === 'vent') return;
+  if (C.state === 'vent' || C.state === 'grab') return;
   const L = CFG.lamp; let hit = 0, focusHit = false; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); head.y += .12;
   for (const pl of players()) {
     const isMe = pl === P; const on = isMe ? lampActive() : pl.lampOn; if (!on || pl.hidden || G.fuga) continue;
@@ -1184,6 +1187,7 @@ function updatePlayer(dt) {
   if (P.hidden && keys.Space && P.breath <= 0 && !P.gasped) { P.gasped = true; AU.burst({ f: 900, q: 1, dur: .6, vol: .3, verb: .2 }); if (C.pos.distanceTo(P.hidden.pos) < 6) C.suspicion += 1; }
   if (!keys.Space) P.gasped = false;
   if (P.hidden) { camera.position.copy(P.hidden.camPos); P.moving = 0; return; }
+  if (G.grab) { updateGrab(dt); P.moving = 0; camera.position.set(P.pos.x, P.eye, P.pos.z); return; }
   if (G.lookLock && G.lookLock.freeze) { P.moving = 0; camera.position.set(P.pos.x, P.eye, P.pos.z); return; }
   // movimento
   let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
@@ -1270,11 +1274,11 @@ const clock = new THREE.Clock(); let grainT = 0;
 function frame() {
   if (G.trailer) return;
   requestAnimationFrame(frame); const dt = Math.min(clock.getDelta(), 1 / 20);
-  if (G.started && (NET.role !== 'solo' || (!G.paused && !G.readingNote && !G.mapOpen)) && !G.won) {
+  if (G.started && (NET.role !== 'solo' || (!G.paused && !G.readingNote && !G.mapOpen && !G.lockOpen)) && !G.won) {
     if (!G.dead) { G.t += dt; updatePlayer(dt); } else if (NET.role === 'host') G.t += dt;
     if (NET.role === 'guest') { if (!G.dead) updateFuga(dt); netGuestTick(dt); }
     else if (!G.dead || NET.role === 'host') { updateFuga(dt); updateCreature(dt); updateEndgame(dt); }
-    if (!G.dead) { updateScares(dt); updateStare(dt); updateMimic(dt); }
+    if (!G.dead) { updateScares(dt); updateStare(dt); updateMimic(dt); updateInternos(dt); }
     netTick(dt);
     updateTweens(dt); G.blackout = Math.max(0, (G.blackout || 0) - dt);
     animateCreature(dt); updateLights(dt); updateAudio(dt);
@@ -1977,6 +1981,80 @@ function showAchs() {
 }
 $('btn-achs').onclick = showAchs; $('btn-ach-close').onclick = () => { $('achs').classList.remove('on'); $('title').classList.add('on'); };
 
+
+// =====================================================================
+// AGARRÃO: uma chance de se soltar (a cada 90 s)
+// =====================================================================
+const canGrab = () => !P.hidden && !G.fuga && G.t - (P.lastGrab ?? -999) > 90;
+function startGrab(reason) {
+  G.grab = { t: 0, n: 0, need: SET.diff === 'facil' ? 8 : HARD() ? 14 : 11, reason }; P.lastGrab = G.t; C.state = 'grab'; C.stateT = 0; C.speed = 0; P.runLatch = false;
+  const h = new THREE.Vector3(); CR.head.getWorldPosition(h); focusOn(h, 2.6, { speed: 14, fov: 48 }); AU.jumpscare(); G.shake = 1; screenFlash('#7a0000', .5, 120);
+  $('grab').classList.add('on'); $('grab-n').style.width = '0%';
+}
+function grabTap() { if (!G.grab) return; G.grab.n++; G.shake = Math.max(G.shake, .5); buzz(25); AU.burst({ f: 300, q: 1, dur: .08, vol: .25, verb: 0 }); }
+function updateGrab(dt) {
+  const g = G.grab; g.t += dt; $('grab-n').style.width = Math.min(100, g.n / g.need * 100) + '%'; $('grab-t').style.width = Math.max(0, 100 - g.t / 2.4 * 100) + '%';
+  if (g.n >= g.need) { // soltou!
+    G.grab = null; G.lookLock = null; $('grab').classList.remove('on'); const away = P.pos.clone().sub(C.pos).setY(0).normalize(); P.pos.addScaledVector(away, 1.2); collide(P.pos, CFG.player.radius);
+    const far = ROOM_CENTERS.map(r => tc(r.x, r.y)).sort((a, b) => b.distanceTo(P.pos) - a.distanceTo(P.pos))[0]; C.retreatTo = far; C.state = 'retreat'; C.stateT = 0; C.path = []; CR.smokeT = .8;
+    AU.scream(C.pos.clone().setY(2)); P.stamina = CFG.player.staminaMax; msg('<b>Você se soltou!</b> Corra.', 2.5); buzz([60, 30, 60]);
+  } else if (g.t > 2.4) { G.grab = null; $('grab').classList.remove('on'); C.state = 'chase'; kill(g.reason); }
+}
+$('grab').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); grabTap(); });
+
+// =====================================================================
+// GAVETAS DO NECROTÉRIO COMO ESCONDERIJO
+// =====================================================================
+for (const y of [7, 10, 13]) {
+  const c = tc(41, y); const pos = new THREE.Vector3(c.x + T / 2 + .1, 0, c.z);
+  const spot = { type: 'drawer', pos, yaw: Math.PI / 2, tile: [41, y], exit: [40, y], camPos: new THREE.Vector3(c.x + T / 2 + .25, .95, c.z) }; hideSpots.push(spot);
+  interactables.push({ type: 'locker', pos: new THREE.Vector3(c.x + T / 2 - .55, 1.0, c.z), spot, label: 'Esconder na gaveta' });
+}
+
+// =====================================================================
+// OS INTERNOS — figuras sob lençóis que se movem quando você não olha
+// =====================================================================
+const INTERNOS = [];
+function mkInterno() { const body = makeBody('sheet', { blood: Math.random() < .5 }); body.scale.set(.86, 1, .72); const inner = new THREE.Group(); inner.rotation.z = Math.PI / 2; inner.add(body); const outer = new THREE.Group(); outer.rotation.y = Math.PI / 2; outer.position.y = .86; outer.add(inner); const g = new THREE.Group(); g.add(outer); return g; }
+const INT_SPOTS = [[17, 9], [23, 12], [16, 20], [38, 16], [31, 10], [15, 2], [35, 1], [5, 28], [18, 30], [26, 7], [33, 20]].filter(([x, y]) => !isSolid(x, y));
+for (const [x, y] of INT_SPOTS.sort(() => Math.random() - .5).slice(0, 5)) { const g = mkInterno(); g.position.copy(tc(x, y)); g.rotation.y = rand(0, 6); scene.add(g); INTERNOS.push({ g, moved: 0 }); }
+let internoT = 0;
+function updateInternos(dt) {
+  internoT -= dt; if (internoT > 0 || !G.started) return; internoT = .4; const eye = camera.position;
+  for (const it of INTERNOS) {
+    if (!it.g.visible) continue; const p = it.g.position, d = p.distanceTo(P.pos); const head = p.clone().setY(1.3); const ndc = head.clone().project(camera);
+    const seen = ndc.z < 1 && Math.abs(ndc.x) < 1.15 && Math.abs(ndc.y) < 1.15 && los(eye.x, eye.z, p.x, p.z) && d < 26;
+    if (seen && d < 1.8) { it.g.visible = false; AU.burst({ f: 400, q: .7, dur: .5, vol: .25, at: head, verb: .5 }); AU.whisper(head, .3); const [x, y] = pick(INT_SPOTS); after(25, () => { it.g.position.copy(tc(x, y)); it.g.visible = true; }); continue; }
+    if (!seen && d > 3.5 && d < 22 && G.t - it.moved > 3.5) { // anda quando ninguém vê
+      const dir = P.pos.clone().sub(p).setY(0).normalize(); const nxt = p.clone().addScaledVector(dir, 1.4);
+      if (!isSolid(...tileOf(nxt)) && los(p.x, p.z, nxt.x, nxt.z)) { p.copy(nxt); it.moved = G.t; if (d < 9 && Math.random() < .4) AU.creak(p.clone().setY(.3), .12); }
+      it.g.rotation.y = Math.atan2(P.pos.x - p.x, P.pos.z - p.z);
+    }
+  }
+}
+
+// =====================================================================
+// CADEADO COM CÓDIGO no fusível do subsolo
+// =====================================================================
+let lockReady = false; const LOCK = { code: [0, 0, 0], cur: [0, 0, 0], cage: null };
+function setupLock() {
+  if (lockReady) return; lockReady = true; const f = FUSES[3]; if (f.state !== 'world') return; const sp = G.spots || [0, 0, 0, 0];
+  LOCK.code = [(sp[0] * 7 + 3 + sp[3]) % 10, (sp[1] * 3 + sp[3] * 5 + 1) % 10, (sp[2] * 9 + 4 + sp[0]) % 10]; f.locked = true;
+  const cage = new THREE.Mesh(new THREE.BoxGeometry(.9, 1.3, .7, 4, 5, 3), new THREE.MeshStandardMaterial({ color: 0x55595a, wireframe: true, metalness: .6, roughness: .5 })); cage.position.copy(f.obj.position).setY(.65 + .3); scene.add(cage); LOCK.cage = cage;
+  const lk = box3(.12, .14, .06, new THREE.MeshStandardMaterial({ color: 0x9a7a30, metalness: .8, roughness: .3 })); lk.position.copy(cage.position).add(new THREE.Vector3(0, -.1, .38)); scene.add(lk); LOCK.lk = lk;
+  const where = [[14, 20], [30, 16], [9, 10], [25, 13], [3, 15]][(sp[0] + sp[1] + sp[2] + sp[3]) % 5]; const n = { x: where[0], y: where[1], title: 'Papel amassado no bolso de um jaleco', body: `Gaiola do fusível do subsolo — combinação do cadeado:<br><br><b style="font-size:26px;letter-spacing:.3em">${LOCK.code.join(' ')}</b><br><br><i>Não deixe o Paciente 17 ver isto.</i>` };
+  NOTES.push(n); const pm = new THREE.Mesh(new THREE.PlaneGeometry(.3, .4).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: TEX.paper, roughness: 1, emissive: 0x2a2618 })); pm.position.copy(tc(n.x, n.y, .02)); pm.rotation.y = rand(-.5, .5); scene.add(pm);
+  interactables.push({ type: 'note', pos: pm.position.clone(), note: n, idx: NOTES.length - 1, label: 'Ler documento' });
+}
+function openLock(f) { G.lockOpen = true; LOCK.f = f; LOCK.cur = [0, 0, 0]; drawLock(); $('lock').classList.add('on'); }
+function drawLock() { $('lock-d').innerHTML = LOCK.cur.map((v, i) => `<div class="dial"><button data-i="${i}" data-d="1">▲</button><b>${v}</b><button data-i="${i}" data-d="-1">▼</button></div>`).join(''); }
+$('lock-d').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; const i = +b.dataset.i; LOCK.cur[i] = (LOCK.cur[i] + +b.dataset.d + 10) % 10; AU.burst({ f: 2500, q: 5, dur: .03, vol: .15, verb: 0 }); drawLock(); });
+$('lock-ok').onclick = () => {
+  if (LOCK.cur.join('') === LOCK.code.join('')) { LOCK.f.locked = false; G.lockOpen = false; $('lock').classList.remove('on'); scene.remove(LOCK.lk); tween(.6, k => LOCK.cage.position.y = .95 + k * 2.2, () => scene.remove(LOCK.cage)); AU.clunk(LOCK.f.obj.position); msg('O cadeado abriu.', 2); }
+  else { AU.burst({ f: 600, q: 6, dur: .2, vol: .3, verb: .2 }); $('lock-d').classList.add('err'); setTimeout(() => $('lock-d').classList.remove('err'), 400); emitNoise(P.pos, 6); }
+};
+$('lock-x').onclick = () => { G.lockOpen = false; $('lock').classList.remove('on'); };
+
 // =====================================================================
 // BOOT
 // =====================================================================
@@ -1984,7 +2062,7 @@ buildLevel(); buildProps(); buildExit(); buildItems(); buildLights(); buildDoors
 const existing = loadSave(); if (existing && existing.inserted.length) $('btn-cont').style.display = '';
 applyAll();
 function start(cont) {
-  AU.init(); AU.ctx.resume?.(); $('title').classList.remove('on'); G.started = true; pause(false); document.body.classList.add('playing'); P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; camera.fov = 72; camera.updateProjectionMatrix(); if (!BOT) showIntro();
+  AU.init(); AU.ctx.resume?.(); $('title').classList.remove('on'); G.started = true; pause(false); document.body.classList.add('playing'); setupLock(); P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; camera.fov = 72; camera.updateProjectionMatrix(); if (!BOT) showIntro();
   if (cont && existing) { G.inserted = existing.inserted.slice(); G.deaths = existing.deaths || 0; for (const id of G.inserted) { FUSES[id].state = 'inserted'; FUSES[id].obj.visible = false; for (const li of FUSES[id].lights) setLight(li, false); } computeLightmap(); refreshPanel(); if (G.inserted.length) C.wakeT = 10; }
   else if (NET.role === 'solo') { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } }
   if (NET.role !== 'solo') $('partner').style.display = 'block';
@@ -2020,4 +2098,4 @@ if (new URLSearchParams(location.search).has('trailer')) {
     drawGrain(); renderer.render(scene, camera);
   };
 }
-window.__game = { keys, astar, tileOf, isSolid, interact, usePanel, players, get focusTarget() { return focusTarget; }, get VOICE_nodes() { return VOICE.nodes; }, NET, R, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+window.__game = { NOTES, INTERNOS, keys, astar, tileOf, isSolid, interact, usePanel, players, get focusTarget() { return focusTarget; }, get VOICE_nodes() { return VOICE.nodes; }, NET, R, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
