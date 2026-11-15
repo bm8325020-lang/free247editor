@@ -4,7 +4,7 @@ import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const BOT = new URLSearchParams(location.search).has('bot');
-const VERSION = '2.6';
+const VERSION = '2.7';
 const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -651,6 +651,7 @@ const AU = {
   ring() { for (let i = 0; i < 2; i++) setTimeout(() => { this.tone({ f: 440, dur: .8, vol: .07, type: 'square', verb: .4, a: .01 }); this.tone({ f: 480, dur: .8, vol: .07, type: 'square', verb: .4, a: .01 }); }, i * 1100); },
   tom(vol = .5) { this.tone({ f: 95, f2: 45, dur: .3, vol, verb: .3 }); this.burst({ f: 1500, q: .8, dur: .06, vol: vol * .4, type: 'lowpass', verb: .2 }); },
   jumpscare() { // grito sem espacialização, distorcido, na cara
+    buzz([220, 70, 320]);
     this.tone({ f: 1700, f2: 300, dur: 1.2, vol: .5, type: 'sawtooth', verb: .4, a: .005 }); this.tone({ f: 2300, f2: 500, dur: 1.0, vol: .35, type: 'square', verb: .4, a: .005 });
     this.tone({ f: 61, f2: 30, dur: .9, vol: .9, verb: .3 }); this.burst({ f: 3000, q: .5, dur: 1.0, vol: .6, verb: .4 }); this.burst({ f: 200, q: .6, dur: .5, vol: .7, type: 'lowpass', verb: .5 });
   },
@@ -837,6 +838,7 @@ function interact() {
   else if (it.type === 'exit') { if (G.exitOpen) { win(); } else msg(G.endgame ? 'A trava ainda está energizando…' : 'Trancada. A trava eletromagnética está sem energia. <b>O painel ao lado precisa de 4 fusíveis.</b>'); }
 }
 function pickFuse(f, by = 'h') {
+  if (by === 'h') buzz(60);
   if (f.state !== 'world') return; f.state = 'carried'; f.by = by; f.obj.visible = false; if (by === 'h') { P.carried.push(f.id); AU.pickup(); } else R.carried.push(f.id); AU.zap(f.obj.position);
   for (const li of f.lights) setLight(li, false); computeLightmap();
   emitNoise(f.obj.position, CFG.noise.fusePickup, true);
@@ -1211,7 +1213,7 @@ function updateLights(dt) {
   flash.intensity = (P.focus ? 95 : 38) * fl; flash.angle = P.focus ? .22 : .5; flash.distance = (P.focus ? L.focusRange : L.range) + 4; flash.penumbra = P.focus ? .3 : .6;
   flash.color.setHex(P.focus ? 0xffffff : 0xfff0d0);
 }
-let heartT = 0, ambT = 3, dripT = 1, stepPh = 0, chaseBeat = 0;
+let heartT = 0, ambT = 3, dripT = 1, stepPh = 0, chaseBeat = 0, fuseT = 2;
 function updateAudio(dt) {
   if (!AU.ctx) return; AU.setListener(camera); const t = AU.ctx.currentTime;
   const cp = C.pos.clone().setY(1.9); AU.cPan.positionX.value = cp.x; AU.cPan.positionY.value = cp.y; AU.cPan.positionZ.value = cp.z;
@@ -1227,7 +1229,7 @@ function updateAudio(dt) {
   AU.hum.gain.setTargetAtTime(hum * .05 * SET.amb / 100, t, .05);
   // coração
   const d = active ? C.pos.distanceTo(P.pos) : 99; const fear = clamp(1 - d / 22, 0, 1) + (chase ? .4 : 0) + G.stare * .25; updatePlayerBreath(dt, fear);
-  heartT -= dt; if (fear > .1 && heartT <= 0) { heartT = 60 / lerp(70, 165, clamp(fear, 0, 1)); AU.heartbeat(.25 + fear * .5); }
+  heartT -= dt; if (fear > .1 && heartT <= 0) { heartT = 60 / lerp(70, 165, clamp(fear, 0, 1)); AU.heartbeat(.25 + fear * .5); if (fear > .65) buzz(18); }
   $('danger').style.opacity = clamp(fear * .7 - .2, 0, .55) * (chase ? 1 : .6);
   AU.ambGain.gain.setTargetAtTime((chase ? .15 : .35) * SET.amb / 100, t, .5); AU.drone.gain.setTargetAtTime(.035 * SET.amb / 100, t, .5); AU.master.gain.setTargetAtTime(.9 * SET.vol / 100, t, .1); // "silêncio tenso": o ambiente recua quando ele caça
   ambT -= dt; if (ambT <= 0) { ambT = rand(6, 16); const [x, y] = pick(floorTiles); const p = tc(x, y, 2); if (p.distanceTo(P.pos) > 10) { const r = Math.random();
@@ -1236,6 +1238,8 @@ function updateAudio(dt) {
   if (active && C.pos.distanceTo(P.pos) < 9 && Math.random() < dt * .12) AU.whisper(cp, .22);
   if (active && chase && !G.fuga && C.pos.distanceTo(P.pos) < 26) { chaseBeat -= dt; if (chaseBeat <= 0) { chaseBeat = .3; AU.tom(.28); } } // tambores da perseguição
   if (!G.introDone && G.t > 18 && C.state === 'dormant') { G.introDone = true; const far = tc(30, 25, 2); AU.scream(far); AU.bang(tc(20, 12, 2)); for (const L of lightObjs) L.off = rand(.3, .9); G.shake = .3; } // primeiro sinal de vida
+  fuseT -= dt; if (fuseT <= 0) { fuseT = rand(1.2, 2.2); const f = FUSES.filter(o => o.state === 'world' && o.obj.position.distanceTo(P.pos) < 11).sort((a, b) => a.obj.position.distanceTo(P.pos) - b.obj.position.distanceTo(P.pos))[0];
+    if (f) { const fp = f.obj.position; AU.burst({ f: 4200, q: .7, dur: .09, vol: .07, at: fp, type: 'highpass', verb: .2 }); AU.tone({ f: 120, dur: .25, vol: .035, type: 'square', at: fp, verb: .1 }); } } // fusível "chama" pelo chiado
   dripT -= dt; if (dripT <= 0) { dripT = rand(1, 5); const p = P.pos.clone().add(new THREE.Vector3(rand(-6, 6), 2.5, rand(-6, 6))); AU.drip(p); }
 }
 function updateHUD() {
@@ -1265,7 +1269,9 @@ function frame() {
   }
   if (G.dead && G.scare > 0) { G.scare -= dt; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); camera.lookAt(head); camera.rotation.z += rand(-.08, .08); CR.jaw.rotation.x = 1.3; }
   else { updateLookLock(dt); G.shake = Math.max(0, (G.shake || 0) - dt * 1.5); const sh = G.shake * G.shake * .06; camera.rotation.set(P.pitch + rand(-sh, sh), P.yaw + rand(-sh, sh), rand(-sh, sh) * .5 + (G.stareRoll || 0), 'YXZ'); if (P.hidden) { camera.rotation.set(P.pitch * .4, P.hidden.type === 'locker' ? P.hidden.yaw + clamp(P.yaw - P.hidden.yaw, -.5, .5) : P.yaw, 0, 'YXZ'); } }
-  if (G.started) { updateHUD(); updateTouchUI(); }
+  if (!G.started && !G.trailer) titleCam(dt);
+  if (G.started) { updateHUD(); updateTouchUI(); updateMarker(); perfWatch(dt); }
+  const tg = performance.now() / 1000; for (const f of FUSES) if (f.glow && f.state === 'world') { const k = .5 + .5 * Math.sin(tg * 3 + f.id); f.glow.material.opacity = .35 + .45 * k; f.glow.scale.setScalar(.45 + .25 * k); }
   if (BOT) return; // robô de teste: só a lógica, sem desenhar (roda rápido)
   grainT += dt; if (grainT > 1 / 24) { grainT = 0; drawGrain(); }
   renderer.render(scene, camera);
@@ -1514,7 +1520,7 @@ function toggleDoor(d, byPlayer) {
 function bashDoor(x, y, dt) { // ele esmurra/arranha até arrombar (mais rápido no escuro)
   const d = DOORS.find(o => o.x === x && o.y === y); if (!d) { grid[y][x] = '.'; return; }
   faceTowards(tc(x, y), dt, 8); d.bash += dt; const need = lightAt(C.pos) > .4 ? 2.6 : 1.7;
-  if (Math.random() < dt * 4) { const c = tc(x, y, 1.2); if (Math.random() < .5) sfx('slam', c, .6); else sfx('scrape', c, .4); d.piv.rotation.y = d.base + rand(-.04, .04); if (P.pos.distanceTo(c) < 6) G.shake = Math.max(G.shake, .25); }
+  if (Math.random() < dt * 4) { const c = tc(x, y, 1.2); if (Math.random() < .5) sfx('slam', c, .6); else sfx('scrape', c, .4); d.piv.rotation.y = d.base + rand(-.04, .04); if (P.pos.distanceTo(c) < 6) { G.shake = Math.max(G.shake, .25); buzz(35); } }
   if (d.bash >= need) { d.bash = 0; d.sign = Math.sign(tc(x, y).sub(C.pos).dot(new THREE.Vector3(1, 0, 1))) || 1; setDoor(d, true); sfx('slam', tc(x, y, 1.2), 1.2); sfx('scream', tc(x, y, 2)); if (P.pos.distanceTo(tc(x, y)) < 8) G.shake = .8; }
 }
 
@@ -1742,7 +1748,7 @@ function guestStart(m) {
 // CONFIGURAÇÕES (salvas no aparelho)
 // =====================================================================
 const SET_KEY = 'santa_lucia_cfg_v1';
-const SET = Object.assign({ vol: 90, steps: 70, amb: 100, breath: 80, voice: 100, gfx: TOUCH ? 'medio' : 'alto', bright: 100, sens: 100, diff: 'normal', autoRun: true }, (() => { try { return JSON.parse(localStorage.getItem(SET_KEY)) || {}; } catch (e) { return {}; } })());
+const SET = Object.assign({ vibra: true, gfxManual: false, vol: 90, steps: 70, amb: 100, breath: 80, voice: 100, gfx: TOUCH ? 'medio' : 'alto', bright: 100, sens: 100, diff: 'normal', autoRun: true }, (() => { try { return JSON.parse(localStorage.getItem(SET_KEY)) || {}; } catch (e) { return {}; } })());
 const saveSet = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(SET)); } catch (e) { } };
 const DIFF = { // o "Normal" antigo virou o Difícil
   facil: { react: 1.4, chaseDark: 3.3, chaseLit: 2.5, seeDark: 6.5, seeLit: 13, seeFlashlight: 19, hideSuspicion: 2.8, wakeAfter: 100, director: 75, resistStep: .2, killDist: 1.1, fuga: .9, drain: .22 },
@@ -1766,12 +1772,12 @@ let setFrom = null;
 function openSettings() {
   setFrom = ['title', 'pause'].find(id => $(id).classList.contains('on')) || null; if (setFrom) $(setFrom).classList.remove('on');
   document.querySelectorAll('#settings input[type=range]').forEach(i => { i.value = SET[i.dataset.k]; });
-  document.querySelectorAll('#settings .seg').forEach(sg => sg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(sg.dataset.k === 'autoRun' ? (SET.autoRun ? 1 : 0) : SET[sg.dataset.k]) === b.dataset.v)));
+  document.querySelectorAll('#settings .seg').forEach(sg => sg.querySelectorAll('button').forEach(b => b.classList.toggle('on', String((sg.dataset.k === 'autoRun' || sg.dataset.k === 'vibra') ? (SET[sg.dataset.k] ? 1 : 0) : SET[sg.dataset.k]) === b.dataset.v)));
   $('settings').classList.add('on');
 }
 function closeSettings() { $('settings').classList.remove('on'); if (setFrom) $(setFrom).classList.add('on'); }
 document.querySelectorAll('#settings input[type=range]').forEach(i => i.addEventListener('input', () => { SET[i.dataset.k] = +i.value; applyAll(); saveSet(); }));
-document.querySelectorAll('#settings .seg button').forEach(b => b.addEventListener('click', () => { const k = b.parentElement.dataset.k; SET[k] = k === 'autoRun' ? b.dataset.v === '1' : b.dataset.v;
+document.querySelectorAll('#settings .seg button').forEach(b => b.addEventListener('click', () => { const k = b.parentElement.dataset.k; SET[k] = (k === 'autoRun' || k === 'vibra') ? b.dataset.v === '1' : b.dataset.v; if (k === 'gfx') SET.gfxManual = true;
   b.parentElement.querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b)); applyAll(); saveSet(); }));
 $('btn-set-close').onclick = closeSettings; $('btn-settings').onclick = openSettings; $('btn-settings2').onclick = openSettings; $('btn-quit').onclick = () => location.reload();
 
@@ -1844,6 +1850,37 @@ function voiceTick(dt) {
   VOICE.noiseT -= dt; if (VOICE.level > .035 && VOICE.noiseT <= 0 && !G.dead) { VOICE.noiseT = .4; emitNoise(P.pos, clamp(VOICE.level * 110, 3, 16)); } // falar alto chama a criatura
 }
 
+
+// =====================================================================
+// ACABAMENTO: menu vivo, introdução, marcador de interação, vibração, desempenho automático
+// =====================================================================
+function buzz(p) { if (!SET.vibra) return; try { navigator.vibrate && navigator.vibrate(p); } catch (e) { } }
+let titleT = 0;
+function titleCam(dt) { // câmera passeando pelo corredor atrás do menu
+  titleT += dt; const k = (titleT * .018) % 1; const x = lerp(12.5, 40, k);
+  camera.position.set(x * T, 1.62 + Math.sin(titleT * 1.7) * .02, 4.5 * T); camera.rotation.set(.03 + Math.sin(titleT * .4) * .02, -Math.PI / 2 + Math.sin(titleT * .23) * .12, 0, 'YXZ');
+  P.pos.set(camera.position.x, 0, camera.position.z); updateLights(dt);
+}
+function showIntro() {
+  const el = $('intro'); if (!el) return; el.classList.add('on'); const lines = el.querySelectorAll('p'); lines.forEach(l => l.classList.remove('in'));
+  lines.forEach((l, i) => setTimeout(() => l.classList.add('in'), 300 + i * 1500));
+  const t0 = performance.now(); const close = (e) => { if (e && performance.now() - t0 < 700) return; el.classList.remove('on'); el.onclick = null; }; el.onclick = close; setTimeout(() => close(), 300 + lines.length * 1500 + 1600);
+}
+const RING = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeTex(128, (g, s) => { g.clearRect(0, 0, s, s); g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 7; g.beginPath(); g.arc(s / 2, s / 2, s * .36, 0, 7); g.stroke(); g.fillStyle = 'rgba(255,255,255,.9)'; g.beginPath(); g.arc(s / 2, s / 2, 6, 0, 7); g.fill(); }), depthTest: false, transparent: true }));
+RING.renderOrder = 999; RING.visible = false; scene.add(RING);
+function updateMarker() {
+  const ft = focusTarget; if (!ft || P.hidden || G.dead) { RING.visible = false; return; }
+  RING.visible = true; RING.position.copy(ft.pos); if (ft.type === 'door' || ft.type === 'locker' || ft.type === 'panel' || ft.type === 'exit') RING.position.y = 1.3;
+  const k = .5 + .5 * Math.sin(performance.now() / 180); RING.scale.setScalar(.22 + .06 * k); RING.material.opacity = .55 + .4 * k;
+}
+let perfAcc = 0, perfN = 0, perfDone = false;
+function perfWatch(dt) { // nos primeiros segundos, se estiver lento, baixa os gráficos sozinho
+  if (perfDone || SET.gfxManual || G.trailer || BOT) return; perfAcc += dt; perfN++;
+  if (perfAcc > 6) { const fps = perfN / perfAcc; perfAcc = 0; perfN = 0;
+    if (fps < 26 && SET.gfx !== 'baixo') { SET.gfx = SET.gfx === 'alto' ? 'medio' : 'baixo'; applyGfx(); saveSet(); msg(`Gráficos ajustados para <b>${SET.gfx === 'baixo' ? 'Baixo' : 'Médio'}</b> para rodar melhor.`, 3); }
+    else perfDone = true; }
+}
+
 // =====================================================================
 // BOOT
 // =====================================================================
@@ -1851,7 +1888,7 @@ buildLevel(); buildProps(); buildExit(); buildItems(); buildLights(); buildDoors
 const existing = loadSave(); if (existing && existing.inserted.length) $('btn-cont').style.display = '';
 applyAll();
 function start(cont) {
-  AU.init(); AU.ctx.resume?.(); $('title').classList.remove('on'); G.started = true; pause(false);
+  AU.init(); AU.ctx.resume?.(); $('title').classList.remove('on'); G.started = true; pause(false); document.body.classList.add('playing'); P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; camera.fov = 72; camera.updateProjectionMatrix(); if (!BOT) showIntro();
   if (cont && existing) { G.inserted = existing.inserted.slice(); G.deaths = existing.deaths || 0; for (const id of G.inserted) { FUSES[id].state = 'inserted'; FUSES[id].obj.visible = false; for (const li of FUSES[id].lights) setLight(li, false); } computeLightmap(); refreshPanel(); if (G.inserted.length) C.wakeT = 10; }
   else if (NET.role === 'solo') { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } }
   if (NET.role !== 'solo') $('partner').style.display = 'block';
