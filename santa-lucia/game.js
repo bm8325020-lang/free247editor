@@ -4,7 +4,7 @@ import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const BOT = new URLSearchParams(location.search).has('bot');
-const VERSION = '2.8';
+const VERSION = '2.9';
 const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -774,7 +774,7 @@ function setObjective() {
   else if (G.endgame) o = `Energizando o portão… <b>${Math.floor(G.endgame.t / CFG.endgame.duration * 100)}%</b> — sobreviva.`;
   else if (P.carried.length) o = `<b>Leve ${P.carried.length > 1 ? 'os fusíveis' : 'o fusível'} ao painel da RECEPÇÃO</b> (ao lado da porta de saída).`;
   else o = `<b>OBJETIVO:</b> achar 4 fusíveis e instalar no painel da recepção.`;
-  const where = FUSES.filter(f => f.state === 'world').map(f => f.where.replace(' do necrotério', '')); if (!G.exitOpen && !G.endgame && where.length) o += `<br><span class="hint">Procure em: ${where.join(' · ')}</span>`;
+  const where = FUSES.filter(f => f.state === 'world').map(f => f.where.replace(' do necrotério', '')); if (!G.exitOpen && !G.endgame && where.length && SET.diff !== 'pesadelo') o += `<br><span class="hint">Procure em: ${where.join(' · ')}</span>`;
   o += `<br><span class="hint">${TOUCH ? 'MAPA' : 'M'}: ver por onde você já passou.</span>`;
   $('objective').innerHTML = o;
   $('fuses').innerHTML = `PAINEL · ${G.inserted.length}/4<div class="slots">${[0, 1, 2, 3].map(i => `<span class="${i < G.inserted.length ? 'in' : i < G.inserted.length + P.carried.length ? 'carry' : ''}"></span>`).join('')}</div>`;
@@ -861,10 +861,11 @@ function usePanel() {
   for (const id of list) { G.inserted.push(id); FUSES[id].state = 'inserted'; }
   list.length = 0; refreshPanel(); AU.clunk(panel.position); emitNoise(panel.position, CFG.noise.fuseInsert, true); save();
   msg(G.inserted.length < 4 ? `Fusível instalado. <b>${G.inserted.length}/4</b>. Progresso salvo.` : '<b>4/4.</b> O gerador está partindo…'); setObjective();
+  award('primeiro');
   if (G.inserted.length >= 4) startEndgame(); else if (G.inserted.length === 2 && !G.outageDone && NET.role !== 'guest') { G.outageDone = true; after(6, startOutage); }
 }
 function refreshPanel() { panelSlots.forEach((s, i) => { const on = i < G.inserted.length; s.fuse.visible = on; s.lamp.material.color.setHex(on ? 0x00ff40 : 0x550000); }); }
-function openNote(it) { G.readingNote = true; G.notesRead.add(it.idx); save(); $('note-title').textContent = it.note.title; $('note-body').innerHTML = it.note.body; $('note').classList.add('on'); AU.burst({ f: 3000, q: .6, dur: .3, vol: .06, verb: 0 }); }
+function openNote(it) { G.readingNote = true; G.notesRead.add(it.idx); if (G.notesRead.size >= NOTES.length) award('leitor'); save(); $('note-title').textContent = it.note.title; $('note-body').innerHTML = it.note.body; $('note').classList.add('on'); AU.burst({ f: 3000, q: .6, dur: .3, vol: .06, verb: 0 }); }
 function closeNote() { G.readingNote = false; $('note').classList.remove('on'); }
 function enterHide(spot) {
   P.hidden = spot; P.lampOn = false; P.lastEnterHide = G.t; C.suspicion = 0;
@@ -940,6 +941,7 @@ function moveAlong(speed, dt) {
 }
 function faceTowards(p, dt, rate = 6) { const to = p.clone().sub(C.pos); const ty = Math.atan2(to.x, to.z); let dy = ty - C.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI; C.yaw += dy * Math.min(1, dt * rate); }
 function burn() {
+  G.burns = (G.burns || 0) + 1; if (G.burns >= 5) award('queimou');
   setState('retreat'); C.exposure = 0; C.resistance = Math.min(CFG.creature.resistMax, C.resistance + CFG.creature.resistStep);
   const head = new THREE.Vector3(); CR.head.getWorldPosition(head); AU.scream(head); CR.smokeT = 2.2;
   // foge para o cômodo escuro mais distante do jogador
@@ -969,7 +971,7 @@ function updateCreature(dt) {
   switch (C.state) {
     case 'patrol': {
       if (sees) { setState('chase'); break; }
-      if (moveAlong(CC.patrol, dt)) { C.goal = patrolGoal(); planPath(C.goal); C.pauseT = rand(1, 3.5); }
+      if (moveAlong(CC.patrol, dt)) { C.goal = patrolGoal(); planPath(C.goal); C.pauseT = rand(1, 3.5); if (Math.random() < (SET.diff === 'pesadelo' ? .5 : .3)) tryVent(C.goal); }
       C.directorT -= dt; if (C.directorT <= 0) { C.directorT = CC.director; if (C.pos.distanceTo(TGT.pos) > 28 && !TGT.hidden) { setState('investigate'); C.goal = TGT.pos.clone().add(new THREE.Vector3(rand(-6, 6), 0, rand(-6, 6))); planPath(C.goal); } }
       break;
     }
@@ -980,7 +982,7 @@ function updateCreature(dt) {
     }
     case 'hunt': { // sabe a área aproximada (alarme / diretor)
       if (sees) { setState('chase'); break; }
-      C.repath -= dt; if (C.repath <= 0) { C.repath = 2.5; C.goal = TGT.pos.clone(); planPath(C.goal); }
+      C.repath -= dt; if (C.repath <= 0) { C.repath = 2.5; C.goal = TGT.pos.clone(); planPath(C.goal); if (tryVent(C.goal)) break; }
       if (moveAlong(CC.hunt * flinchMul, dt)) { setState('search'); C.lastKnown = C.goal.clone(); }
       break;
     }
@@ -1004,6 +1006,7 @@ function updateCreature(dt) {
       if (C.stateT > CC.searchTime) { setState(G.endgame ? 'hunt' : 'patrol'); C.goal = patrolGoal(); planPath(C.goal); }
       break;
     }
+    case 'vent': { ventTick(dt); break; }
     case 'retreat': {
       if (C.stateT < CC.stagger) { C.speed = 0; break; }
       if (C.stateT < CC.stagger + .05) planPath(C.retreatTo);
@@ -1016,15 +1019,16 @@ function updateCreature(dt) {
   if (TGT.hidden && !C.knownHide && ['search', 'investigate', 'hunt', 'patrol'].includes(C.state)) {
     const d = C.pos.distanceTo(TGT.hidden.pos);
     if (d < CC.hideSenseDist) { const rate = (TGT.holding ? 0 : 1) * (TGT.hidden.type === 'under' ? 1.3 : 1) * (G.endgame ? 1.4 : 1); C.suspicion += rate * dt; if (C.state !== 'search') { setState('search'); C.lastKnown = TGT.hidden.pos.clone(); } }
-    else C.suspicion = Math.max(0, C.suspicion - dt * .5);
+    else { if (C.suspicion > 1 && TGT === P) award('esconde'); C.suspicion = Math.max(0, C.suspicion - dt * .5); }
     if (C.suspicion > CC.hideSuspicion) { killTgt('Ele ouviu sua respiração.'); return; }
   }
   // ---------- contato = morte
-  for (const pl of pls) if (!pl.hidden && C.state !== 'retreat' && C.pos.distanceTo(pl.pos) < CC.killDist) { TGT = pl; killTgt('Ele te pegou no escuro.'); break; }
+  for (const pl of pls) if (!pl.hidden && C.state !== 'retreat' && C.state !== 'vent' && C.pos.distanceTo(pl.pos) < CC.killDist) { TGT = pl; killTgt('Ele te pegou no escuro.'); break; }
   CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
 }
 // --------- lanterna contra a criatura
 function lampVsCreature(dt) {
+  if (C.state === 'vent') return;
   const L = CFG.lamp; let hit = 0, focusHit = false; const head = new THREE.Vector3(); CR.head.getWorldPosition(head); head.y += .12;
   for (const pl of players()) {
     const isMe = pl === P; const on = isMe ? lampActive() : pl.lampOn; if (!on || pl.hidden || G.fuga) continue;
@@ -1091,7 +1095,7 @@ function kill(reason) {
     ['Fusíveis no painel', `${G.inserted.length} de 4`], ['Destino', `Gaveta nº ${17 + G.deaths}`]];
   setTimeout(() => {
     document.body.classList.add('over'); $('d-num').textContent = String(1974000 + 17 + G.deaths); $('d-rows').innerHTML = rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('');
-    $('d-tip').innerHTML = 'Dica: ' + pick(TIPS) + (SET.diff !== 'dificil' && P.carried.length ? '<br>Você mantém o fusível que carregava.' : '');
+    $('d-tip').innerHTML = 'Dica: ' + pick(TIPS) + (!HARD() && P.carried.length ? '<br>Você mantém o fusível que carregava.' : '');
     $('death').classList.add('on'); fitScreen($('death'), '.tag'); document.exitPointerLock?.(); $('d-tag').classList.remove('in'); void $('d-tag').offsetWidth; $('d-tag').classList.add('in');
     AU.tone && AU.tone({ f: 55, f2: 40, dur: 3, vol: .25, verb: .8 });
     if (NET.role !== 'solo') { const btn = $('btn-retry'); let n = 10; btn.disabled = true; btn.textContent = `Voltando em ${n}s`; const iv = setInterval(() => { n--; if (n <= 0) { clearInterval(iv); btn.disabled = false; btn.textContent = 'Voltar à recepção'; } else btn.textContent = `Voltando em ${n}s`; }, 1000); }
@@ -1100,7 +1104,7 @@ function kill(reason) {
 function respawn() {
   if (NET.role !== 'solo') { coopRespawn(); return; }
   $('death').classList.remove('on'); document.body.classList.remove('over'); G.dead = false;
-  const keepFuse = SET.diff !== 'dificil'; if (!keepFuse) for (const id of P.carried) { const f = FUSES[id]; f.state = 'world'; f.obj.visible = true; f.obj.position.copy(f.home); for (const li of f.lights) setLight(li, true); }
+  const keepFuse = !HARD(); if (!keepFuse) for (const id of P.carried) { const f = FUSES[id]; f.state = 'world'; f.obj.visible = true; f.obj.position.copy(f.home); for (const li of f.lights) setLight(li, true); }
   if (!keepFuse) P.carried = []; computeLightmap(); endFuga(false); for (const F of FUGAS) F.armed = false;
   P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
   const far = CREATURE_SPAWNS.slice().sort((a, b) => tc(...b).distanceTo(P.pos) - tc(...a).distanceTo(P.pos))[0];
@@ -1110,7 +1114,7 @@ function respawn() {
 }
 function coopRespawn() {
   $('death').classList.remove('on'); document.body.classList.remove('over'); G.dead = false;
-  const keep = SET.diff !== 'dificil'; if (!keep) { if (NET.role === 'host') { for (const id of P.carried) dropFuse(FUSES[id]); } else NET.send({ t: 'a', k: 'drop' }); P.carried = []; } if (NET.role === 'host') spawnGuard(); P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
+  const keep = !HARD(); if (!keep) { if (NET.role === 'host') { for (const id of P.carried) dropFuse(FUSES[id]); } else NET.send({ t: 'a', k: 'drop' }); P.carried = []; } if (NET.role === 'host') spawnGuard(); P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
   setObjective(); pause(false); if (!TOUCH) canvas.requestPointerLock?.();
 }
 function spawnGuard() { // proteção ao renascer: ele não fica de tocaia na recepção
@@ -1136,7 +1140,7 @@ function fitScreen(el, inner) { // encolhe o conteúdo para caber na tela (celul
   box.style.transform = `scale(${k})`; box.style.margin = `${-(1 - k) * box.offsetHeight / 2}px 0`;
 }
 function win() {
-  if (G.won) return; G.won = true; if (NET.role === 'host') NET.evt({ k: 'win' }); document.exitPointerLock?.(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
+  if (G.won) return; G.won = true; award('zerou'); if (G.deaths === 0) award('semmorrer'); if (G.t < 720) award('rapido'); if (G.secret) award('segredo'); if (SET.diff === 'pesadelo') award('pesadelo'); if (NET.role !== 'solo') award('dupla'); if (NET.role === 'host') NET.evt({ k: 'win' }); document.exitPointerLock?.(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
   // "foto" do jornal: a porta aberta, vista de dentro
   const d = tc(5, 3); camera.position.set(d.x + .3, 1.5, d.z + 1.5); camera.rotation.set(.05, 0, 0, 'YXZ'); CR.root.visible = false; renderer.render(scene, camera);
   let photo = ''; try { photo = renderer.domElement.toDataURL('image/jpeg', .8); } catch (e) { }
@@ -1419,7 +1423,7 @@ function endFuga(survived) {
   setTimeout(() => AU.scream(c.clone().setY(2)), 600);
   setTimeout(() => { for (let i = 0; i < 3; i++) setTimeout(() => { AU.slam(c, .7); G.shake = Math.max(G.shake, .3); }, i * 380); }, 1100); // ele esmurra o portão
   C.state = 'dormant'; C.wakeT = 25; CR.root.visible = false; C.pos.copy(tc(...CREATURE_SPAWNS[1]));
-  msg('Você escapou. <b>Por enquanto.</b>', 4);
+  msg('Você escapou. <b>Por enquanto.</b>', 4); G.fugasOk = (G.fugasOk || 0) + 1; if (G.fugasOk >= 2) award('fugas');
   setTimeout(() => { if (!gateMesh) return; const gm = gateMesh; gateMesh = null; tween(1.2, k => gm.position.y = lerp(WALL_H / 2, WALL_H * 1.5, k), () => { scene.remove(gm); put(gx, gy, '.'); computeLightmap(); }); AU.creak(c, .3); }, 30000);
 }
 
@@ -1561,7 +1565,7 @@ function takePhoto() {
   screenFlash('#ffffff', .95, 90); flashLight.intensity = 400; after(.12, () => flashLight.intensity = 0); emitNoise(P.pos, 11);
   // ele está no enquadramento?
   if (CR.root.visible && C.state !== 'dormant') { const eye = camera.getWorldPosition(new THREE.Vector3()), fwd = camera.getWorldDirection(new THREE.Vector3()); const h = new THREE.Vector3(); CR.head.getWorldPosition(h); const to = h.clone().sub(eye);
-    if (to.length() < 17 && fwd.angleTo(to) < .55 && los(eye.x, eye.z, h.x, h.z)) { if (NET.role === 'guest') NET.send({ t: 'a', k: 'blind' }); C.blindT = G.fuga ? 2.6 : 5; C.speed = 0; AU.scream(h); CR.smokeT = 1.2; msg('<b>Ele está cego.</b> Corra!', 2.5); } }
+    if (to.length() < 17 && fwd.angleTo(to) < .55 && los(eye.x, eye.z, h.x, h.z)) { if (NET.role === 'guest') NET.send({ t: 'a', k: 'blind' }); C.blindT = G.fuga ? 2.6 : 5; C.speed = 0; G.blinds = (G.blinds || 0) + 1; if (G.blinds >= 3) award('cego'); AU.scream(h); CR.smokeT = 1.2; msg('<b>Ele está cego.</b> Corra!', 2.5); } }
   // revelação: às vezes aparece alguém na foto que não está ali
   let ghost = false; if (Math.random() < .35) { const at = P.pos.clone().addScaledVector(fwdOf(), rand(4, 7)); if (!isSolid(...tileOf(at)) && los(P.pos.x, P.pos.z, at.x, at.z)) { posePhantom2(); PH2.root.position.copy(at).setY(0); PH2.root.rotation.y = Math.atan2(P.pos.x - at.x, P.pos.z - at.z); PH2.root.visible = true; ghost = true; } }
   camera.layers.enable(1); flashLight.intensity = 400; renderer.render(scene, camera); let url = ''; try { url = renderer.domElement.toDataURL('image/jpeg', .75); } catch (e) { } camera.layers.disable(1); PH2.root.visible = false;
@@ -1755,12 +1759,14 @@ function guestStart(m) {
 // =====================================================================
 // CONFIGURAÇÕES (salvas no aparelho)
 // =====================================================================
+const HARD = () => SET.diff === 'dificil' || SET.diff === 'pesadelo';
 const SET_KEY = 'santa_lucia_cfg_v1';
 const SET = Object.assign({ vibra: true, gfxManual: false, vol: 90, steps: 70, amb: 100, breath: 80, voice: 100, gfx: TOUCH ? 'medio' : 'alto', bright: 100, sens: 100, diff: 'normal', autoRun: true }, (() => { try { return JSON.parse(localStorage.getItem(SET_KEY)) || {}; } catch (e) { return {}; } })());
 const saveSet = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(SET)); } catch (e) { } };
 const DIFF = { // o "Normal" antigo virou o Difícil
   facil: { react: 1.4, chaseDark: 3.3, chaseLit: 2.5, seeDark: 6.5, seeLit: 13, seeFlashlight: 19, hideSuspicion: 2.8, wakeAfter: 100, director: 75, resistStep: .2, killDist: 1.1, fuga: .9, drain: .22 },
   normal: { react: 1.0, chaseDark: 3.7, chaseLit: 2.7, seeDark: 7.5, seeLit: 15, seeFlashlight: 22, hideSuspicion: 2.1, wakeAfter: 65, director: 55, resistStep: .28, killDist: 1.18, fuga: .95, drain: .28 },
+  pesadelo: { react: .45, chaseDark: 4.5, chaseLit: 3.3, seeDark: 10.5, seeLit: 18, seeFlashlight: 28, hideSuspicion: 1.5, wakeAfter: 40, director: 32, resistStep: .45, killDist: 1.3, fuga: 1.06, drain: .4 },
   dificil: { react: .6, chaseDark: 4.2, chaseLit: 3.0, seeDark: 9, seeLit: 17, seeFlashlight: 26, hideSuspicion: 1.7, wakeAfter: 75, director: 40, resistStep: .35, killDist: 1.25, fuga: 1, drain: .32 } };
 function applyDiff() {
   const d = DIFF[SET.diff] || DIFF.normal, CC = CFG.creature; for (const k of ['chaseDark', 'chaseLit', 'seeDark', 'seeLit', 'seeFlashlight', 'hideSuspicion', 'wakeAfter', 'director', 'resistStep', 'killDist']) CC[k] = d[k];
@@ -1785,14 +1791,14 @@ function openSettings() {
 }
 function closeSettings() { $('settings').classList.remove('on'); if (setFrom) $(setFrom).classList.add('on'); }
 document.querySelectorAll('#settings input[type=range]').forEach(i => i.addEventListener('input', () => { SET[i.dataset.k] = +i.value; applyAll(); saveSet(); }));
-document.querySelectorAll('#settings .seg button').forEach(b => b.addEventListener('click', () => { const k = b.parentElement.dataset.k; SET[k] = (k === 'autoRun' || k === 'vibra') ? b.dataset.v === '1' : b.dataset.v; if (k === 'gfx') SET.gfxManual = true;
+document.querySelectorAll('#settings .seg button').forEach(b => b.addEventListener('click', () => { const k = b.parentElement.dataset.k; if (b.dataset.v === 'pesadelo' && !hasAch('zerou')) { b.textContent = 'Zere primeiro'; setTimeout(() => b.textContent = 'Pesadelo', 1500); return; } SET[k] = (k === 'autoRun' || k === 'vibra') ? b.dataset.v === '1' : b.dataset.v; if (k === 'gfx') SET.gfxManual = true;
   b.parentElement.querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b)); applyAll(); saveSet(); }));
 $('btn-set-close').onclick = closeSettings; $('btn-settings').onclick = openSettings; $('btn-settings2').onclick = openSettings; $('btn-quit').onclick = () => location.reload();
 
 // =====================================================================
 // MAPA (planta de evacuação do sanatório)
 // =====================================================================
-function toggleMap() { if (!G.started || G.dead) return; G.mapOpen = !G.mapOpen; $('map').classList.toggle('on', G.mapOpen); if (G.mapOpen) drawMap(); }
+function toggleMap() { if (!G.started || G.dead) return; if (SET.diff === 'pesadelo') { msg('No <b>Pesadelo</b> não há mapa.', 2); return; } G.mapOpen = !G.mapOpen; $('map').classList.toggle('on', G.mapOpen); if (G.mapOpen) drawMap(); }
 $('btn-map-close').onclick = toggleMap;
 // só o que você já explorou: tiles vistos de perto + o rastro do caminho
 const EXPLORED = new Uint8Array(W * H); const TRAIL = []; let exploreT = 0;
@@ -1920,7 +1926,7 @@ function throwBottle() {
   const b = mkBottle(); b.position.copy(eye); scene.add(b); const from = eye.clone(), dist = from.distanceTo(end), dur = clamp(dist / 14, .2, .9);
   AU.burst({ f: 1200, q: 1, dur: .12, vol: .08, verb: 0 });
   tween(dur, k => { b.position.lerpVectors(from, end, k); b.position.y += Math.sin(k * Math.PI) * dist * .15; b.rotation.x += .4; }, () => {
-    scene.remove(b); AU.glass(end); emitNoise(end.clone().setY(0), 20, true); if (C.state === 'chase' && NET.role !== 'guest' && !C.sees) { C.lastKnown = end.clone().setY(0); setState('investigate'); C.goal = C.lastKnown; planPath(C.goal); } });
+    scene.remove(b); AU.glass(end); emitNoise(end.clone().setY(0), 20, true); if (C.state === 'chase' && NET.role !== 'guest' && !C.sees) { C.lastKnown = end.clone().setY(0); setState('investigate'); C.goal = C.lastKnown; planPath(C.goal); } if (C.state === 'investigate') award('distracao'); });
 }
 function startOutage() { // a energia do prédio inteiro cai
   if (G.endgame || G.dead) return; const was = lightObjs.map(L => L.on); lightObjs.forEach(L => L.on = false); computeLightmap();
@@ -1928,6 +1934,48 @@ function startOutage() { // a energia do prédio inteiro cai
   if (C.state !== 'dormant' && NET.role !== 'guest') { const pl = players()[0]; if (pl) { setState('hunt'); C.repath = 0; } }
   after(20, () => { lightObjs.forEach((L, i) => L.on = was[i]); for (const f of FUSES) if (f.state !== 'world') for (const li of f.lights) setLight(li, false); computeLightmap(); AU.zap(P.pos.clone().setY(2.5)); msg('As luzes voltaram.', 2.5); });
 }
+
+
+// =====================================================================
+// DUTOS DE VENTILAÇÃO — ela some no teto e cai em outro lugar
+// =====================================================================
+const VENTS = [[16, 4], [33, 4], [11, 9], [11, 21], [20, 10], [35, 10], [19, 18], [37, 18], [8, 25], [30, 25], [5, 11], [39, 4]].filter(([x, y]) => !isSolid(x, y)).map(([x, y]) => ({ x, y, pos: tc(x, y) }));
+const TEX_VENT = makeTex(128, (g, s) => { g.fillStyle = '#2a2d2a'; g.fillRect(0, 0, s, s); g.fillStyle = '#060706'; for (let i = 1; i < 8; i++) g.fillRect(10, i * 15, s - 20, 8); g.strokeStyle = '#4a4e48'; g.lineWidth = 6; g.strokeRect(3, 3, s - 6, s - 6); blotch(g, s, 4, 'rgba(110,60,25,.5)', .05, .2); });
+for (const v of VENTS) { const m = new THREE.Mesh(new THREE.BoxGeometry(.9, .05, .9), new THREE.MeshStandardMaterial({ map: TEX_VENT, roughness: .7, metalness: .4 })); m.position.copy(v.pos).setY(WALL_H - .03); scene.add(m); v.mesh = m; }
+function tryVent(goal) {
+  if (!goal || G.fuga || G.t < (C.ventCd || 20)) return false; const near = VENTS.find(v => v.pos.distanceTo(C.pos) < 3.6); if (!near) return false;
+  const dg = C.pos.distanceTo(goal); if (dg < 18) return false;
+  const exit = VENTS.filter(v => v !== near && players().every(pl => pl.pos.distanceTo(v.pos) > 8)).sort((a, b) => a.pos.distanceTo(goal) - b.pos.distanceTo(goal))[0]; // nunca cai em cima de você if (!exit || exit.pos.distanceTo(goal) > dg - 10) return false;
+  C.vent = { from: near, to: exit, t: 0, dur: clamp(near.pos.distanceTo(exit.pos) / 9, 2.5, 5.5), beat: 0, goal: goal.clone() }; setState('vent'); C.speed = 0;
+  sfx('slam', near.pos.clone().setY(WALL_H), .45); after(.25, () => { if (C.state === 'vent') CR.root.visible = false; }); return true;
+}
+function ventTick(dt) {
+  const V = C.vent; V.t += dt; C.speed = 0; const k = clamp(V.t / V.dur, 0, 1); const p = V.from.pos.clone().lerp(V.to.pos, k).setY(WALL_H + .3);
+  V.beat -= dt; if (V.beat <= 0) { V.beat = rand(.28, .45); sfx('scrape', p, .25); AU.tone({ f: 70, f2: 45, dur: .12, vol: .25, at: p, verb: .4 }); if (players().some(pl => pl.pos.distanceTo(p) < 4)) { G.shake = Math.max(G.shake || 0, .15); if (P.pos.distanceTo(p) < 4) buzz(25); } }
+  if (k >= 1) { // cai do teto
+    C.pos.copy(V.to.pos).setY(0); CR.root.visible = true; CR.root.position.copy(C.pos); sfx('slam', V.to.pos.clone().setY(1), 1); sfx('scream', V.to.pos.clone().setY(2));
+    if (P.pos.distanceTo(C.pos) < 9) { G.shake = .7; buzz([80, 40, 120]); } C.ventCd = G.t + (SET.diff === 'pesadelo' ? 14 : 24); C.lastKnown = V.goal; setState('search'); C.searchPts = []; C.path = [];
+  }
+}
+
+// =====================================================================
+// CONQUISTAS
+// =====================================================================
+const ACHS = [['primeiro', 'Primeira luz', 'Instale o primeiro fusível.'], ['zerou', 'Saída', 'Escape do Santa Lúcia.'], ['semmorrer', 'Alta médica', 'Zere sem morrer.'], ['rapido', 'Sem olhar para trás', 'Zere em menos de 12 minutos.'],
+  ['segredo', 'Gaveta 18', 'Descubra a verdade sobre o Paciente 17.'], ['cego', 'Fotógrafo', 'Cegue a criatura com o flash 3 vezes numa partida.'], ['queimou', 'Luz que fere', 'Faça a criatura recuar com o foco 5 vezes numa partida.'],
+  ['distracao', 'Vidro quebrado', 'Engane a criatura com uma garrafa.'], ['esconde', 'Prenda o ar', 'Sobreviva com ela farejando o seu esconderijo.'], ['leitor', 'Arquivista', 'Leia todos os documentos numa partida.'],
+  ['fugas', 'Pernas para que te quero', 'Sobreviva às duas fugas numa partida.'], ['dupla', 'Dupla', 'Zere no cooperativo.'], ['pesadelo', 'Acordado', 'Zere no modo Pesadelo.']];
+const ACH_KEY = 'santa_lucia_ach_v1'; let ACHV = {}; try { ACHV = JSON.parse(localStorage.getItem(ACH_KEY)) || {}; } catch (e) { }
+const hasAch = (id) => !!ACHV[id];
+function award(id) {
+  if (ACHV[id] || BOT || G.trailer) return; ACHV[id] = Date.now(); try { localStorage.setItem(ACH_KEY, JSON.stringify(ACHV)); } catch (e) { }
+  const a = ACHS.find(x => x[0] === id); if (!a) return; const t = $('toast'); t.innerHTML = `<b>CONQUISTA</b> ${a[1]}<small>${a[2]}</small>`; t.classList.remove('on'); void t.offsetWidth; t.classList.add('on'); AU.tone && AU.ctx && AU.tone({ f: 660, f2: 990, dur: .35, vol: .06, verb: .3 });
+}
+function showAchs() {
+  $('ach-list').innerHTML = ACHS.map(([id, n, d]) => `<div class="ach ${ACHV[id] ? 'ok' : ''}"><b>${ACHV[id] ? '◆' : '◇'} ${n}</b><span>${d}</span></div>`).join('') + `<p class="ach-n">${Object.keys(ACHV).length}/${ACHS.length} · ${hasAch('zerou') ? 'Modo <b>Pesadelo</b> liberado nas Configurações.' : 'Zere uma vez para liberar o modo Pesadelo.'}</p>`;
+  $('title').classList.remove('on'); $('achs').classList.add('on');
+}
+$('btn-achs').onclick = showAchs; $('btn-ach-close').onclick = () => { $('achs').classList.remove('on'); $('title').classList.add('on'); };
 
 // =====================================================================
 // BOOT
