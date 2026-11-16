@@ -211,7 +211,7 @@
   .ach{font-size:12px;color:#6d756a;border-left:2px solid #333;padding-left:8px}.ach b{display:block;font-size:13px}.ach span{font-size:11px}
   .ach.ok{color:#c9cfc0;border-color:#c9b98a}.ach.ok b{color:#e8d9a8}.ach-n{grid-column:1/-1;font-size:12px!important;text-align:center}
   #toast{position:fixed;left:50%;top:16px;transform:translate(-50%,-140%);z-index:30;background:rgba(10,10,8,.92);border:1px solid #c9b98a;padding:10px 18px;font-size:12px;color:#e8d9a8;letter-spacing:.06em;transition:transform .5s;pointer-events:none;text-align:center}
-  #toast.on{animation:toast 4.5s forwards}#toast b{color:#c9b98a;margin-right:8px}#toast small{display:block;color:#9a9f94;margin-top:3px}
+  #toast:not(.on){visibility:hidden}#toast.on{animation:toast 4.5s forwards}#toast b{color:#c9b98a;margin-right:8px}#toast small{display:block;color:#9a9f94;margin-top:3px}
   @keyframes toast{0%{transform:translate(-50%,-140%)}10%,85%{transform:translate(-50%,0)}100%{transform:translate(-50%,-140%)}}
   @media (max-height:520px){#ach-list{gap:3px 16px}.ach span{display:none}}
   #grab{position:fixed;inset:0;z-index:25;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:radial-gradient(ellipse at center,rgba(120,0,0,.15),rgba(80,0,0,.7));touch-action:none}
@@ -223,6 +223,11 @@
   #lock-d{display:flex;gap:18px;margin:10px 0}#lock-d.err{animation:jit .1s 4}
   .dial{display:flex;flex-direction:column;align-items:center;gap:6px}.dial b{font:600 40px 'IBM Plex Mono',monospace;color:#e8d9a8;width:60px;text-align:center;border:1px solid #6d766a;padding:6px 0}
   .dial button{width:60px;padding:8px 0;background:transparent;border:1px solid #6d766a;color:var(--ink);font-size:18px;cursor:pointer}
+  .pitch{font-size:14px!important;max-width:620px!important}
+  .how{display:grid;grid-template-columns:repeat(3,minmax(200px,1fr));gap:10px 18px;width:min(900px,95vw);text-align:left}
+  .how div{font-size:12px;color:#aab0a4;line-height:1.5;border-top:1px solid #3a423c;padding-top:6px}.how>div>b:first-child{display:block;color:#e6ebdf;font-size:13px;margin-bottom:2px}.how b{color:#e6ebdf}
+  .kt{display:inline-block;border:1px solid #6d766a;padding:0 5px;font-size:10px;color:#fff;margin:0 2px}
+  @media (max-height:520px){.how{grid-template-columns:repeat(3,1fr);gap:4px 12px}.how div{font-size:10.5px;line-height:1.35}}
   #debug{position:fixed;left:28px;top:110px;font-size:11px;color:#7f7;white-space:pre;pointer-events:none}
 </style>
 </head>
@@ -258,34 +263,12 @@
 <div class="screen on" id="title">
   <h1>SANTA LÚCIA</h1>
   <h2>sanatório &amp; necrotério · 1974 · <span class="ver"></span></h2>
-  <p>A trava eletromagnética do portão principal está sem energia. Encontre os <b>4 fusíveis</b> espalhados pelo prédio, instale-os no painel ao lado da saída e fuja.<br>
-  Algo vive no escuro aqui dentro. A luz o machuca. Mas a luz também mostra onde você está.</p>
-  <div class="keys" id="keys-desktop">
-    <b>W A S D</b><span>andar</span>
-    <b>Mouse</b><span>olhar (clique para capturar)</span>
-    <b>Shift</b><span>correr (barulho!)</span>
-    <b>C / Ctrl</b><span>agachar (silencioso)</span>
-    <b>F</b><span>ligar/desligar lanterna</span>
-    <b>M</b><span>mapa · <b>V</b> microfone (cooperativo)</span>
-    <b>R / G</b><span>foto (Polaroid) · jogar garrafa</span>
-    <b>Botão direito / Q</b><span>FOCO: feixe concentrado — mire no ROSTO dele</span>
-    <b>E</b><span>interagir / esconder / sair</span>
-    <b>Espaço (escondido)</b><span>prender a respiração</span>
-  </div>
-  <div class="keys" id="keys-touch" style="display:none">
-    <b>Lado esquerdo</b><span>arraste para andar</span>
-    <b>Lado direito</b><span>arraste para olhar</span>
-    <b>LUZ</b><span>liga/desliga lanterna</span>
-    <b>FOCO</b><span>segure: feixe concentrado — mire no ROSTO dele</span>
-    <b>CORRER</b><span>segure (faz barulho!)</span>
-    <b>AGACHAR</b><span>silencioso</span>
-    <b>USAR</b><span>pegar / esconder / ler (acende quando há algo)</span>
-    <b>AR</b><span>escondido: segure para prender a respiração</span>
-  </div>
+  <p class="pitch">Ache os <b>4 fusíveis</b>, ligue o portão e fuja. <b>Ele vive no escuro</b> — a luz no rosto o machuca, mas também mostra onde você está.</p>
   <p style="font-size:11px">Use fones de ouvido. O som é metade do jogo.</p>
-  <div><button class="btn" id="btn-new">Jogar sozinho</button><button class="btn" id="btn-cont" style="display:none">Continuar</button><button class="btn" id="btn-settings">Configurações</button><button class="btn" id="btn-achs">Conquistas</button><button class="btn" id="btn-credits">Créditos</button></div>
-  <div id="lobby"><div class="lobby-t">COM UM AMIGO (cooperativo · 2 jogadores · precisa de internet)</div>
+  <div><button class="btn" id="btn-new">Jogar sozinho</button><button class="btn" id="btn-cont" style="display:none">Continuar</button><button class="btn" id="btn-howto">Como jogar</button><button class="btn" id="btn-settings">Configurações</button><button class="btn" id="btn-achs">Conquistas</button><button class="btn" id="btn-credits">Créditos</button></div>
+  <div id="lobby"><div class="lobby-t">COM AMIGOS (cooperativo · até 4 jogadores · precisa de internet)</div>
     <button class="btn" id="btn-host">Criar sala</button><span class="or">ou</span><input id="join-code" maxlength="4" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn" id="btn-join">Entrar</button>
+    <div><button class="btn" id="btn-start-room" style="display:none">Começar partida</button></div>
     <div id="lobby-msg"></div></div>
 </div>
 <div id="touch">
@@ -303,6 +286,16 @@
   <button class="tbtn" id="tb-throw" style="display:none">JOGAR</button>
 </div>
 <div id="intro"><p>Março de 1974. Você acorda no chão da recepção do Sanatório Santa Lúcia.</p><p>As portas foram trancadas. Alguém tirou os fusíveis do portão.</p><p>E algo, lá embaixo, acabou de acordar.</p><span>toque para pular</span></div>
+<div class="screen" id="howto"><h1 class="st">COMO JOGAR</h1>
+  <div class="how">
+    <div><b>1. O objetivo</b>Ache 4 fusíveis pelo prédio e leve até o painel ao lado da porta de saída. Com 4 instalados, aguente 30 s de alarme e fuja.</div>
+    <div><b>2. Ele</b>Te vê de longe se a lanterna estiver ligada. No escuro e agachado, quase não te vê. Quando te vê, grita antes de correr: é sua hora de fugir.</div>
+    <div><b>3. Se defender</b><span class="kt">FOCO</span> no rosto dele: ele recua (a lanterna esquenta). <span class="kt">FOTO</span>: o flash cega 5 s. <span class="kt">JOGAR</span> garrafa: ele vai atrás do barulho.</div>
+    <div><b>4. Se esconder</b>Armários, debaixo de macas e gavetas do necrotério. Segure <span class="kt">AR</span> quando ele chegar perto. Feche <b>portas</b> atrás de você.</div>
+    <div><b>5. Se ele te agarrar</b>Aperte rápido para se soltar (uma vez a cada 90 s).</div>
+    <div><b>6. Controles</b><span id="how-ctl"></span></div>
+  </div>
+  <button class="btn" id="btn-how-close">Entendi</button></div>
 <div class="screen" id="achs"><h1 class="st">CONQUISTAS</h1><div id="ach-list"></div><button class="btn" id="btn-ach-close">Voltar</button></div>
 <div id="toast"></div>
 <div id="grab"><div class="gt">ELE TE AGARROU!</div><div class="gs">aperte / toque repetidamente</div><div class="gb"><i id="grab-n"></i></div><div class="gb t"><i id="grab-t"></i></div></div>

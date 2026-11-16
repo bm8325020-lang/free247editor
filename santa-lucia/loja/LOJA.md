@@ -21,7 +21,7 @@ Mas você não está sozinho. O Paciente 17 teve as pálpebras removidas num exp
 • Feche portas para ganhar tempo — ele arromba
 • Fugas desesperadas com o prédio desabando atrás de você
 • As fotos mostram o que os olhos não veem
-• Cooperativo para 2 jogadores pela internet, com voz por proximidade (cuidado: ele também ouve)
+• Cooperativo para até 4 jogadores pela internet, com voz por proximidade (cuidado: ele também ouve)
 • Fusíveis em lugares diferentes a cada partida
 • Use fones de ouvido
 

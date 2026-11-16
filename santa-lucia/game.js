@@ -3,8 +3,9 @@
 import * as THREE from './three.module.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
+function lockPointer() { try { const r = document.getElementById('gl').requestPointerLock?.(); if (r && r.catch) r.catch(() => { }); } catch (e) { } }
 const BOT = new URLSearchParams(location.search).has('bot');
-const VERSION = '3.0';
+const VERSION = '4.0';
 const TOUCH = new URLSearchParams(location.search).has('touch') || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -802,7 +803,7 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 function toggleLamp() { if (P.hidden) return; if (P.battery > 0 && P.overheat <= 0) { P.lampOn = !P.lampOn; AU.click(); } }
 addEventListener('contextmenu', (e) => e.preventDefault());
-addEventListener('mousedown', (e) => { if (e.button === 2) mouseR = true; if (G.started && !G.paused && document.pointerLockElement !== canvas && !DEBUG && !TOUCH) canvas.requestPointerLock?.(); });
+addEventListener('mousedown', (e) => { if (e.button === 2) mouseR = true; if (G.started && !G.paused && document.pointerLockElement !== canvas && !DEBUG && !TOUCH) lockPointer(); });
 addEventListener('mouseup', (e) => { if (e.button === 2) mouseR = false; });
 let dragging = false; addEventListener('mousedown', e => { if (e.button === 0) dragging = true; }); addEventListener('mouseup', e => { if (e.button === 0) dragging = false; });
 addEventListener('mousemove', (e) => {
@@ -812,7 +813,7 @@ addEventListener('mousemove', (e) => {
 document.addEventListener('pointerlockchange', () => { if (!TOUCH && document.pointerLockElement !== canvas && G.started && !G.dead && !G.won && !G.readingNote) pause(true); });
 function pause(v) { G.paused = v; if (v) G.pausedAt = performance.now(); $('pause').classList.toggle('on', v); try { if (AU.ctx) v ? AU.ctx.suspend() : AU.ctx.resume(); } catch (e) { } }
 window.__pauseGame = () => { if (G.started && !G.dead && !G.won && !G.paused) pause(true); };
-$('pause').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && b.id !== 'btn-resume') return; if (!G.started) return; if (performance.now() - (G.pausedAt || 0) < 450) return; if (TOUCH && !b) return; pause(false); if (!TOUCH) canvas.requestPointerLock?.(); });
+$('pause').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && b.id !== 'btn-resume') return; if (!G.started) return; if (performance.now() - (G.pausedAt || 0) < 450) return; if (TOUCH && !b) return; pause(false); if (!TOUCH) lockPointer(); });
 
 // =====================================================================
 // INTERAÇÃO
@@ -848,18 +849,18 @@ function interact() {
 }
 function pickFuse(f, by = 'h') {
   if (by === 'h') buzz(60);
-  if (f.state !== 'world') return; f.state = 'carried'; f.by = by; f.obj.visible = false; if (by === 'h') { P.carried.push(f.id); AU.pickup(); } else R.carried.push(f.id); AU.zap(f.obj.position);
+  if (f.state !== 'world') return; f.state = 'carried'; f.by = by; f.obj.visible = false; if (by === 'h') { P.carried.push(f.id); AU.pickup(); } else { const rr = remBySlot(by); if (rr) rr.carried.push(f.id); } AU.zap(f.obj.position);
   for (const li of f.lights) setLight(li, false); computeLightmap();
   emitNoise(f.obj.position, CFG.noise.fusePickup, true);
-  if (C.state === 'dormant') { C.wakeT = 2.5; const far = CREATURE_SPAWNS.slice().sort((a, b) => tc(...b).distanceTo(P.pos) - tc(...a).distanceTo(P.pos))[0]; C.pos.copy(tc(...far)); } // acorda longe de você
+  if (C.state === 'dormant') { C.wakeT = 2.5; const md = (sp) => Math.min(...players().map(pl => tc(...sp).distanceTo(pl.pos)), 999); const far = CREATURE_SPAWNS.slice().sort((a, b) => md(b) - md(a))[0]; C.pos.copy(tc(...far)); } // acorda longe de todo mundo
   for (const F of FUGAS) if (F.armedBy === f.id) F.armed = true;
   if (by === 'h') msg(`Fusível encontrado (<i>${f.where}</i>). <b>As luzes do setor caíram.</b> Algo ouviu isso.`, 5); else msg(`Seu amigo pegou um fusível (<i>${f.where}</i>).`, 4); setObjective();
 }
 function setLight(i, on) { const L = lightObjs[i]; L.on = on; }
 function usePanel() {
   if (G.endgame || G.exitOpen) return;
-  const list = arguments[0] === 'g' ? R.carried : P.carried;
-  if (!list.length) { if (arguments[0] !== 'g') msg(`O painel tem 4 encaixes. ${G.inserted.length} preenchido(s).`); return; }
+  const rr = arguments[0] ? remBySlot(arguments[0]) : null; const list = rr ? rr.carried : P.carried;
+  if (!list.length) { if (!rr) msg(`O painel tem 4 encaixes. ${G.inserted.length} preenchido(s).`); return; }
   for (const id of list) { G.inserted.push(id); FUSES[id].state = 'inserted'; }
   list.length = 0; refreshPanel(); AU.clunk(panel.position); emitNoise(panel.position, CFG.noise.fuseInsert, true); save();
   msg(G.inserted.length < 4 ? `Fusível instalado. <b>${G.inserted.length}/4</b>. Progresso salvo.` : '<b>4/4.</b> O gerador está partindo…'); setObjective();
@@ -904,13 +905,11 @@ function setState(s) {
 const lightCost = (x, y) => lightmap[y][x] * 5;
 function planPath(goal) { const [sx, sy] = tileOf(C.pos), [tx, ty] = tileOf(goal); const p = astar(sx, sy, tx, ty, C.state === 'patrol' || C.state === 'search' ? lightCost : null, true); C.path = p || []; C.pathI = 0; }
 const ROOM_CENTERS = ZONES.filter(z => !['corrA', 'corrB', 'base', 'shaft'].includes(z.id)).map(z => { const [x, y] = nearestFree(((z.r[0] + z.r[2]) / 2) | 0, ((z.r[1] + z.r[3]) / 2) | 0); return { z, x, y }; });
-// outro jogador (no host: o convidado; no convidado: o host) — mesmo formato do P para a IA
-const R = { pos: new THREE.Vector3(-99, 0, -99), eye: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, -1), yaw: 0, pitch: 0, hidden: null, lampOn: true, focus: false, crouch: false, holding: false, dead: false, alive: false, carried: [] };
 let TGT = P;
-function players() { const a = []; if (!G.dead) a.push(P); if (NET.role !== 'solo' && R.alive && !R.dead) a.push(R); return a; }
+function players() { const a = []; if (!G.dead) a.push(P); for (const r of REMS) if (r.alive && !r.dead) a.push(r); return a; }
 function killTgt(reason) {
   const coop = NET.role === 'host';
-  if (TGT === P) { if (canGrab()) { startGrab(reason); return; } kill(reason); } else { R.dead = true; R.hidden = null; NET.evt({ k: 'die', r: reason }); AU.scream(R.pos.clone().setY(1.6)); msg('<b>Seu amigo morreu.</b> Ele volta na recepção em alguns segundos.', 4); }
+  if (TGT === P) { if (canGrab()) { startGrab(reason); return; } kill(reason); } else { const r = TGT; r.dead = true; r.hidden = null; NET.sendTo(r, { t: 'e', k: 'die', r: reason }); AU.scream(r.pos.clone().setY(1.6)); msg(`<b>${SLOT_NAME[r.slot]} morreu.</b> Volta na recepção em alguns segundos.`, 4); }
   if (coop) after(1.3, () => { // ele arrasta o corpo para longe: respiro para quem ficou
     const far = ROOM_CENTERS.map(r => tc(r.x, r.y)).sort((a, b) => b.distanceTo(TGT.pos) - a.distanceTo(TGT.pos))[0]; C.retreatTo = far; C.state = 'retreat'; C.stateT = 0; C.path = []; C.knownHide = null; C.suspicion = 0; });
 }
@@ -1026,7 +1025,7 @@ function updateCreature(dt) {
     if (C.suspicion > CC.hideSuspicion) { killTgt('Ele ouviu sua respiração.'); return; }
   }
   // ---------- contato = morte
-  for (const pl of pls) if (!pl.hidden && C.state !== 'retreat' && C.state !== 'vent' && C.state !== 'grab' && C.pos.distanceTo(pl.pos) < CC.killDist) { TGT = pl; killTgt('Ele te pegou no escuro.'); break; }
+  for (const pl of pls) if (!pl.hidden && !(pl.safeUntil > G.t) && C.state !== 'retreat' && C.state !== 'vent' && C.state !== 'grab' && C.pos.distanceTo(pl.pos) < CC.killDist) { TGT = pl; killTgt('Ele te pegou no escuro.'); break; }
   CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
 }
 // --------- lanterna contra a criatura
@@ -1113,15 +1112,15 @@ function respawn() {
   const far = CREATURE_SPAWNS.slice().sort((a, b) => tc(...b).distanceTo(P.pos) - tc(...a).distanceTo(P.pos))[0];
   C.pos.copy(tc(...far)); C.exposure = 0; C.knownHide = null; C.suspicion = 0; C.path = []; C.state = 'dormant'; C.wakeT = 8; CR.root.visible = false;
   if (G.endgame) { G.endgame.t = Math.max(0, G.endgame.t - 10); C.wakeT = 4; }
-  setObjective(); pause(false); if (!TOUCH) canvas.requestPointerLock?.();
+  setObjective(); pause(false); if (!TOUCH) lockPointer();
 }
 function coopRespawn() {
-  $('death').classList.remove('on'); document.body.classList.remove('over'); G.dead = false;
+  $('death').classList.remove('on'); document.body.classList.remove('over'); G.dead = false; P.safeUntil = G.t + 4;
   const keep = !HARD(); if (!keep) { if (NET.role === 'host') { for (const id of P.carried) dropFuse(FUSES[id]); } else NET.send({ t: 'a', k: 'drop' }); P.carried = []; } if (NET.role === 'host') spawnGuard(); P.pos.copy(tc(...PLAYER_START)); P.yaw = 0; P.pitch = 0; P.battery = Math.max(P.battery, 60); P.heat = 0; P.overheat = 0; P.lampOn = true; P.stamina = CFG.player.staminaMax; P.hidden = null;
-  setObjective(); pause(false); if (!TOUCH) canvas.requestPointerLock?.();
+  setObjective(); pause(false); if (!TOUCH) lockPointer();
 }
 function spawnGuard() { // proteção ao renascer: ele não fica de tocaia na recepção
-  if (C.state === 'dormant' || C.pos.distanceTo(tc(...PLAYER_START)) > 14) return; const far = ROOM_CENTERS.map(r => tc(r.x, r.y)).sort((a, b) => b.distanceTo(tc(...PLAYER_START)) - a.distanceTo(tc(...PLAYER_START)))[0];
+  if (C.state === 'dormant' || C.pos.distanceTo(tc(...PLAYER_START)) > (G.endgame ? 22 : 14)) return; const far = ROOM_CENTERS.map(r => tc(r.x, r.y)).sort((a, b) => b.distanceTo(tc(...PLAYER_START)) - a.distanceTo(tc(...PLAYER_START)))[0];
   C.retreatTo = far; C.state = 'retreat'; C.stateT = CFG.creature.stagger; C.path = []; planPath(far); C.knownHide = null;
 }
 function dropFuse(f) { f.state = 'world'; f.by = null; f.obj.visible = true; f.obj.position.copy(f.home); for (const li of f.lights) setLight(li, true); computeLightmap(); }
@@ -1320,7 +1319,7 @@ if (TOUCH) {
   tap('tb-lamp', toggleLamp); tap('tb-crouch', () => { P.crouch = !P.crouch; }); tap('tb-use', () => { if (G.readingNote) closeNote(); else interact(); });
   tap('tb-pause', () => pause(true)); tap('tb-map', toggleMap); tap('tb-mic', toggleMic);
   $('note').addEventListener('pointerdown', () => { if (G.readingNote) closeNote(); });
-  $('keys-desktop').style.display = 'none'; $('keys-touch').style.display = '';
+
 }
 function updateTouchUI() {
   if (!TOUCH) return; const hid = !!P.hidden;
@@ -1395,7 +1394,7 @@ function updateFuga(dt) {
   const F = G.fuga;
   // obstáculos caem quando você se aproxima
   for (const o of OBST) {
-    if (o.falling || o.landed) continue; if (o.at.distanceTo(P.pos) > 7.5 && !(R.alive && !R.dead && o.at.distanceTo(R.pos) < 7.5)) continue; o.falling = true;
+    if (o.falling || o.landed) continue; if (o.at.distanceTo(P.pos) > 7.5 && !players().some(pl => o.at.distanceTo(pl.pos) < 7.5)) continue; o.falling = true;
     if (o.type === 'cart') { const from = o.g.position.clone(), to = from.clone(); to[o.horiz ? 'z' : 'x'] += o.side * 2.2; AU.creak(o.at.clone().setY(1), .3); tween(.45, k => o.g.position.lerpVectors(from, to, k), () => { o.landed = true; AU.slam(o.at, .5); }); }
     else { const y0 = o.g.position.y, y1 = o.type === 'beam' ? 1.15 : 0; if (o.type === 'beam') AU.creak(o.at.clone().setY(2.5), .35);
       tween(o.type === 'beam' ? .35 : .5, k => { o.g.position.y = lerp(y0, y1, k * k); o.g.rotation.z = (o.type === 'beam' ? 0 : k * .3 * o.side); }, () => { o.landed = true; AU.crash(o.at.clone().setY(1)); G.shake = Math.max(G.shake, .35);
@@ -1405,12 +1404,13 @@ function updateFuga(dt) {
   fugaBeat -= dt; if (fugaBeat <= 0) { fugaBeat = .22; AU.tom(.35); }
   if (fugaRed) { const h = C.pos.clone().setY(2.2); fugaRed.position.copy(h); fugaRed.intensity = 6 + Math.random() * 6; }
   if (NET.role !== 'guest' && !players().length) { endFuga(false); if (NET.role === 'host') NET.evt({ k: 'fugaEnd', s: false }); return; }
-  if (NET.role !== 'guest') { const pls = players(); if (pls.length && pls.every(pl => F.end(...tileOf(pl.pos)))) { endFuga(true); if (NET.role === 'host') NET.evt({ k: 'fugaEnd' }); } }
+  if (NET.role !== 'guest') { const pls = players(); if (pls.length && pls.every(pl => F.end(...tileOf(pl.pos)) || fugaSafe(pl))) { endFuga(true); if (NET.role === 'host') NET.evt({ k: 'fugaEnd' }); } }
 }
+const fugaSafe = (pl) => { const z = zoneAt(...tileOf(pl.pos)); return !!z && ['reception', 'admin', 'archive', 'security'].includes(z.id); }; // área segura das fugas
 function updateFugaCreature(dt) {
   if (C.blindT > 0) { blindTick(dt); return; }
   if (C.reactT > 0) { C.reactT -= dt; C.speed = 0; const pl = players()[0]; if (pl) faceTowards(pl.pos, dt, 8); CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw; return; } // urra antes de correr
-  const pls = players(); if (!pls.length) return; TGT = pls.reduce((a, b) => a.pos.distanceTo(C.pos) < b.pos.distanceTo(C.pos) ? a : b);
+  const pls = players().filter(pl => !(pl.safeUntil > G.t) && !fugaSafe(pl)); if (!pls.length) { C.speed = 0; return; } TGT = pls.reduce((a, b) => a.pos.distanceTo(C.pos) < b.pos.distanceTo(C.pos) ? a : b);
   const d = C.pos.distanceTo(TGT.pos); const sp = (d > 16 ? 5.6 : d < 5 ? 4.35 : 4.6) * (CFG.creature.fugaMul || 1); // elástico: sempre colado, nunca impossível
   C.repath -= dt; if (C.repath <= 0) { C.repath = .25; planPath(TGT.pos); } moveAlong(sp, dt); C.state = 'chase';
   CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw;
@@ -1529,7 +1529,7 @@ function setDoor(d, open, instant) {
 }
 function toggleDoor(d, byPlayer) {
   if (d.open) { // fechar: não pode ter ninguém no vão
-    const c = tc(d.x, d.y); if (P.pos.distanceTo(c) < .9 || (R.alive && R.pos.distanceTo(c) < .9) || (C.state !== 'dormant' && C.pos.distanceTo(c) < 1.1)) { msg('Tem algo no caminho.', 1.5); return; }
+    const c = tc(d.x, d.y); if (P.pos.distanceTo(c) < .9 || REMS.some(r => r.alive && !r.dead && r.pos.distanceTo(c) < .9) || (C.state !== 'dormant' && C.pos.distanceTo(c) < 1.1)) { msg('Tem algo no caminho.', 1.5); return; }
     setDoor(d, false); AU.slam(c.clone().setY(1.2), .55); emitNoise(c, 9);
   } else { setDoor(d, true); AU.creak(tc(d.x, d.y, 1.2), .3); emitNoise(tc(d.x, d.y), 4); }
 }
@@ -1617,49 +1617,59 @@ function updateMimic(dt) {
 
 
 // =====================================================================
-// MULTIPLAYER COOPERATIVO (2 jogadores, P2P via PeerJS)
-// host = autoridade (criatura, portas, fusíveis, fugas, alarme); convidado envia posição e ações
+// MULTIPLAYER COOPERATIVO (até 4 jogadores, P2P via PeerJS)
+// host = autoridade; cada convidado tem um "slot" (g1..g3); o host retransmite o estado de todos
 // =====================================================================
-const NET = { role: 'solo', peer: null, conn: null, code: '', sendT: 0, prevC: 'dormant', prevIns: 0,
-  send(m) { if (this.conn && this.conn.open) { try { this.conn.send(m); } catch (e) { } } },
-  evt(o) { if (this.role === 'host') this.send(Object.assign({ t: 'e' }, o)); } };
+const NET = { role: 'solo', peer: null, conn: null, conns: [], code: '', slot: 'h', sendT: 0, prevC: 'dormant', prevIns: 0, started: false,
+  send(m) { const c = this.conn; if (c && c.open) { try { c.send(m); } catch (e) { } } },
+  sendTo(rem, m) { if (rem && rem.conn && rem.conn.open) { try { rem.conn.send(m); } catch (e) { } } },
+  broadcast(m) { for (const r of REMS) this.sendTo(r, m); },
+  evt(o) { if (this.role === 'host') this.broadcast(Object.assign({ t: 'e' }, o)); } };
 function sfx(name, p, ...a) { if (AU[name]) AU[name](p, ...a); if (NET.role === 'host') NET.evt({ k: 'sfx', s: name, p: [p.x, p.y, p.z], a }); }
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
-// ----- boneco do parceiro (com lanterna de verdade)
-const AV = (() => {
-  const g = new THREE.Group(); const coat = new THREE.MeshStandardMaterial({ color: 0x2a3036, roughness: .85 });
+const SLOT_COLOR = { h: 0x8a8f96, g1: 0x2f5fa8, g2: 0x3f8a4a, g3: 0xa8662f }, SLOT_NAME = { h: 'J1', g1: 'J2', g2: 'J3', g3: 'J4' };
+function mkAvatar(slot) {
+  const g = new THREE.Group(); const coat = new THREE.MeshStandardMaterial({ color: SLOT_COLOR[slot] || 0x2a3036, roughness: .85 });
   const body = new THREE.Mesh(new THREE.CapsuleGeometry(.24, .85, 4, 8), coat); body.position.y = .82; body.castShadow = true; g.add(body);
   const head = new THREE.Mesh(new THREE.SphereGeometry(.14, 12, 10), new THREE.MeshStandardMaterial({ color: 0xa9866c, roughness: .7 })); head.position.y = 1.55; g.add(head);
   const torch = cyl(.03, .2, MAT.black); torch.rotation.x = Math.PI / 2; torch.position.set(.22, 1.3, -.2); g.add(torch);
   const lens = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff2d0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); lens.scale.setScalar(.35); lens.position.set(.22, 1.3, -.32); g.add(lens);
   const lamp = new THREE.SpotLight(0xfff0d0, 0, 18, .45, .6, 1.6); lamp.position.set(.22, 1.3, -.3); g.add(lamp); scene.add(lamp.target);
   g.visible = false; scene.add(g); return { g, body, lamp, lens };
-})();
-R.tpos = new THREE.Vector3(-99, 0, -99); R.stepAcc = 0; R.ey = 1.62;
-function applyPeer(m) {
-  if (R.pos.x < -50) R.pos.set(m.x, 0, m.z); R.tpos.set(m.x, 0, m.z); R.yaw = m.yw; R.pitch = m.pt; R.ey = m.ey; R.lampOn = !!m.l; R.focus = !!m.f; R.crouch = !!m.c; R.holding = !!m.b;
-  const wasHidden = R.hidden; R.hidden = m.h >= 0 ? hideSpots[m.h] : null; R.alive = true;
-  if (NET.role === 'host') { const wasDead = R.dead; R.dead = !!m.d; if (wasDead && !R.dead) { msg('Seu amigo voltou (recepção).', 3); spawnGuard(); }
-    if (R.hidden && !wasHidden && C.focusPl === R && (G.t - C.lastSeenT) < 1.2) { C.knownHide = R.hidden; TGT = R; } }
-  else R.dead = !!m.d;
 }
-function updateAvatar(dt) {
-  if (NET.role === 'solo') { AV.g.visible = false; AV.lamp.intensity = 0; return; }
-  const k = 1 - Math.exp(-14 * dt); const before = R.pos.clone(); R.pos.lerp(R.tpos, k);
-  const cp = Math.cos(R.pitch); R.fwd.set(-Math.sin(R.yaw) * cp, Math.sin(R.pitch), -Math.cos(R.yaw) * cp); R.eye.set(R.pos.x, R.ey, R.pos.z);
-  const vis = R.alive && !R.dead && !R.hidden; AV.g.visible = vis; AV.g.position.copy(R.pos); AV.g.rotation.y = R.yaw; AV.g.scale.y = R.crouch ? .62 : 1;
-  AV.lamp.intensity = vis && R.lampOn ? (R.focus ? 90 : 34) : 0; AV.lamp.angle = R.focus ? .22 : .45; AV.lens.visible = vis && R.lampOn;
-  AV.lamp.target.position.copy(R.eye).addScaledVector(R.fwd, 6);
-  if (vis) { R.stepAcc += before.distanceTo(R.pos); const stride = R.crouch ? .7 : .95; if (R.stepAcc > stride) { R.stepAcc = 0; const z = zoneAt(...tileOf(R.pos)); AU.step(z ? z.floor : 'lino', R.crouch ? .25 : .7, R.pos.clone().setY(.3)); } }
+// cada outro jogador: mesmo formato do P para a IA
+const REMS = [];
+function mkRem(slot, conn = null, peerId = null) {
+  const r = { slot, conn, peerId: peerId || (conn && conn.peer), pos: V3(-99, 0, -99), tpos: V3(-99, 0, -99), eye: V3(0, 0, 0), fwd: V3(0, 0, -1), yaw: 0, pitch: 0, ey: 1.62, hidden: null, lampOn: true, focus: false, crouch: false, holding: false, dead: false, alive: true, carried: [], stepAcc: 0, av: mkAvatar(slot), last: null };
+  REMS.push(r); return r;
+}
+const remBySlot = (s) => REMS.find(r => r.slot === s);
+const remByConn = (c) => REMS.find(r => r.conn === c);
+function applyPeer(r, m) {
+  if (r.pos.x < -50) r.pos.set(m.x, 0, m.z); r.tpos.set(m.x, 0, m.z); r.yaw = m.yw; r.pitch = m.pt; r.ey = m.ey; r.lampOn = !!m.l; r.focus = !!m.f; r.crouch = !!m.c; r.holding = !!m.b; r.last = m;
+  const wasHidden = r.hidden; r.hidden = m.h >= 0 ? hideSpots[m.h] : null; r.alive = true;
+  if (NET.role === 'host') { const wasDead = r.dead; r.dead = !!m.d; if (wasDead && !r.dead) { msg(`${SLOT_NAME[r.slot]} voltou (recepção).`, 3); r.safeUntil = G.t + 4; spawnGuard(); }
+    if (r.hidden && !wasHidden && C.focusPl === r && (G.t - C.lastSeenT) < 1.2) { C.knownHide = r.hidden; TGT = r; } }
+  else r.dead = !!m.d;
+}
+function updateAvatars(dt) {
+  for (const r of REMS) {
+    const k = 1 - Math.exp(-14 * dt); const before = r.pos.clone(); r.pos.lerp(r.tpos, k); const A = r.av;
+    const cp = Math.cos(r.pitch); r.fwd.set(-Math.sin(r.yaw) * cp, Math.sin(r.pitch), -Math.cos(r.yaw) * cp); r.eye.set(r.pos.x, r.ey, r.pos.z);
+    const vis = r.alive && !r.dead && !r.hidden; A.g.visible = vis; A.g.position.copy(r.pos); A.g.rotation.y = r.yaw; A.g.scale.y = r.crouch ? .62 : 1;
+    A.lamp.intensity = vis && r.lampOn && r.pos.distanceTo(P.pos) < 24 ? (r.focus ? 90 : 34) : 0; A.lamp.angle = r.focus ? .22 : .45; A.lens.visible = vis && r.lampOn; A.lamp.target.position.copy(r.eye).addScaledVector(r.fwd, 6);
+    if (vis) { r.stepAcc += before.distanceTo(r.pos); if (r.stepAcc > (r.crouch ? .7 : .95)) { r.stepAcc = 0; const z = zoneAt(...tileOf(r.pos)); AU.step(z ? z.floor : 'lino', r.crouch ? .25 : .7, r.pos.clone().setY(.3)); } }
+  }
 }
 function meMsg() { return { x: P.pos.x, z: P.pos.z, ey: camera.position.y, yw: P.yaw, pt: P.pitch, l: lampActive() ? 1 : 0, f: P.focus ? 1 : 0, c: P.crouch ? 1 : 0, h: P.hidden ? hideSpots.indexOf(P.hidden) : -1, b: P.holding ? 1 : 0, d: G.dead ? 1 : 0 }; }
+function partnerLabel() { $('partner').innerHTML = REMS.filter(r => r.alive).map(r => `${SLOT_NAME[r.slot]}: ${r.dead ? 'morto' : r.hidden ? 'escondido' : 'vivo'}${r.carried.length ? ' ⚡' + r.carried.length : ''}`).join(' · '); }
 function netTick(dt) {
-  updateAvatar(dt); voiceTick(dt); if (NET.role === 'solo' || !NET.conn) return;
-  NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1 / 15;
+  updateAvatars(dt); voiceTick(dt); if (NET.role === 'solo') return;
+  NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1 / 15; partnerLabel();
   if (NET.role === 'guest') { NET.send(Object.assign({ t: 'p' }, meMsg())); return; }
-  NET.send({ t: 's', p: meMsg(), c: [C.pos.x, C.pos.z, C.yaw, C.state, C.speed, CR.root.visible ? 1 : 0, C.flinch, C.exposure, C.blindT || 0, C.stateT],
+  const ps = [Object.assign({ s: 'h' }, meMsg())]; for (const r of REMS) if (r.alive && r.last) ps.push(Object.assign({}, r.last, { s: r.slot, d: r.dead ? 1 : 0, t: undefined }));
+  NET.broadcast({ t: 's', ps, c: [C.pos.x, C.pos.z, C.yaw, C.state, C.speed, CR.root.visible ? 1 : 0, C.flinch, C.exposure, C.blindT || 0, C.stateT],
     fu: FUSES.map(f => [f.state, f.by || '']), ins: G.inserted, dr: DOORS.map(d => d.open ? 1 : 0).join(''), eg: G.endgame ? G.endgame.t : -1, ex: G.exitOpen ? 1 : 0 });
-  const st = R.dead ? 'morto' : R.hidden ? 'escondido' : 'vivo'; $('partner').textContent = `Amigo: ${st}` + (R.carried.length ? ` · carregando ${R.carried.length} fusível(is)` : '');
 }
 // ----- convidado: aplica o estado do host
 const CT = { x: 0, z: 0, yaw: 0 };
@@ -1669,7 +1679,8 @@ function netGuestTick(dt) {
   C.stateT += dt; CR.root.position.copy(C.pos); CR.root.rotation.y = C.yaw; CR.skin.emissive.setRGB(C.exposure * .35, C.exposure * .12, C.exposure * .05);
 }
 function applyState(m) {
-  applyPeer(m.p);
+  const seen = new Set(); for (const e of m.ps) { if (e.s === NET.slot) continue; seen.add(e.s); const r = remBySlot(e.s) || mkRem(e.s, null, NET.roster && NET.roster[e.s]); applyPeer(r, e); }
+  for (const r of REMS) if (!seen.has(r.slot)) r.alive = false;
   const [x, z, yaw, st, sp, vis, fl, ex, bl, stT] = m.c; CT.x = x; CT.z = z; CT.yaw = yaw; if (!CR.root.visible && vis) { C.pos.set(x, 0, z); C.yaw = yaw; }
   const prev = NET.prevC; C.state = st; C.speed = sp; CR.root.visible = !!vis; C.flinch = fl; C.exposure = ex; C.blindT = bl;
   if (st !== prev) { C.stateT = stT; const head = C.pos.clone().setY(2.2);
@@ -1677,42 +1688,40 @@ function applyState(m) {
     if (st === 'retreat') { AU.scream(head); CR.smokeT = 2.2; }
     if (prev === 'dormant' && st !== 'dormant' && !G.awakeOnce) { G.awakeOnce = true; AU.scream(head); AU.bang(head); msg('Um grito vindo do <b>subsolo</b>. Vocês não estão sozinhos.', 5); } }
   NET.prevC = st;
-  // fusíveis
   let lightsChanged = false;
   m.fu.forEach(([fs, by], i) => { const f = FUSES[i]; if (f.state === fs && (f.by || '') === by) return; const was = f.state; f.by = by || null;
-    if (fs === 'world') { if (was !== 'world') { dropFuse(f); } }
-    else { f.state = fs; f.obj.visible = false; if (was === 'world') { for (const li of f.lights) setLight(li, false); lightsChanged = true; AU.zap(f.obj.position); if (by === 'g') { AU.pickup(); msg(`Fusível encontrado (<i>${f.where}</i>). <b>As luzes do setor caíram.</b>`, 5); } else msg(`Seu amigo pegou um fusível (<i>${f.where}</i>).`, 4); } }
+    if (fs === 'world') { if (was !== 'world') dropFuse(f); }
+    else { f.state = fs; f.obj.visible = false; if (was === 'world') { for (const li of f.lights) setLight(li, false); lightsChanged = true; AU.zap(f.obj.position); if (by === NET.slot) { AU.pickup(); buzz(60); msg(`Fusível encontrado (<i>${f.where}</i>). <b>As luzes do setor caíram.</b>`, 5); } else msg(`${SLOT_NAME[by] || 'Um amigo'} pegou um fusível (<i>${f.where}</i>).`, 4); } }
     f.state = fs; });
   if (lightsChanged) computeLightmap();
-  P.carried = FUSES.filter(f => f.state === 'carried' && f.by === 'g').map(f => f.id); R.carried = FUSES.filter(f => f.state === 'carried' && f.by === 'h').map(f => f.id);
-  if (m.ins.length !== NET.prevIns) { G.inserted = m.ins.slice(); refreshPanel(); if (m.ins.length > NET.prevIns) { AU.clunk(panel.position); msg(`Fusível instalado. <b>${m.ins.length}/4</b>.`, 3); } NET.prevIns = m.ins.length; }
-  // portas
+  P.carried = FUSES.filter(f => f.state === 'carried' && f.by === NET.slot).map(f => f.id); for (const r of REMS) r.carried = FUSES.filter(f => f.state === 'carried' && f.by === r.slot).map(f => f.id);
+  if (m.ins.length !== NET.prevIns) { G.inserted = m.ins.slice(); refreshPanel(); if (m.ins.length > NET.prevIns) { AU.clunk(panel.position); msg(`Fusível instalado. <b>${m.ins.length}/4</b>.`, 3); if (m.ins.length === 1) award('primeiro'); } NET.prevIns = m.ins.length; }
   [...m.dr].forEach((v, i) => { const d = DOORS[i]; const open = v === '1'; if (d && d.open !== open) { setDoor(d, open); if (open) AU.creak(tc(d.x, d.y, 1.2), .3); else AU.slam(tc(d.x, d.y, 1.2), .55); } });
-  // alarme final
   if (m.eg >= 0 && !G.endgame) { G.endgame = { t: m.eg }; AU.alarm.gain.setTargetAtTime(.08, AU.ctx.currentTime, .5); for (const L of lightObjs) L.type = L.type === 'steady' ? 'flicker' : L.type; msg('<b>ALARME.</b> Ele sabe onde vocês estão. Aguentem até a trava energizar.', 6); }
   if (G.endgame) G.endgame.t = Math.max(0, m.eg);
   if (m.ex && !G.exitOpen) { G.exitOpen = true; AU.doorOpen(exitDoor.getWorldPosition(new THREE.Vector3())); AU.alarm.gain.setTargetAtTime(.03, AU.ctx.currentTime, .5); msg('<b>A PORTA ABRIU. CORRAM.</b>', 5); }
   setObjective();
-  const stt = R.dead ? 'morto' : R.hidden ? 'escondido' : 'vivo'; $('partner').textContent = `Amigo: ${stt}` + (R.carried.length ? ` · carregando ${R.carried.length} fusível(is)` : '');
 }
-function onData(m) {
+function onData(m, conn) {
   if (!m || !m.t) return;
   if (NET.role === 'host') {
-    if (m.t === 'p') applyPeer(m);
+    const r = remByConn(conn); if (!r) return;
+    if (m.t === 'p') applyPeer(r, m);
     else if (m.t === 'n') emitNoise(V3(m.x, 0, m.z), m.r, m.i);
     else if (m.t === 'a') {
-      if (m.k === 'fuse') { const f = FUSES[m.i]; if (f && f.state === 'world') pickFuse(f, 'g'); }
-      else if (m.k === 'panel') { const n0 = G.inserted.length; usePanel('g'); if (G.inserted.length > n0) NET.evt({ k: 'msg', h: `Fusível instalado. <b>${G.inserted.length}/4</b>.` }); }
+      if (m.k === 'fuse') { const f = FUSES[m.i]; if (f && f.state === 'world') pickFuse(f, r.slot); }
+      else if (m.k === 'panel') { const n0 = G.inserted.length; usePanel(r.slot); if (G.inserted.length > n0) NET.evt({ k: 'msg', h: `Fusível instalado. <b>${G.inserted.length}/4</b>.` }); }
       else if (m.k === 'door') { const d = DOORS[m.i]; if (d) toggleDoor(d, false); }
-      else if (m.k === 'drop') { for (const id of R.carried) dropFuse(FUSES[id]); R.carried = []; }
+      else if (m.k === 'drop') { for (const id of r.carried) dropFuse(FUSES[id]); r.carried = []; }
       else if (m.k === 'exit') { if (G.exitOpen) win(); }
       else if (m.k === 'blind') { C.blindT = G.fuga ? 2.6 : 5; C.speed = 0; CR.smokeT = 1.2; AU.scream(C.pos.clone().setY(2)); }
-      else if (m.k === 'stare') { if (['patrol', 'search', 'investigate'].includes(C.state)) { TGT = R; C.focusPl = R; C.lastKnown = R.pos.clone(); setState('chase'); } }
+      else if (m.k === 'stare') { if (['patrol', 'search', 'investigate'].includes(C.state)) { TGT = r; C.focusPl = r; C.lastKnown = r.pos.clone(); setState('chase'); } }
     }
   } else if (NET.role === 'guest') {
     if (m.t === 's') applyState(m);
     else if (m.t === 'e') {
       if (m.k === 'start') guestStart(m);
+      else if (m.k === 'lobby') lobbyMsg(`Conectado! Esperando quem criou a sala começar… <b>Jogadores: ${m.n}/4</b>`);
       else if (m.k === 'die') kill(m.r);
       else if (m.k === 'fuga') { const F = FUGAS.find(f => f.id === m.id); if (F) startFuga(F, m.seed, V3(m.x, 0, m.z)); }
       else if (m.k === 'fugaEnd') endFuga(m.s !== false);
@@ -1722,26 +1731,32 @@ function onData(m) {
     }
   }
 }
-function onClose() {
-  if (NET.role === 'guest') { NET.role = 'solo'; G.paused = true; $('pause').querySelector('h1').textContent = 'CONEXÃO PERDIDA'; $('pause').querySelector('h2').textContent = 'o host saiu · toque para voltar ao menu'; $('pause').classList.add('on'); $('pause').onclick = () => location.reload(); }
-  else if (NET.role === 'host') { NET.role = 'solo'; NET.conn = null; R.alive = false; AV.g.visible = false; $('partner').textContent = ''; msg('<b>Seu amigo desconectou.</b> Você continua sozinho.', 5); }
+function onClose(conn) {
+  if (NET.role === 'guest') { NET.role = 'solo'; G.paused = true; $('pause').querySelector('h1').textContent = 'CONEXÃO PERDIDA'; $('pause').querySelector('h2').textContent = 'quem criou a sala saiu · toque para voltar ao menu'; $('pause').classList.add('on'); $('pause').onclick = () => location.reload(); return; }
+  if (NET.role === 'host') { const r = remByConn(conn); if (!r) return; r.alive = false; r.dead = true; r.av.g.visible = false; r.av.lamp.intensity = 0; for (const id of r.carried) dropFuse(FUSES[id]); r.carried = [];
+    if (NET.started) msg(`<b>${SLOT_NAME[r.slot]} desconectou.</b>`, 4); else { REMS.splice(REMS.indexOf(r), 1); scene.remove(r.av.g); lobbyCount(); } }
 }
-// ----- sala: criar / entrar
+// ----- sala: criar / entrar / começar
 const PEER_PREFIX = 'santa-lucia-1974-';
 const lobbyMsg = (h) => { $('lobby-msg').innerHTML = h; };
 function makeCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; return Array.from({ length: 4 }, () => A[(Math.random() * A.length) | 0]).join(''); }
-function wire(conn) { conn.on('data', onData); conn.on('close', onClose); conn.on('error', () => { }); }
+function wire(conn) { conn.on('data', (m) => onData(m, conn)); conn.on('close', () => onClose(conn)); conn.on('error', () => { }); }
+function lobbyCount() { const n = REMS.length + 1; lobbyMsg(`Sala criada. Código: <b class="code">${NET.code}</b><br>Jogadores: <b>${n}/4</b> — seus amigos digitam o código em "Entrar".`); $('btn-start-room').style.display = REMS.length ? '' : 'none'; NET.evt({ k: 'lobby', n }); }
 function hostRoom() {
   if (!window.Peer) { lobbyMsg('A biblioteca de rede não carregou.'); return; }
-  if (NET.peer) NET.peer.destroy(); NET.code = makeCode(); lobbyMsg('Criando sala…');
+  if (NET.peer) NET.peer.destroy(); NET.code = makeCode(); NET.role = 'host'; lobbyMsg('Criando sala…'); AU.init();
   const peer = new Peer(PEER_PREFIX + NET.code, { debug: 0 }); NET.peer = peer; peerCalls(peer);
-  peer.on('open', () => lobbyMsg(`Sala criada. Código: <b class="code">${NET.code}</b><br>Seu amigo digita esse código em "Entrar". Aguardando…`));
+  peer.on('open', () => lobbyCount());
   peer.on('error', (e) => { if (e.type === 'unavailable-id') hostRoom(); else lobbyMsg('Erro de conexão (' + e.type + '). Verifique a internet.'); });
   peer.on('connection', (conn) => {
-    if (NET.conn) { conn.close(); return; }
-    conn.on('open', () => { NET.conn = conn; NET.role = 'host'; R.alive = true; wire(conn); AU.init();
-      conn.send({ t: 'e', k: 'start', spots: G.spots, dr: DOORS.map(d => d.open ? 1 : 0).join('') }); lobbyMsg('Amigo conectado!'); start(false); });
+    if (NET.started || REMS.length >= 3) { conn.on('open', () => { try { conn.send({ t: 'e', k: 'msg', h: 'Sala cheia ou partida já começou.' }); } catch (e) { } setTimeout(() => conn.close(), 500); }); return; }
+    conn.on('open', () => { const used = REMS.map(r => r.slot); const slot = ['g1', 'g2', 'g3'].find(x => !used.includes(x)); mkRem(slot, conn); wire(conn); lobbyCount(); });
   });
+}
+function startRoom() {
+  if (NET.role !== 'host' || !REMS.length || NET.started) return; NET.started = true; const roster = { h: NET.peer.id }; for (const r of REMS) roster[r.slot] = r.peerId;
+  const dr = DOORS.map(d => d.open ? 1 : 0).join(''); for (const r of REMS) NET.sendTo(r, { t: 'e', k: 'start', spots: G.spots, dr, slot: r.slot, roster });
+  start(false);
 }
 function joinRoom() {
   if (!window.Peer) { lobbyMsg('A biblioteca de rede não carregou.'); return; }
@@ -1749,16 +1764,17 @@ function joinRoom() {
   if (NET.peer) NET.peer.destroy(); lobbyMsg('Conectando…'); AU.init();
   const peer = new Peer({ debug: 0 }); NET.peer = peer; peerCalls(peer);
   peer.on('open', () => { const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
-    conn.on('open', () => { NET.conn = conn; NET.role = 'guest'; R.alive = true; wire(conn); lobbyMsg('Conectado! Esperando o host…'); }); });
+    conn.on('open', () => { NET.conn = conn; NET.role = 'guest'; wire(conn); lobbyMsg('Conectado! Esperando quem criou a sala começar…'); }); });
   peer.on('error', (e) => lobbyMsg(e.type === 'peer-unavailable' ? 'Sala não encontrada. Confira o código.' : 'Erro de conexão (' + e.type + '). Verifique a internet.'));
   setTimeout(() => { if (NET.role !== 'guest') lobbyMsg('Não conseguiu conectar. Confira o código e a internet.'); }, 20000);
 }
 function guestStart(m) {
+  NET.slot = m.slot; NET.roster = m.roster || {}; NET.started = true; mkRem('h', null, NET.conn.peer);
+  for (const s of Object.keys(NET.roster)) if (s !== 'h' && s !== NET.slot) mkRem(s, null, NET.roster[s]);
   applySpots(m.spots); FUSES.forEach(f => { unplaceFuse(f); placeFuse(f); });
   [...m.dr].forEach((v, i) => { if (DOORS[i]) setDoor(DOORS[i], v === '1', true); }); computeLightmap();
-  start(false); P.pos.copy(tc(6, 5)); C.state = 'dormant'; CR.root.visible = false;
+  start(false); const off = { g1: [6, 5], g2: [4, 5], g3: [6, 6] }[NET.slot] || [6, 5]; P.pos.copy(tc(...off)); C.state = 'dormant'; CR.root.visible = false;
 }
-
 
 // =====================================================================
 // CONFIGURAÇÕES (salvas no aparelho)
@@ -1775,7 +1791,7 @@ const DIFF = { // o "Normal" antigo virou o Difícil
 function applyDiff() {
   const d = DIFF[SET.diff] || DIFF.normal, CC = CFG.creature; for (const k of ['chaseDark', 'chaseLit', 'seeDark', 'seeLit', 'seeFlashlight', 'hideSuspicion', 'wakeAfter', 'director', 'resistStep', 'killDist']) CC[k] = d[k];
   CC.fugaMul = d.fuga; CFG.lamp.drain = d.drain;
-  if (NET.role !== 'solo') { CC.chaseDark *= 1.07; CC.chaseLit *= 1.07; CC.director *= .8; } // dois jogadores: ele fica mais forte
+  const n = REMS.length + 1; if (NET.role !== 'solo' && n > 1) { const m = 1 + .05 * (n - 1); CC.chaseDark *= m; CC.chaseLit *= m; CC.director *= 1 - .12 * (n - 1); CC.wakeAfter *= .8; } // mais gente, ele mais forte
 }
 function applyGfx() {
   if (G.trailer) return; const pr = { baixo: .6, medio: TOUCH ? .85 : 1, alto: Math.min(devicePixelRatio, 1.5) }[SET.gfx] || 1;
@@ -1785,7 +1801,7 @@ function applyGfx() {
   if (flash.shadow.mapSize.x !== sm) { flash.shadow.mapSize.set(sm, sm); if (flash.shadow.map) { flash.shadow.map.dispose(); flash.shadow.map = null; } }
   renderer.toneMappingExposure = 1.15 * SET.bright / 100; $('grain').style.display = SET.gfx === 'baixo' ? 'none' : '';
 }
-function applyAll() { applyGfx(); applyDiff(); if (VOICE.nodes) VOICE.nodes.g.gain.value = 1.6 * SET.voice / 100; }
+function applyAll() { applyGfx(); applyDiff(); for (const r of REMS) if (r.vnodes) r.vnodes.g.gain.value = 1.6 * SET.voice / 100; }
 let setFrom = null;
 function openSettings() {
   setFrom = ['title', 'pause'].find(id => $(id).classList.contains('on')) || null; if (setFrom) $(setFrom).classList.remove('on');
@@ -1831,7 +1847,7 @@ function drawMap() {
   if (ex(7, 1)) { const pz = tc(7, 1); g.fillStyle = '#5fc27a'; g.fillText('PAINEL', pz.x / T * cell, pz.z / T * cell + cell); }
   if (ex(5, 1)) { g.fillStyle = '#ff5040'; g.fillText('SAÍDA', 5.5 * cell, .5 * cell); }
   const dot = (p, col, yaw) => { const x = p.x / T * cell, y = p.z / T * cell; g.fillStyle = col; g.beginPath(); if (yaw === undefined) g.arc(x, y, cell * .5, 0, 7); else { const fx = -Math.sin(yaw), fy = -Math.cos(yaw); g.moveTo(x + fx * cell, y + fy * cell); g.lineTo(x - fy * cell * .55 - fx * cell * .4, y + fx * cell * .55 - fy * cell * .4); g.lineTo(x + fy * cell * .55 - fx * cell * .4, y - fx * cell * .55 - fy * cell * .4); } g.fill(); };
-  if (NET.role !== 'solo' && R.alive && !R.dead) dot(R.pos, '#5aa8ff'); dot(P.pos, '#ffffff', P.yaw);
+  for (const r of REMS) if (r.alive && !r.dead) dot(r.pos, '#' + (SLOT_COLOR[r.slot] || 0x5aa8ff).toString(16).padStart(6, '0')); dot(P.pos, '#ffffff', P.yaw);
   $('map-legend').innerHTML = `<span class="k">◆ você${NET.role !== 'solo' ? ' · ● amigo' : ''} · ┅ seu caminho · ■ porta fechada · só aparece o que você já explorou</span>`;
 }
 
@@ -1845,23 +1861,23 @@ async function toggleMic() {
     try { VOICE.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
     catch (e) { msg('Não deu para usar o microfone. <b>Permita o microfone</b> para o jogo nas configurações do celular.', 5); return; }
     const src = AU.ctx.createMediaStreamSource(VOICE.stream); VOICE.an = AU.ctx.createAnalyser(); VOICE.an.fftSize = 512; src.connect(VOICE.an); VOICE.data = new Float32Array(512);
-    if (NET.peer && NET.conn) { const call = NET.peer.call(NET.conn.peer, VOICE.stream); wireCall(call); }
+    if (NET.peer) for (const r of REMS) if (r.peerId && r.alive) wireCall(NET.peer.call(r.peerId, VOICE.stream));
   }
   VOICE.on = !VOICE.on; VOICE.stream.getAudioTracks().forEach(t => t.enabled = VOICE.on);
   $('mic-ind').classList.toggle('on', VOICE.on); msg(VOICE.on ? 'Microfone <b>ligado</b>. Fale baixo: <b>ele também ouve.</b>' : 'Microfone desligado.', 3);
 }
 function peerCalls(peer) { peer.on('call', (call) => { call.answer(VOICE.stream || undefined); wireCall(call); }); }
-function wireCall(call) { call.on('stream', playRemote); call.on('error', () => { }); }
-function playRemote(stream) {
-  if (!AU.ctx) return; if (VOICE.src) { try { VOICE.src.disconnect(); } catch (e) { } }
-  const el = new Audio(); el.srcObject = stream; el.muted = true; el.play().catch(() => { }); VOICE.el = el; // necessário para o WebRTC alimentar o WebAudio
+function wireCall(call) { call.on('stream', (st) => playRemote(st, REMS.find(r => r.peerId === call.peer))); call.on('error', () => { }); }
+function playRemote(stream, r) {
+  if (!AU.ctx || !r) return; if (r.vsrc) { try { r.vsrc.disconnect(); } catch (e) { } }
+  const el = new Audio(); el.srcObject = stream; el.muted = true; el.play().catch(() => { }); r.vel = el; // necessário para o WebRTC alimentar o WebAudio
   const ctx = AU.ctx, src = ctx.createMediaStreamSource(stream), g = ctx.createGain(), lp = ctx.createBiquadFilter(), pn = ctx.createPanner();
   g.gain.value = 1.6 * SET.voice / 100; lp.type = 'lowpass'; lp.frequency.value = 8000; Object.assign(pn, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 3, rolloffFactor: 1.1, maxDistance: 60 });
-  src.connect(g).connect(lp).connect(pn).connect(AU.master); VOICE.src = src; VOICE.nodes = { g, lp, pn };
+  src.connect(g).connect(lp).connect(pn).connect(AU.master); r.vsrc = src; r.vnodes = { g, lp, pn };
 }
 function voiceTick(dt) {
-  if (VOICE.nodes) { const n = VOICE.nodes, t = AU.ctx.currentTime; n.pn.positionX.value = R.eye.x; n.pn.positionY.value = R.eye.y; n.pn.positionZ.value = R.eye.z;
-    n.lp.frequency.setTargetAtTime(los(P.pos.x, P.pos.z, R.pos.x, R.pos.z) ? 8000 : 900, t, .1); }
+  for (const r of REMS) { if (!r.vnodes) continue; const n = r.vnodes, t = AU.ctx.currentTime; n.pn.positionX.value = r.eye.x; n.pn.positionY.value = r.eye.y; n.pn.positionZ.value = r.eye.z;
+    n.lp.frequency.setTargetAtTime(los(P.pos.x, P.pos.z, r.pos.x, r.pos.z) ? 8000 : 900, t, .1); }
   if (!VOICE.on || !VOICE.an) { $('mic-lvl').style.width = '0'; return; }
   VOICE.an.getFloatTimeDomainData(VOICE.data); let e = 0; for (const v of VOICE.data) e += v * v; const rms = Math.sqrt(e / VOICE.data.length); VOICE.level += (rms - VOICE.level) * .3;
   $('mic-lvl').style.width = Math.min(100, VOICE.level * 600) + '%';
@@ -1979,7 +1995,9 @@ function showAchs() {
   $('ach-list').innerHTML = ACHS.map(([id, n, d]) => `<div class="ach ${ACHV[id] ? 'ok' : ''}"><b>${ACHV[id] ? '◆' : '◇'} ${n}</b><span>${d}</span></div>`).join('') + `<p class="ach-n">${Object.keys(ACHV).length}/${ACHS.length} · ${hasAch('zerou') ? 'Modo <b>Pesadelo</b> liberado nas Configurações.' : 'Zere uma vez para liberar o modo Pesadelo.'}</p>`;
   $('title').classList.remove('on'); $('achs').classList.add('on');
 }
-$('btn-achs').onclick = showAchs; $('btn-ach-close').onclick = () => { $('achs').classList.remove('on'); $('title').classList.add('on'); };
+$('btn-achs').onclick = showAchs;
+$('how-ctl').innerHTML = TOUCH ? 'Lado esquerdo: andar (empurre até o fim para correr). Lado direito: olhar. <span class="kt">USAR</span> acende quando há algo. <span class="kt">MAPA</span> mostra por onde você passou.' : '<span class="kt">WASD</span> andar · <span class="kt">Shift</span> correr · <span class="kt">C</span> agachar · <span class="kt">F</span> lanterna · <span class="kt">Botão direito</span> foco · <span class="kt">E</span> usar · <span class="kt">R</span> foto · <span class="kt">G</span> garrafa · <span class="kt">M</span> mapa · <span class="kt">V</span> microfone';
+$('btn-howto').onclick = () => { $('title').classList.remove('on'); $('howto').classList.add('on'); }; $('btn-how-close').onclick = () => { $('howto').classList.remove('on'); $('title').classList.add('on'); }; $('btn-ach-close').onclick = () => { $('achs').classList.remove('on'); $('title').classList.add('on'); };
 
 
 // =====================================================================
@@ -2071,9 +2089,9 @@ function start(cont) {
   const tut = ['<b>OBJETIVO:</b> encontre os <b>4 fusíveis</b> e instale no painel ao lado da porta de saída.', `Portas fechadas abrem com <b>${TOUCH ? 'USAR' : 'E'}</b>. O botão USAR acende quando há algo para pegar.`, `O <b>MAPA</b> ${TOUCH ? '' : '(M) '}mostra por onde você já passou. Use para não andar em círculos.`];
   tut.forEach((t, i) => setTimeout(() => { if (!G.dead) msg(t, 5.5); }, 400 + i * 6200));
   if (TOUCH) { $('touch').classList.add('on'); try { document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape').catch(() => { })).catch(() => { }); } catch (e) { } }
-  else if (!DEBUG) canvas.requestPointerLock?.();
+  else if (!DEBUG) lockPointer();
 }
-$('btn-host').onclick = hostRoom; $('btn-join').onclick = joinRoom; $('join-code').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') joinRoom(); });
+$('btn-host').onclick = hostRoom; $('btn-start-room').onclick = startRoom; $('btn-join').onclick = joinRoom; $('join-code').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') joinRoom(); });
 $('btn-new').onclick = () => start(false); $('btn-cont').onclick = () => start(true); $('btn-retry').onclick = () => respawn();
 frame();
 document.querySelectorAll('.ver').forEach(e => e.textContent = 'v' + VERSION);
@@ -2098,4 +2116,4 @@ if (new URLSearchParams(location.search).has('trailer')) {
     drawGrain(); renderer.render(scene, camera);
   };
 }
-window.__game = { NOTES, INTERNOS, keys, astar, tileOf, isSolid, interact, usePanel, players, get focusTarget() { return focusTarget; }, get VOICE_nodes() { return VOICE.nodes; }, NET, R, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };
+window.__game = { NOTES, INTERNOS, keys, astar, tileOf, isSolid, interact, usePanel, players, get focusTarget() { return focusTarget; }, get VOICE_nodes() { const r = REMS.find(x => x.vnodes); return r && r.vnodes; }, REMS, startRoom, NET, hostRoom, joinRoom, DOORS, takePhoto, updateStare, toggleDoor, win, P, C, G, CR, FUGAS, startFuga, SCARES, OBST, AU, lightObjs, refreshPanel, panelSlots, FUSES, CFG, camera, tc, setState, kill, respawn, computeLightmap, pickFuse, startEndgame, grid };

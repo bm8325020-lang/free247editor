@@ -8,7 +8,7 @@
     if (g.P.carried.length) return { k: 'panel', x: 7, y: 1 };
     if (g.G.endgame) return { k: 'wait', x: 3, y: 4 };
     const fs = g.FUSES.filter(f => f.state === 'world'); if (!fs.length) return { k: 'wait', x: 6, y: 3 };
-    let f = fs.find(o => o === st.target); if (!f) { f = fs.sort((a, b) => g.tc(a.x, a.y).distanceTo(g.P.pos) - g.tc(b.x, b.y).distanceTo(g.P.pos))[0]; st.target = f; } return { k: 'fuse', x: f.x, y: f.y, f }; // mantém o alvo
+    let f = fs.find(o => o === st.target); if (!f) { const srt = fs.sort((a, b) => g.tc(a.x, a.y).distanceTo(g.P.pos) - g.tc(b.x, b.y).distanceTo(g.P.pos)); f = g.NET.role === 'guest' ? srt[srt.length - 1] : srt[0]; st.target = f; } return { k: 'fuse', x: f.x, y: f.y, f }; // mantém o alvo
   }
   function tick() {
     if (st.done) return; const G = g.G, P = g.P;
@@ -19,14 +19,15 @@
     const gl = goal(); const [px, py] = g.tileOf(P.pos); const key = gl.k + gl.x + ',' + gl.y;
     // chegou?
     const d = g.tc(gl.x, gl.y).distanceTo(P.pos);
-    if (gl.k === 'fuse' && d < 1.6) { g.pickFuse(gl.f); st.fuseT.push(G.t); L(`pegou fusível em ${gl.f.where}`); st.path = []; return; }
-    if (gl.k === 'panel' && d < 1.8) { const n = G.inserted.length; g.usePanel(); L(`instalou -> ${G.inserted.length}/4`); if (G.inserted.length === n) L('BUG: painel não aceitou'); return; }
-    if (gl.k === 'exit' && d < 1.8) { g.win(); return; }
+    if (gl.k === 'fuse' && gl.f.locked) gl.f.locked = false; // robô sabe o código
+    if (gl.k === 'fuse' && d < 1.6) { if (g.NET.role === 'guest') { if (G.t - (st.sentT || -9) < 1.5) return; st.sentT = G.t; g.NET.send({ t: 'a', k: 'fuse', i: gl.f.id }); } else g.pickFuse(gl.f); st.fuseT.push(G.t); L(`pegou fusível em ${gl.f.where}`); st.path = []; return; }
+    if (gl.k === 'panel' && d < 1.8) { const n = G.inserted.length; if (g.NET.role === 'guest') { if (G.t - (st.sentP || -9) < 1.5) return; st.sentP = G.t; g.NET.send({ t: 'a', k: 'panel' }); L('pediu para instalar'); st.path = []; return; } g.usePanel(); L(`instalou -> ${G.inserted.length}/4`); if (G.inserted.length === n) L('BUG: painel não aceitou'); return; }
+    if (gl.k === 'exit' && d < 1.8) { if (g.NET.role === 'guest') g.NET.send({ t: 'a', k: 'exit' }); else g.win(); return; }
     // caminho
     if (key !== st.goalKey || G.t - st.pathT > 1.5 || !st.path.length) { st.goalKey = key; st.pathT = G.t; st.path = g.astar(px, py, gl.x, gl.y, null, true) || []; if (!st.path.length && d > 2) L(`SEM CAMINHO de ${px},${py} para ${gl.k} ${gl.x},${gl.y}`); }
     while (st.path.length && g.tc(...st.path[0]).distanceTo(P.pos) < .45) st.path.shift();
     const nx = st.path[0]; if (!nx) { g.keys.KeyW = false; return; }
-    if (g.grid[nx[1]][nx[0]] === 'D' && g.tc(...nx).distanceTo(P.pos) < 2.6) { const door = g.DOORS.find(o => o.x === nx[0] && o.y === nx[1]); if (door) { g.toggleDoor(door, true); L(`abriu porta ${nx}`); } }
+    if (g.grid[nx[1]][nx[0]] === 'D' && g.tc(...nx).distanceTo(P.pos) < 2.6) { const door = g.DOORS.find(o => o.x === nx[0] && o.y === nx[1]); if (door) { if (g.NET.role === 'guest') g.NET.send({ t: 'a', k: 'door', i: g.DOORS.indexOf(door) }); else g.toggleDoor(door, true); L(`abriu porta ${nx}`); } }
     const tgt = g.tc(...nx); const dx = tgt.x - P.pos.x, dz = tgt.z - P.pos.z; P.yaw = Math.atan2(-dx, -dz) + (unstuck > 0 ? 1.2 : 0); P.pitch = 0;
     g.keys.KeyW = true; const danger = g.C.state === 'chase' && g.C.pos.distanceTo(P.pos) < 14; g.keys.ShiftLeft = danger || !!G.fuga; P.crouch = false;
     if (G.fuga) { for (const o of g.OBST) if (o.crouch && o.landed && o.at.distanceTo(P.pos) < 2.2) P.crouch = true; }
