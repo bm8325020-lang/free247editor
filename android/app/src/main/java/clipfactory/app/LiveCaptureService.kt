@@ -126,13 +126,23 @@ class LiveCaptureService : Service() {
         val code = intent.getIntExtra(EXTRA_CODE, 0)
         @Suppress("DEPRECATION") val data: Intent? = if (Build.VERSION.SDK_INT >= 33)
             intent.getParcelableExtra(EXTRA_DATA, Intent::class.java) else intent.getParcelableExtra(EXTRA_DATA)
-        try {
-            startCapture(code, data ?: throw IllegalStateException("sem permissão de gravar a tela"))
-        } catch (e: Exception) {
-            Log.e(TAG, "capture failed", e)
-            state.value = LiveState(warning = "Não consegui começar a gravar: ${e.message}")
+        if (data == null) {
+            state.value = LiveState(warning = "Não consegui começar a gravar: sem permissão de gravar a tela")
             stopAll()
+            return START_NOT_STICKY
         }
+        running = true // a second start while this one sets up is ignored
+        // setting up the encoders and the capture takes long on slow phones: not on the main thread
+        // (Android stops a service whose start blocks for too long)
+        Thread({
+            try {
+                startCapture(code, data)
+            } catch (e: Exception) {
+                Log.e(TAG, "capture failed", e)
+                state.value = LiveState(warning = "Não consegui começar a gravar: ${e.message}")
+                main.post { stopAll() }
+            }
+        }, "live-setup").start()
         return START_NOT_STICKY
     }
 
@@ -144,7 +154,6 @@ class LiveCaptureService : Service() {
         proj.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() { main.post { stopAll() } }
         }, main)
-        running = true
         startUs = nowUs()
         ProjectStore.load(this)
         wake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
@@ -205,7 +214,7 @@ class LiveCaptureService : Service() {
         }
 
         connectChat()
-        showBubble()
+        main.post { showBubble() } // views belong to the main thread
         state.value = LiveState(true, channel, System.currentTimeMillis(), status = "Conhecendo o ritmo da live (2 min)…")
         scope.launch { ticker() }
     }
