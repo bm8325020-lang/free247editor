@@ -68,7 +68,30 @@ class MainActivity : ComponentActivity() {
             }
         }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "video"
 
+    /** fabricadeclipes://servidor?addr=127.0.0.1&code=…, opened by the Termux installer: connect after a confirmation. */
+    private fun handleServerLink(uri: Uri) {
+        val addr = uri.getQueryParameter("addr").orEmpty().trim()
+        val code = uri.getQueryParameter("code").orEmpty().trim()
+        // only this phone's own bot: a link from anywhere else must not point the app at another server
+        if (addr !in setOf("127.0.0.1", "localhost", "127.0.0.1:8080", "localhost:8080") || code.length < 8) {
+            android.widget.Toast.makeText(this, "Link de servidor recusado (só o clipador deste celular).", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Conectar ao clipador deste celular?")
+            .setMessage("O bot do Termux vai mandar os clipes das lives para o app sozinho, a cada 15 minutos.")
+            .setPositiveButton("Conectar") { _, _ ->
+                Prefs.save(this, Prefs.options(this).copy(serverAddr = "127.0.0.1", serverCode = code))
+                ServerSync.schedule(this)
+                android.widget.Toast.makeText(this, "Conectado ao clipador. Os clipes vão aparecer aqui.", android.widget.Toast.LENGTH_LONG).show()
+                Thread { ServerSync.sync(this) }.start()
+            }
+            .setNegativeButton("Agora não", null)
+            .show()
+    }
+
     private fun handleIncoming(i: Intent?) {
+        i?.data?.takeIf { it.scheme == "fabricadeclipes" && it.host == "servidor" }?.let { handleServerLink(it); return }
         val uri = when (i?.action) {
             Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else @Suppress("DEPRECATION") i.getParcelableExtra(Intent.EXTRA_STREAM)

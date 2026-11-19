@@ -33,7 +33,20 @@ python -c "import streamlink" 2>/dev/null || pip install --upgrade streamlink we
   echo "ERRO: não consegui instalar o streamlink (internet?). Rode o comando de novo."; exit 1; }
 cd "$APP"
 
-say "3/4 Configuração (Enter aceita o que está entre colchetes)"
+say "3/4 Configuração"
+# já configurado antes (atualização): mantém tudo, inclusive o código que o app já conhece
+KEEP=n
+if [ -f live-canais.json ] && [ -f .env ] && grep -q '^APP_CODE=' .env; then
+  read -r -p "Manter a configuração atual (canais, chave e código)? [S/n]: " KEEP </dev/tty
+  case "${KEEP:-s}" in [nN]*) KEEP=n ;; *) KEEP=s ;; esac
+fi
+if [ "$KEEP" = s ]; then
+  CODE=$(grep '^APP_CODE=' .env | cut -d= -f2-)
+  # versões antigas gravavam em 720p: passa para a melhor qualidade da live
+  python -c "import json; p='live-canais.json'; d=json.load(open(p)); d['qualidade']='best'; json.dump(d, open(p, 'w'), ensure_ascii=False, indent=2)"
+  echo "Configuração mantida."
+else
+echo "(Enter aceita o que está entre colchetes)"
 # as perguntas leem do teclado mesmo quando o script veio pelo "curl | bash"
 ask() { local v; read -r -p "$1 [$2]: " v </dev/tty; echo "${v:-$2}"; }
 CANAIS=$(ask "Canais da Twitch, separados por espaço" "alanzoka loud_coringa paulinholokobr")
@@ -49,12 +62,13 @@ canais = [c.strip().lstrip("@").lower() for c in os.environ["CANAIS"].replace(",
 json.dump({"canais": [{"plataforma": "twitch", "canal": c, "autorizacao": os.environ["AUTORIZACAO"], "ativo": True,
                        "creditos": "@" + c} for c in canais],
            "hashtags": os.environ["HASHTAGS"],
-           # celular: uma live por vez, em 720p (menos internet e menos calor)
-           "max_simultaneos": 1, "qualidade": "720p60,720p,best"},
+           # celular: uma live por vez, na melhor qualidade da live (use Wi-Fi: ~3 GB por hora)
+           "max_simultaneos": 1, "qualidade": "best"},
           open("live-canais.json", "w"), ensure_ascii=False, indent=2)
 PY
 printf 'GROQ_API_KEY=%s\nAPP_CODE=%s\nAPP_PORT=8080\nAPP_HOST=127.0.0.1\n' "$GROQ" "$CODE" > .env
 chmod 600 .env
+fi
 
 # atalho para ligar: segura o celular acordado, pega as correções novas, limpa clipes com mais de 2 dias
 cat > "$HOME/ligar-clipador.sh" <<'SH'
@@ -69,11 +83,12 @@ SH
 chmod +x "$HOME/ligar-clipador.sh"
 
 say "4/4 Pronto!"
+# abre o app já com o endereço e o código: é só confirmar
+termux-open-url "fabricadeclipes://servidor?addr=127.0.0.1&code=$CODE" 2>/dev/null \
+  || am start -a android.intent.action.VIEW -d "fabricadeclipes://servidor?addr=127.0.0.1&code=$CODE" >/dev/null 2>&1 || true
 cat <<TXT
-No app Fábrica de Clipes → Configurações → Servidor do bot de lives:
-   Endereço:  127.0.0.1
-   Código:    $CODE
-Toque em "Conectar e buscar agora".
+O app Fábrica de Clipes vai abrir pedindo para conectar: toque em Conectar.
+(Se não abrir: Configurações → Servidor do bot de lives → endereço 127.0.0.1, código $CODE)
 
 Para ligar o bot (agora e sempre que reiniciar o celular):
    ~/ligar-clipador.sh

@@ -124,7 +124,13 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
                 Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     SideButton(Icons.Filled.Send, "Postar", accent = true) { posting = c }
-                    SideButton(Icons.Filled.Edit, "Editar") { onEdit(p.clips.indexOf(c)) }
+                    SideButton(Icons.Filled.Edit, "Editar") {
+                        // a clip from the bot is already vertical: re-laying it out would ruin it
+                        if (c.layoutName == "do servidor") android.widget.Toast.makeText(ctx,
+                            "Este clipe veio pronto do bot. Para cortar diferente, use o vídeo original em Novo clipe.",
+                            android.widget.Toast.LENGTH_LONG).show()
+                        else onEdit(p.clips.indexOf(c))
+                    }
                     SideButton(Icons.Filled.Delete, "Apagar") { deleting = c }
                 }
             }

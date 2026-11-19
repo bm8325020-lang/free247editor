@@ -52,6 +52,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="video/*" />
             </intent-filter>
+            <!-- the Termux installer opens fabricadeclipes://servidor?addr=127.0.0.1&code=... to connect in one tap -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fabricadeclipes" android:host="servidor" />
+            </intent-filter>
         </activity>
 
         <service
