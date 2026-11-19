@@ -27,6 +27,8 @@ object Prefs {
             claudeKey = secret(ctx, "claudeKey"),
             coarenaKey = secret(ctx, "coarenaKey"),
             youtubeKey = secret(ctx, "youtubeKey"),
+            serverAddr = p.getString("serverAddr", "") ?: "",
+            serverCode = secret(ctx, "serverCode"),
             language = p.getString("language", "") ?: "",
             credit = p.getString("credit", "") ?: "",
             hashtags = p.getString("hashtags", "#cortes #clips") ?: "",
@@ -45,6 +47,7 @@ object Prefs {
             .putString("claudeKey_enc", SecureKeys.encrypt(o.claudeKey.trim()))
             .putString("coarenaKey_enc", SecureKeys.encrypt(o.coarenaKey.trim()))
             .putString("youtubeKey_enc", SecureKeys.encrypt(o.youtubeKey.trim()))
+            .putString("serverAddr", o.serverAddr.trim()).putString("serverCode_enc", SecureKeys.encrypt(o.serverCode.trim()))
             .remove("groqKey").remove("claudeKey")
             .putString("language", o.language.trim())
             .putString("credit", o.credit.trim()).putString("hashtags", o.hashtags.trim())

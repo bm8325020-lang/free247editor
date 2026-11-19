@@ -12,8 +12,8 @@ android {
         applicationId = "com.free247.clipfactory"
         minSdk = 29
         targetSdk = 36
-        versionCode = 20
-        versionName = "3.7.0"
+        versionCode = 21
+        versionName = "3.8.0"
     }
 
     signingConfigs {
@@ -65,6 +65,8 @@ dependencies {
     implementation("androidx.media3:media3-common:$media3")
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // checks the live server for new clips every 15 min, also with the app closed
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("com.anthropic:anthropic-java:3.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation(platform("androidx.compose:compose-bom:2026.03.00"))

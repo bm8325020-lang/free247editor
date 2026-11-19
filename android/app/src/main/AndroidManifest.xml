@@ -23,11 +23,13 @@
         </intent>
     </queries>
 
+    <!-- usesCleartextTraffic: the user's own live server answers on plain HTTP (IP:8080); requests carry their code -->
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:largeHeap="true"
+        android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 

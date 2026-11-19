@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ProjectStore.load(this)
+        ServerSync.schedule(this) // keeps the 15-min check running when a server is set
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
@@ -31,6 +32,13 @@ class MainActivity : ComponentActivity() {
             ClipTheme { App(incoming, consumeIncoming = { incoming.value = null }, nameOf = ::nameOf, initial = initial ?: listOf(Screen.Home)) }
         }
         if (savedInstanceState == null) handleIncoming(intent)
+        // debug builds only: point the app at a test server and sync once (emulator test)
+        if (BuildConfig.DEBUG && intent.hasExtra("srv_addr")) {
+            Prefs.save(this, Prefs.options(this).copy(serverAddr = intent.getStringExtra("srv_addr").orEmpty(),
+                serverCode = intent.getStringExtra("srv_code").orEmpty()))
+            ServerSync.schedule(this)
+            Thread { android.util.Log.i("ServerSync", "debug sync: " + ServerSync.sync(this)) }.start()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

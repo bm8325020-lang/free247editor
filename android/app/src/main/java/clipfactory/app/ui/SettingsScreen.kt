@@ -52,6 +52,7 @@ fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
     var claudeMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
     var coarenaMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
     var ytMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
+    var srvMsg by remember { mutableStateOf<clipfactory.app.ServerSync.Result?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         TopBar("Configurações", onBack) {
@@ -89,6 +90,21 @@ fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
                     }
                     claudeMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
                     Field("Idioma da fala", opt.language, hint = "Vazio = detectar sozinho. Ex.: pt") { set(opt.copy(language = it)) }
+                }
+            }
+            Card {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionTitle("Servidor do bot de lives", "Os clipes que o bot faz na Oracle chegam aqui sozinhos (a cada 15 min).")
+                    Field("Endereço (IP público da Oracle)", opt.serverAddr, hint = "ex.: 129.146.10.20 (a porta 8080 é automática)") {
+                        set(opt.copy(serverAddr = it))
+                    }
+                    Field("Código (APP_CODE do script)", opt.serverCode, secret = true) { set(opt.copy(serverCode = it)) }
+                    SoftButton("Conectar e buscar agora", icon = Icons.Filled.Wifi) {
+                        srvMsg = clipfactory.app.ServerSync.Result(true, "Buscando…")
+                        clipfactory.app.ServerSync.schedule(ctx)
+                        scope.launch { srvMsg = withContext(Dispatchers.IO) { clipfactory.app.ServerSync.sync(ctx) } }
+                    }
+                    srvMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
                 }
             }
             Card {

@@ -38,6 +38,8 @@ data class Options(
     val claudeKey: String = "",
     val coarenaKey: String = "", // free alternative to claudeKey (coarena.ai)
     val youtubeKey: String = "", // YouTube Data API v3, for Discover (metadata only)
+    val serverAddr: String = "", // the live bot's server ("IP:8080"), to bring its clips into the app
+    val serverCode: String = "", // APP_CODE chosen in the server script
     val language: String = "",
     val credit: String = "",
     val hashtags: String = "",
@@ -300,7 +302,7 @@ object Engine {
 
     private fun slug(t: String) = t.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "-").trim('-').take(40).ifEmpty { "clipe" }
 
-    private fun saveToGallery(ctx: Context, file: File, folder: String, displayName: String): Uri {
+    fun saveToGallery(ctx: Context, file: File, folder: String, displayName: String): Uri {
         val resolver = ctx.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, displayName)

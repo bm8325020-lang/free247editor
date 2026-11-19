@@ -36,6 +36,7 @@ from .media import probe, slugify
 from .render import render_clip
 from .report import write_report
 from .telegram import Telegram, post_text
+from . import clipserver
 from .transcribe import transcribe_ranges
 
 SEG = 10  # seconds per recorded segment
@@ -487,9 +488,11 @@ class Channel(threading.Thread):
         write_report(folder, f"{self.name} ao vivo ({datetime.now():%d/%m})", self.made,
                      {"explanation": f"{len(self.made)} momentos cortados automaticamente nesta live."})
         log(self.name, f"CLIPE PRONTO: {folder / name}")
+        credit = self.spec.get("creditos") or self.opts.get("creditos") or self.name
+        caption = post_text(title, credit, self.opts.get("hashtags", "#cortes #clips"))
+        clipserver.add_clip(folder / name, self.name, title, caption)  # the phone app picks it up
         if TG:
-            credit = self.spec.get("creditos") or self.opts.get("creditos") or self.name
-            TG.send_clip(folder / name, post_text(title, credit, self.opts.get("hashtags", "#cortes #clips")))
+            TG.send_clip(folder / name, caption)
 
     # ---------- main loop ----------
     def run(self):
@@ -594,6 +597,8 @@ def main(argv=None):
         cfg["layout"] = "pip"  # live clips: webcam small in the corner (videos use the stacked layout)
     lock = threading.Lock()
     workers = [Channel(c, opts, cfg, lock) for c in chans]
+    clipserver.serve(os.environ.get("APP_CODE", "").strip(), int(os.environ.get("APP_PORT", "8080")),
+                     status=lambda: [w.describe() for w in workers])
     global TG
     tg = Telegram(status=lambda: "\n".join(w.describe() for w in workers))
     if tg.enabled:

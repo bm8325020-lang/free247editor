@@ -7,7 +7,8 @@ CANAL="nome_do_canal"                 # canal da Twitch, só o nome (o que vem d
 AUTORIZACAO="de onde vem a permissão"  # ex.: "campanha de clipping X" ou "regra de clipping do streamer"
 CREDITOS="@nome_do_streamer"           # vai na legenda: "Créditos: @..."
 HASHTAGS="#cortes #clips"
-TELEGRAM_BOT_TOKEN="cole_aqui_o_token_do_BotFather"
+APP_CODE="invente_um_codigo_secreto"     # mínimo 8 caracteres; o mesmo vai no app (Configurações → Servidor)
+TELEGRAM_BOT_TOKEN=""                  # opcional: os clipes também chegam no Telegram
 GROQ_API_KEY=""                        # opcional, mas recomendado (grátis em console.groq.com/keys)
 LIMIAR="3.0"                           # menor = mais clipes
 # ==================================================================
@@ -44,7 +45,7 @@ json.dump({"canais": [{"plataforma": "twitch", "canal": os.environ["CANAL"].stri
           open("live-canais.json", "w"), ensure_ascii=False, indent=2)
 PY
 set +x  # as chaves não vão para o log
-printf 'TELEGRAM_BOT_TOKEN=%s\nGROQ_API_KEY=%s\n' "$TELEGRAM_BOT_TOKEN" "$GROQ_API_KEY" > .env
+printf 'TELEGRAM_BOT_TOKEN=%s\nGROQ_API_KEY=%s\nAPP_CODE=%s\nAPP_PORT=8080\n' "$TELEGRAM_BOT_TOKEN" "$GROQ_API_KEY" "$APP_CODE" > .env
 set -x
 chmod 600 .env
 chown -R clipper:clipper /home/clipper
@@ -69,6 +70,10 @@ RestartSec=30
 [Install]
 WantedBy=multi-user.target
 UNIT
+
+# the app fetches the clips on port 8080: open it in this machine's firewall (Oracle's Ubuntu blocks it by default)
+iptables -I INPUT -p tcp --dport 8080 -j ACCEPT
+(command -v netfilter-persistent >/dev/null && netfilter-persistent save) || true
 
 systemctl daemon-reload
 systemctl enable --now fabrica-live

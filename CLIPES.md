@@ -120,36 +120,36 @@ clipe oficial na Twitch no mesmo instante e mostra o link.
 
 Precisa de um computador ligado o tempo todo. No celular não funciona: o Android encerra apps em segundo plano.
 
-## Bot de lives na nuvem, só pelo celular (Oracle + Telegram)
+## Bot de lives na nuvem, só pelo celular (Oracle → app)
 
-O bot roda num computador da Oracle que fica ligado 24 h (plano grátis) e manda cada clipe para o seu Telegram,
-com a legenda pronta. Você não precisa de PC. Funciona com **Twitch**; o YouTube costuma bloquear servidores.
+O bot roda num computador da Oracle que fica ligado 24 h (plano grátis), vigia a live, lê o chat, corta, e o
+**app busca os clipes sozinho** a cada 15 minutos (galeria + tela inicial, prontos para Postar). Você não precisa
+deixar a Twitch aberta. Funciona com **Twitch**; o YouTube costuma bloquear servidores.
 
-**1. Crie o bot do Telegram (2 minutos)**
-1. No Telegram, abra **@BotFather** e mande `/newbot`.
-2. Dê um nome (ex.: Meus Cortes) e um usuário terminado em `bot` (ex.: meuscortes_bot).
-3. Ele responde com um **token** (algo como `123456:ABC-...`). Copie. Não mostre para ninguém.
+**1. Prepare o script**
+1. Abra o arquivo `deploy/oracle-init.sh` (no GitHub, botão "Raw") e copie tudo para um app de notas.
+2. Preencha só o bloco "PREENCHA": canal da Twitch, de onde vem a autorização, créditos, hashtags, **APP_CODE**
+   (invente um código de pelo menos 8 caracteres; é a senha entre o app e o servidor) e a chave grátis do Groq.
 
-**2. Prepare o script**
-1. Abra o arquivo `deploy/oracle-init.sh` (no GitHub, botão "Raw") e copie tudo.
-2. Cole num app de notas e preencha só o bloco "PREENCHA": canal da Twitch, de onde vem a autorização, créditos,
-   hashtags, o token do Telegram e (recomendado) a chave grátis do Groq.
-
-**3. Crie a máquina na Oracle** (no Chrome do celular, ative "Site para computador")
+**2. Crie a máquina** (no Chrome do celular, ative "Site para computador")
 1. Crie a conta em oracle.com/cloud/free (pede cartão só para verificação).
 2. Menu → Compute → Instances → **Create instance**.
 3. Imagem: **Canonical Ubuntu**. Shape: **Ampere** (VM.Standard.A1.Flex), 2 OCPUs e 12 GB.
    Se der "out of capacity", tente outro "Availability domain" ou outro horário.
 4. Em **Show advanced options → Management**, escolha **Paste cloud-init script** e cole o script preenchido.
-5. **Create**. Em uns 15 minutos o bot está instalado e ligado.
+5. **Create**. Anote o **Public IP address** que aparece na página da máquina.
 
-**4. Ligue o Telegram**
-Abra o seu bot no Telegram e mande `/start`. Ele responde "Pronto!". Daí em diante:
-- quando a live começar: "🔴 entrou ao vivo";
-- a cada momento bom: o **vídeo vertical** + a legenda. Segure o vídeo → Salvar, copie o texto e poste;
-- `/status` mostra o que ele está vigiando.
+**3. Abra a porta 8080** (para o app conseguir buscar)
+Na página da máquina: clique na **Virtual cloud network** (subnet) → **Security Lists** → **Default Security List**
+→ **Add Ingress Rules**: Source CIDR `0.0.0.0/0`, IP Protocol **TCP**, Destination Port Range **8080** → Add.
 
-O bot religa sozinho se a máquina reiniciar, e a cada reinício baixa as correções novas do código.
+**4. Ligue o app**
+Espere uns 15 minutos (o script instala tudo). No app: **Configurações → Servidor do bot de lives**: endereço =
+o Public IP, código = o APP_CODE. Toque em **Conectar e buscar agora**. "Conectado" = pronto: daí em diante os
+clipes chegam sozinhos, com notificação.
+
+O bot religa sozinho se a máquina reiniciar, e a cada reinício baixa as correções novas do código. Opcional: com
+um bot do Telegram (`TELEGRAM_BOT_TOKEN` no script), os clipes também chegam lá.
 
 ## O que ele faz sozinho
 
