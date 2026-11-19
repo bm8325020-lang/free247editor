@@ -21,6 +21,9 @@ Written to match the code as it is. Each item says what happens and what to do.
 - Android asks for the screen-recording permission each time.
 
 ## Rendering on the phone
+- The webcam is small in the source and is enlarged for the top of the clip; sharpening and a 12 Mbps export help,
+  but enlarging cannot add detail that is not there. A 1080p source gives a much better webcam than 720p.
+- Each project records how long each step took (analysis and rendering) in its notes.
 - One clip renders at a time; live clips wait in a queue.
 - A multi-hour recorded live takes a long time to analyse.
 

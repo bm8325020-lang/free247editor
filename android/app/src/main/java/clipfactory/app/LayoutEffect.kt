@@ -28,10 +28,11 @@ class LayoutEffect(
     private val camOn: BooleanArray? = null,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        Program(layout, srcW.toFloat() / srcH, camOn, useHdr)
+        Program(layout, srcW.toFloat() / srcH, camOn, useHdr, floatArrayOf(1f / srcW, 1f / srcH))
 
     private class Program(
         private val layout: Layout, private val srcAspect: Float, private val camOn: BooleanArray?, useHdr: Boolean,
+        private val texel: FloatArray,
     ) : BaseGlShaderProgram(useHdr, 1) {
         private var baseUs = Long.MIN_VALUE
 
@@ -86,6 +87,7 @@ class LayoutEffect(
             program.setFloatUniform("uCamOn", if (on) 1f else 0f)
             program.setFloatsUniform("uPip", pip)
             program.setFloatUniform("uRound", round)
+            program.setFloatsUniform("uTexel", texel)
             program.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
@@ -119,12 +121,20 @@ uniform float uOutAspect;
 uniform vec4 uPip;   // webcam window in the output (fractions, origin top-left)
 uniform float uRound;
 uniform float uCamOn;  // stacked layout: 0 while the webcam is off screen (the top keeps the blurred background)
+uniform vec2 uTexel;   // one source pixel
 varying vec2 vTexSamplingCoord;
 
 // p: source image coordinates, origin top-left
 vec4 img(vec2 p) {
   p = clamp(p, vec2(0.0), vec2(1.0));
   return texture2D(uTexSampler, vec2(p.x, 1.0 - p.y));
+}
+
+// the webcam is small in the source and gets enlarged: a light unsharp mask brings back its edges
+vec4 camImg(vec2 p) {
+  vec4 c = img(p);
+  vec4 n = img(p + vec2(uTexel.x, 0.0)) + img(p - vec2(uTexel.x, 0.0)) + img(p + vec2(0.0, uTexel.y)) + img(p - vec2(0.0, uTexel.y));
+  return clamp(c + 0.6 * (c - n * 0.25), 0.0, 1.0);
 }
 
 vec4 blurred(vec2 p) {
@@ -142,7 +152,7 @@ void main() {
   vec4 col;
   if (uMode < 0.5) {
     if (o.y < uPanel) {
-      col = img(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
+      col = camImg(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
     } else {
       col = img(uGame.xy + vec2(o.x, (o.y - uPanel) / (1.0 - uPanel)) * uGame.zw);
     }
@@ -157,7 +167,7 @@ void main() {
       col = vec4(blurred(p).rgb * 0.55, 1.0);
     }
   } else if (uMode < 2.5) {
-    col = img(uCam.xy + o * uCam.zw);
+    col = camImg(uCam.xy + o * uCam.zw);
   } else if (uMode < 3.5) {
     // picture-in-picture: full-screen gameplay, the whole webcam small in the corner, in its own shape
     col = img(uGame.xy + o * uGame.zw);
@@ -165,7 +175,7 @@ void main() {
     if (q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
       vec2 size = uPip.zw * vec2(1080.0, 1920.0);          // window size in output pixels
       float bw = max(3.0, floor(size.x / 90.0));            // white border
-      vec4 cam = img(uCam.xy + q * uCam.zw);
+      vec4 cam = camImg(uCam.xy + q * uCam.zw);
       if (uRound > 0.5) {
         float rad = min(size.x, size.y) * 0.5;
         float d = length((q - 0.5) * size);
@@ -182,7 +192,7 @@ void main() {
     // stacked (videos): webcam across the top, wide gameplay band (uPip.x = band top, uPip.y = band height),
     // blurred gameplay underneath for the captions
     if (o.y < uPanel && uCamOn > 0.5) {
-      col = img(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
+      col = camImg(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
     } else if (o.y >= uPip.x && o.y < uPip.x + uPip.y) {
       col = img(uGame.xy + vec2(o.x, (o.y - uPip.x) / uPip.y) * uGame.zw);
     } else {

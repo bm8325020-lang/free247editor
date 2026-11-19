@@ -140,6 +140,79 @@ class AudioAnalyzer(private val context: Context, private val uri: Uri) {
         return if (out.size == 0) floatArrayOf(-90f) else out.toArray()
     }
 
+    /** 16 kHz mono AAC (.m4a) of [startS, endS): ~8x smaller than the WAV, so uploads to Groq are much faster. */
+    fun m4a16k(startS: Double, endS: Double): ByteArray {
+        val pcm = pcm16k(startS, endS)
+        val out = java.io.File.createTempFile("tr", ".m4a", context.cacheDir)
+        val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, 16000, 1).apply {
+            setInteger(MediaFormat.KEY_AAC_PROFILE, android.media.MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            setInteger(MediaFormat.KEY_BIT_RATE, 32_000)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 8192)
+        }
+        val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+        enc.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        enc.start()
+        val mux = android.media.MediaMuxer(out.path, android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        var track = -1
+        var pos = 0
+        var inputDone = false
+        val info = MediaCodec.BufferInfo()
+        try {
+            while (true) {
+                if (!inputDone) {
+                    val ii = enc.dequeueInputBuffer(10_000)
+                    if (ii >= 0) {
+                        val buf = enc.getInputBuffer(ii)!!.order(ByteOrder.LITTLE_ENDIAN)
+                        buf.clear()
+                        val n = min(pcm.size - pos, buf.capacity() / 2)
+                        if (n <= 0) {
+                            enc.queueInputBuffer(ii, 0, 0, pos * 1_000_000L / 16000, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            buf.asShortBuffer().put(pcm, pos, n)
+                            enc.queueInputBuffer(ii, 0, n * 2, pos * 1_000_000L / 16000, 0)
+                            pos += n
+                        }
+                    }
+                }
+                val oi = enc.dequeueOutputBuffer(info, 10_000)
+                if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    track = mux.addTrack(enc.outputFormat); mux.start()
+                } else if (oi >= 0) {
+                    if (info.size > 0 && track >= 0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0)
+                        mux.writeSampleData(track, enc.getOutputBuffer(oi)!!, info)
+                    enc.releaseOutputBuffer(oi, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+            if (track >= 0) mux.stop()
+        } finally {
+            runCatching { mux.release() }
+            enc.stop(); enc.release()
+        }
+        return out.readBytes().also { out.delete() }
+    }
+
+    private fun pcm16k(startS: Double, endS: Double): ShortArray {
+        val pcm = ShortArrayBuilder()
+        var pos = 0.0
+        var step = -1.0
+        decode(startS, endS, {}) { samples, n, rate ->
+            if (step < 0) step = rate / 16000.0
+            var i = pos
+            while (i < n) {
+                val k = i.toInt()
+                val frac = (i - k).toFloat()
+                val a = samples[k]
+                val b = if (k + 1 < n) samples[k + 1] else samples[k]
+                pcm.add(((a + (b - a) * frac).coerceIn(-1f, 1f) * 32767).toInt().toShort())
+                i += step
+            }
+            pos = i - n
+        }
+        return pcm.toArray()
+    }
+
     /** 16 kHz mono 16-bit WAV of [startS, endS), for transcription. */
     fun wav16k(startS: Double, endS: Double): ByteArray {
         val pcm = ShortArrayBuilder()

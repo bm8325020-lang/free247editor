@@ -15,6 +15,7 @@ import clipfactory.core.Layout
 import clipfactory.core.LayoutMath
 import clipfactory.core.Settings
 import clipfactory.core.Word
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.io.FileOutputStream
@@ -63,6 +64,8 @@ object Engine {
     suspend fun analyze(ctx: Context, projectId: String, uri: Uri, name: String, opt: Options, testWords: List<Word>? = null,
                         report: (String, Double) -> Unit): Project {
         val notes = ArrayList<String>()
+        val t0 = System.currentTimeMillis()
+        fun mins(a: Long, b: Long) = "%.1f min".format((b - a) / 60000.0)
         val stamp = SimpleDateFormat("yyyy-MM-dd HH-mm", Locale.US).format(Date())
         val folder = "Movies/Clipes/" + name.substringBeforeLast('.').take(40).replace(Regex("[^\\w -]"), "") + " " + stamp
         // saved before anything can fail, so an error shows up in the app and not only in the notification
@@ -78,6 +81,7 @@ object Engine {
         val (loud, samples) = analysis(ctx, uri, info, frames, audio, report)
         coroutineContext.ensureActive()
 
+        val t1 = System.currentTimeMillis()
         report("Achando os momentos de hype", 0.33)
         val ex = Hype.audioExcitement(loud, HOP)
         val cands = Hype.audioCandidates(ex, info.durationS, s)
@@ -88,17 +92,31 @@ object Engine {
         } else if (opt.groqKey.isNotBlank()) {
             try {
                 val tr = Transcriber(opt.groqKey.trim(), language)
-                val ranges = Hype.transcriptionRanges(cands, info.durationS).flatMap { (a, b) ->
+                // only the strongest audio candidates are worth listening to (a live has up to 150 peaks)
+                val toHear = cands.sortedByDescending { it.audio }.take(if (opt.live) 60 else max(12, opt.clips * 3))
+                val ranges = Hype.transcriptionRanges(toHear, info.durationS).flatMap { (a, b) ->
                     val parts = ArrayList<Pair<Double, Double>>() // keep each upload well under Groq's 25 MB limit
                     var x = a
                     while (x < b) { parts.add(x to min(b, x + 300)); x += 300 }
                     parts
                 }
                 val all = ArrayList<Word>()
-                for ((i, r) in ranges.withIndex()) {
+                // two uploads at a time; compressed audio (the upload, not Groq, was the slow part on mobile data)
+                var doneParts = 0
+                for (batch in ranges.chunked(2)) {
                     coroutineContext.ensureActive()
-                    report("Ouvindo o que foi dito", 0.36 + 0.3 * i / ranges.size)
-                    all += tr.words(audio.wav16k(r.first, r.second), r.first)
+                    report("Ouvindo o que foi dito (${doneParts + 1}-${doneParts + batch.size} de ${ranges.size})",
+                        0.36 + 0.3 * doneParts / ranges.size)
+                    all += kotlinx.coroutines.coroutineScope {
+                        batch.map { r ->
+                            async(kotlinx.coroutines.Dispatchers.IO) {
+                                val bytes = runCatching { audio.m4a16k(r.first, r.second) }.getOrNull()
+                                if (bytes != null && bytes.size > 1000) tr.words(bytes, r.first, m4a = true)
+                                else tr.words(audio.wav16k(r.first, r.second), r.first)
+                            }
+                        }.map { it.await() }.flatten()
+                    }
+                    doneParts += batch.size
                 }
                 words = all.sortedBy { it.start }.distinctBy { (it.start * 10).toLong() to it.text }
                 language = language ?: tr.detectedLanguage
@@ -131,6 +149,7 @@ object Engine {
         val all = best + extra
         Hype.fillText(all, words)
 
+        val t2 = System.currentTimeMillis()
         report("Separando as miniaturas", 0.8)
         val thumbs = momentThumbs(ctx, uri, projectId, all.map { (it.start + it.end) / 2 })
         val moments = all.mapIndexed { i, c ->
@@ -145,7 +164,9 @@ object Engine {
                 if (picked == null) "automático" else "IA", best.size, emptyList()).replace("Saíram", "Achei"))
         }
         project = project.copy(language = language, words = words.filter { w -> all.any { w.start >= it.start - 6 && w.start < it.end + 6 } },
-            moments = moments, notes = notes, status = if (opt.chooseMoments) "choosing" else "rendering")
+            moments = moments, status = if (opt.chooseMoments) "choosing" else "rendering",
+            notes = notes + "Tempo da análise: ouvir o vídeo e achar a webcam ${mins(t0, t1)}, legendas e escolha ${mins(t1, t2)}, " +
+                "miniaturas ${mins(t2, System.currentTimeMillis())}.")
         ProjectStore.put(ctx, project)
         return project
     }

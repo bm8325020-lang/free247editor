@@ -102,6 +102,10 @@ object Renderer {
             val transformer = Transformer.Builder(context)
                 .setVideoMimeType(MimeTypes.VIDEO_H264)
                 .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                // the default (~4 Mbps at 1080x1920) smeared gameplay and the enlarged webcam; TikTok re-encodes anyway
+                .setEncoderFactory(androidx.media3.transformer.DefaultEncoderFactory.Builder(context)
+                    .setRequestedVideoEncoderSettings(androidx.media3.transformer.VideoEncoderSettings.Builder()
+                        .setBitrate(12_000_000).build()).build())
                 // slow phones can take a while per frame: never abort an export for being slow
                 .setMaxDelayBetweenMuxerSamplesMs(C.TIME_UNSET)
                 .addListener(object : Transformer.Listener {

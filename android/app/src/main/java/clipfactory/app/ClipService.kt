@@ -143,6 +143,8 @@ class ClipService : Service() {
 
     private suspend fun renderPending(pid: String, opt: Options) {
         val failed = ArrayList<String>()
+        val started = System.currentTimeMillis()
+        var renderedCount = 0
         while (true) {
             val p = ProjectStore.get(pid) ?: return
             val i = p.clips.indexOfFirst { it.status == "pending" }
@@ -157,6 +159,7 @@ class ClipService : Service() {
                     set(Work(pid, "rendering", "Montando o clipe $n de $total", pr, i))
                 }
                 ProjectStore.update(this, pid) { it.copy(clips = it.clips.mapIndexed { k, c -> if (k == i) made else c }) }
+                renderedCount++
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -167,7 +170,13 @@ class ClipService : Service() {
             }
         }
         val p = ProjectStore.get(pid) ?: return
-        ProjectStore.update(this, pid) { it.copy(status = if (it.doneClips.isEmpty()) "failed" else "done") }
+        val took = (System.currentTimeMillis() - started) / 60000.0
+        ProjectStore.update(this, pid) { p ->
+            p.copy(status = if (p.doneClips.isEmpty()) "failed" else "done",
+                notes = p.notes.filterNot { it.startsWith("Tempo da montagem") } + (if (renderedCount > 0)
+                    listOf("Tempo da montagem: %.1f min para %d clipe(s) (%.1f min cada).".format(took, renderedCount, took / renderedCount))
+                    else emptyList()))
+        }
         set(Work(pid, "idle"))
         nm().notify(ID_DONE, if (p.doneClips.isEmpty()) done("Nenhum clipe saiu", failed.firstOrNull() ?: "Abra o app para ver o motivo.")
             else done("${p.doneClips.size} clipes prontos", "Toque para assistir e postar."))

@@ -19,14 +19,15 @@ class Transcriber(private val key: String, private val language: String?) {
     var detectedLanguage: String? = null
         private set
 
-    /** Transcribe a WAV of the range starting at [offsetS]; returns words in absolute time. */
-    fun words(wav: ByteArray, offsetS: Double): List<Word> {
+    /** Transcribe audio (WAV or .m4a) of the range starting at [offsetS]; returns words in absolute time. */
+    fun words(wav: ByteArray, offsetS: Double, m4a: Boolean = false): List<Word> {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("model", "whisper-large-v3")
             .addFormDataPart("response_format", "verbose_json")
             .addFormDataPart("timestamp_granularities[]", "word")
             .apply { if (!language.isNullOrBlank()) addFormDataPart("language", language) }
-            .addFormDataPart("file", "audio.wav", wav.toRequestBody("audio/wav".toMediaType()))
+            .addFormDataPart("file", if (m4a) "audio.m4a" else "audio.wav",
+                wav.toRequestBody((if (m4a) "audio/mp4" else "audio/wav").toMediaType()))
             .build()
         val req = Request.Builder().url("https://api.groq.com/openai/v1/audio/transcriptions")
             .header("Authorization", "Bearer $key").post(body).build()

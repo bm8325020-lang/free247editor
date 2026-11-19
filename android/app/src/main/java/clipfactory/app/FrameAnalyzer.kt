@@ -115,9 +115,10 @@ class FrameAnalyzer(private val context: Context, private val uri: Uri) {
             r.setDataSource(context, uri)
             var t = fromS
             while (t < toS) {
-                val frame = r.getScaledFrameAtTime((t * 1e6).toLong(), MediaMetadataRetriever.OPTION_CLOSEST,
-                    960, (960.0 * info.height / info.width).toInt())
-                if (frame == null) { raw.add(raw.lastOrNull() ?: true); t += 0.5; continue }
+                // nearest key frame, once a second: exact frames meant decoding from the key frame every time
+                val frame = r.getScaledFrameAtTime((t * 1e6).toLong(), MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    640, (640.0 * info.height / info.width).toInt())
+                if (frame == null) { val last = raw.lastOrNull() ?: true; raw.add(last); raw.add(last); t += 1.0; continue }
                 val x0 = (ext.x * frame.width).toInt().coerceIn(0, frame.width - 2)
                 val y0 = (ext.y * frame.height).toInt().coerceIn(0, frame.height - 2)
                 val w = (ext.w * frame.width).toInt().coerceIn(2, frame.width - x0)
@@ -127,9 +128,9 @@ class FrameAnalyzer(private val context: Context, private val uri: Uri) {
                     Tasks.await(detector.process(InputImage.fromBitmap(crop, 0))).isNotEmpty()
                 } catch (e: Exception) { false }
                 if (!seen && cam.shape in setOf("rect", "round")) seen = borderStillThere(crop, cam, ext, info)
-                raw.add(seen)
+                raw.add(seen); raw.add(seen) // two half-second steps
                 crop.recycle(); frame.recycle()
-                t += 0.5
+                t += 1.0
             }
         } finally {
             r.release()
