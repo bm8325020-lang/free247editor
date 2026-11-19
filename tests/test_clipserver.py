@@ -46,3 +46,4 @@ def test_lists_and_serves_clips_only_with_the_code(tmp_path, monkeypatch):
 
 def test_refuses_to_start_without_a_real_code():
     assert cs.serve("", 0) is None and cs.serve("curto", 0) is None
+    assert cs.serve("TROQUE_AQUI", 0) is None and cs.serve("invente_um_codigo_secreto", 0) is None

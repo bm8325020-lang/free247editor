@@ -53,6 +53,10 @@ def _public(c):
 
 def serve(code, port=8080, status=lambda: []):
     """Run in a background thread. Refuses to start without a code of at least 8 characters."""
+    if code in ("TROQUE_AQUI", "invente_um_codigo_secreto"):
+        print("[servidor] APP_CODE ainda é o exemplo do script: troque por uma senha sua. Servidor de clipes desligado.",
+              flush=True)
+        return None
     if not code or len(code) < 8:
         print("[servidor] APP_CODE ausente ou curto (mínimo 8 caracteres): o app não vai conseguir buscar os clipes.",
               flush=True)
