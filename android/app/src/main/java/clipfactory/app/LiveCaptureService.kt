@@ -298,6 +298,7 @@ class LiveCaptureService : Service() {
         val opt = Prefs.options(this)
         val threshold = doubleArrayOf(2.5, 3.0, 3.8)[opt.liveLevel.coerceIn(0, 2)]
         var silentSince = 0
+        var uprightFor = 0
         while (running) {
             delay(1000)
             val now = nowUs()
@@ -324,6 +325,11 @@ class LiveCaptureService : Service() {
                 warn("O som da live não chegou: gravando só a imagem. Os clipes vão sair sem áudio.")
             }
 
+            // the recording is landscape: with the phone upright the live is a small picture in the middle of the clip
+            val upright = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+            uprightFor = if (upright) uprightFor + 1 else 0
+            if (uprightFor == 15) warn("O celular está em pé: o clipe fica pequeno no meio. Deite o celular e deixe a live em tela cheia.")
+
             val cooled = now - lastClipUs >= 90_000_000L
             val wantManual = manual.also { manual = false }
             if (wantManual || (warm && cooled && LiveDetect.fires(cz, az, threshold))) {
@@ -348,7 +354,13 @@ class LiveCaptureService : Service() {
                 status = if (!warm) "Conhecendo o ritmo da live (${120 - (nowSec - startUs / 1_000_000)} s)…"
                          else "Vigiando: chat ${"%+.1f".format(cz)}σ · som ${"%+.1f".format(az)}σ")
             state.value = st
-            main.post { bubbleText?.text = "● @$channel · ${st.clips} clipes\n${if (st.warming) "aquecendo" else "$msgs msg/min"}" }
+            main.post {
+                bubbleText?.text = "● @$channel · ${st.clips} clipes\n" + when {
+                    uprightFor >= 15 -> "↻ deite o celular"
+                    st.warming -> "aquecendo"
+                    else -> "$msgs msg/min"
+                }
+            }
         }
     }
 
