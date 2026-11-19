@@ -96,6 +96,7 @@ class LiveCaptureService : Service() {
     private var bubbleText: TextView? = null
     @Volatile private var running = false
     @Volatile private var manual = false
+    @Volatile private var stopping = false
     private var channel = ""
     private var startUs = 0L
     private var lastClipUs = Long.MIN_VALUE / 2
@@ -433,7 +434,10 @@ class LiveCaptureService : Service() {
 
     // ---------- stop ----------
     private fun stopAll() {
+        // stopping the capture makes Android call onStop, which lands here again: the first call finishes the cuts
+        if (stopping) return
         if (!running && projection == null) { stopSelf(); return }
+        stopping = true
         running = false
         runCatching { ws?.close(1000, null) }
         runCatching { rec?.stop(); rec?.release() }

@@ -44,7 +44,7 @@ object JobState {
 class ClipService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
-    private var wake: PowerManager.WakeLock? = null
+    @Volatile private var finishing = false // the job is in its last lines: new work starts a new job
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -55,23 +55,27 @@ class ClipService : Service() {
         }
         // Android requires startForeground after startForegroundService, even when this request is turned down
         startForegroundCompat(notification("Preparando…", 0))
-        if (job?.isActive == true && intent.action == ACTION_ANALYZE && intent.data != null) {
+        val busy = job?.isActive == true && !finishing
+        if (busy && intent.action == ACTION_ANALYZE && intent.data != null) {
             // another video while one is being processed: it waits in the queue
             val n = AnalyzeQueue.add(this, intent.data.toString(), intent.getStringExtra(EXTRA_NAME) ?: "video")
             android.widget.Toast.makeText(this, "Na fila: $n vídeo(s) esperando.", android.widget.Toast.LENGTH_SHORT).show()
             return START_NOT_STICKY
         }
-        if (job?.isActive == true) {
+        if (busy) {
             // a render request waits in its project and is picked up when the current work ends
             if (intent.action != ACTION_RENDER || intent.getStringExtra(EXTRA_PROJECT)?.startsWith("live") != true)
                 android.widget.Toast.makeText(this, "Espere o trabalho atual terminar.", android.widget.Toast.LENGTH_LONG).show()
             return START_NOT_STICKY
         }
-        wake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+        // one per job: when a new job starts while the old one finishes, each releases only its own
+        val myWake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "clipfactory:job").apply { acquire(6 * 60 * 60 * 1000L) }
         ProjectStore.load(this)
         val opt = Prefs.options(this)
         val action = intent.action!!
+        val myStart = startId
+        finishing = false
         job = scope.launch {
             var projectId = intent.getStringExtra(EXTRA_PROJECT)
             try {
@@ -142,9 +146,21 @@ class ClipService : Service() {
                 set(Work(projectId, "idle", error = e.message ?: e.toString()))
                 nm().notify(ID_DONE, done("Falhou", e.message ?: e.toString()))
             } finally {
-                wake?.let { if (it.isHeld) it.release() }
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                finishing = true
+                if (myWake.isHeld) myWake.release()
+                // work that arrived while this job was finishing (a live clip, a queued video) was turned away as
+                // "busy": pick it up now instead of leaving it waiting forever
+                val canceled = job?.isCancelled == true
+                val leftover = if (canceled) null else ProjectStore.projects.value.firstOrNull { p ->
+                    p.status == "rendering" && p.clips.any { it.status == "pending" }
+                }
+                val queued = if (canceled || leftover != null) null else AnalyzeQueue.pop(this@ClipService)
+                // stop only if nothing newer started meanwhile (a newer start owns the service now)
+                if (stopSelfResult(myStart)) stopForeground(STOP_FOREGROUND_REMOVE)
+                when {
+                    leftover != null -> render(this@ClipService, leftover.id, emptyList())
+                    queued != null -> analyze(this@ClipService, Uri.parse(queued.first), queued.second)
+                }
             }
         }
         return START_NOT_STICKY
