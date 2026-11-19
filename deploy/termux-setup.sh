@@ -10,9 +10,15 @@ say() { printf '\n\033[1;33m%s\033[0m\n' "$1"; }
 say "1/4 Instalando os programas (demora uns 10 a 20 minutos na primeira vez)…"
 yes | pkg update -y >/dev/null 2>&1 || true
 pkg install -y python python-numpy ffmpeg git clang libxml2 libxslt termux-api >/dev/null
-# OpenCV acha a webcam na live; o nome do pacote já mudou entre versões do Termux
-pkg install -y python-opencv-python >/dev/null 2>&1 || pkg install -y opencv-python >/dev/null 2>&1 || true
-python -c "import cv2" 2>/dev/null || { echo "ERRO: não consegui instalar o OpenCV (pkg search opencv). Mande print disso no chat."; exit 1; }
+# OpenCV acha a webcam na live. Ele fica no repositório extra (x11-repo); o nome do pacote já mudou entre versões.
+pkg install -y x11-repo >/dev/null 2>&1 || true
+yes | pkg update -y >/dev/null 2>&1 || true
+for p in python-opencv-python opencv-python python-opencv; do
+  python -c "import cv2" 2>/dev/null && break
+  pkg install -y "$p" >/dev/null 2>&1 || true
+done
+if python -c "import cv2" 2>/dev/null; then echo "OpenCV ok: o clipe sai com a webcam separada."
+else echo "Sem OpenCV neste celular: o bot funciona igual, mas o clipe sai com a gameplay no meio (sem webcam separada)."; fi
 pip install --upgrade streamlink websocket-client >/dev/null
 
 say "2/4 Baixando o bot…"

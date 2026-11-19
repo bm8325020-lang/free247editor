@@ -9,7 +9,10 @@ import math
 import subprocess
 from collections import Counter
 
-import cv2
+try:
+    import cv2
+except ImportError:  # e.g. Termux without OpenCV: no webcam detection, gameplay layout
+    cv2 = None
 import numpy as np
 
 from .config import HERE
@@ -31,6 +34,8 @@ _DETECTORS = {}
 
 def facecam_sample(src, t, info, exact=False):
     """One frame's evidence for facecam detection: (faces [(cx, cy, w, h)], steady-edge map) or None."""
+    if cv2 is None:
+        return None
     W, H = info["width"], info["height"]
     dw, dh = DETECT_W, _even(DETECT_W * H / W)
     if (dw, dh) not in _DETECTORS:
@@ -199,6 +204,8 @@ def _overlay_rect(freq, cam):
 def choose_layout(src, info, cfg, cam="detect"):
     """cam: a facecam_from_samples result gathered elsewhere (the live bot samples the whole live), or "detect"."""
     want = cfg["layout"]
+    if cv2 is None:  # no OpenCV: the ffmpeg-only gameplay layout
+        return {"kind": "game"}
     if info["width"] / info["height"] <= 0.75:  # already vertical
         return {"kind": "follow"}
     if want in ("follow", "game"):

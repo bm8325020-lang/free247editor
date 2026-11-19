@@ -55,6 +55,9 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
     tl = Timeline(ranges)
 
     kind = layout["kind"]
+    from .layout import cv2 as _cv2
+    if _cv2 is None:
+        return _render_ffmpeg_only(src, info, words, clip, cfg, out_path, workdir, ranges, S, E, tl)
     plan, box = [], None
     if kind == "follow":
         samples = track_faces(src, S, E, info)
@@ -141,3 +144,32 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
     thumb = out_path.with_suffix(".jpg")
     run(["ffmpeg", "-y", "-v", "error", "-ss", "0.6", "-i", str(out_path), "-frames:v", "1", "-q:v", "3", str(thumb)])
     return {"duration": round(tl.duration, 2), "layout": kind, "cuts": len(ranges) - 1, "thumb": thumb.name}
+
+
+def _render_ffmpeg_only(src, info, words, clip, cfg, out_path, workdir, ranges, S, E, tl):
+    """Without OpenCV (some phones): gameplay band in the middle over a blurred copy, captions, all in one ffmpeg."""
+    fps, W, H = cfg["fps"], cfg["width"], cfg["height"]
+    band = min(1.0, cfg["game_zoom"] * W / info["width"] * info["height"] / H)
+    bh = int(H * band / 2) * 2
+    cfg = dict(cfg)
+    cfg["caption_y"] = min(0.9, 0.5 + band / 2 + 0.07)
+    cfg["hook_y"] = max(0.05, 0.5 - band / 2 - 0.13)
+    ass = workdir / f"{out_path.stem}.ass"
+    build_ass([w for w in words if S - 0.05 <= w["start"] < E], tl, clip.get("hook"), cfg, ass)
+    sel = "+".join(f"between(t,{a - S:.4f},{b - S - 1e-4:.4f})" for a, b in ranges)
+    lufs = cfg["loudness_lufs"]
+    fc = (f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps={fps},split[a][b];"
+          f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20:2,eq=brightness=-0.18[bg];"
+          f"[b]scale=-2:{bh},crop={W}:{bh}[fg];"
+          f"[bg][fg]overlay=0:{(H - bh) // 2},"
+          f"ass='{_filter_path(ass, workdir)}':fontsdir='{_filter_path(HERE / 'fonts', workdir)}',format=yuv420p[v];"
+          f"[0:a]aselect='{sel}',asetpts=N/SR/TB,loudnorm=I={lufs}:TP=-1.5:LRA=11,aresample=48000[au]")
+    r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{S:.3f}", "-t", f"{E - S:.3f}", "-i", str(src),
+                        "-filter_complex", fc, "-map", "[v]", "-map", "[au]", "-c:v", "libx264", "-preset", cfg["preset"],
+                        "-crf", str(cfg["crf"]), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+                        str(Path(out_path).resolve())], capture_output=True, text=True, cwd=workdir)
+    if r.returncode != 0:
+        raise RuntimeError(f"render failed for {Path(out_path).name}: {r.stderr.strip()[-600:]}")
+    thumb = Path(out_path).with_suffix(".jpg")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "1", "-i", str(out_path), "-frames:v", "1", str(thumb)])
+    return {"duration": round(tl.duration, 2), "layout": "game", "cuts": len(ranges) - 1, "thumb": thumb.name}
