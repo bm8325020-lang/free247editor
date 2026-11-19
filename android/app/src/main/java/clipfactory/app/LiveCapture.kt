@@ -26,6 +26,9 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
     private var n = 0
     private val done = ArrayList<Segment>()
     private val tmp = MediaCodec.BufferInfo()
+    // finishing an MP4 (writing its index) can take a second: done on its own thread, in order, so the encoders
+    // (and the sound capture behind them) never wait for it
+    private val closer = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     init { dir.deleteRecursively(); dir.mkdirs() }
 
@@ -58,23 +61,29 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
     private fun open(at: Long) {
         val vf = videoFormat ?: return
         if (audioEnabled && audioFormat == null) return // wait for the audio track so every segment has sound
-        close()
+        closeAsync()
         val f = File(dir, "seg_%05d.mp4".format(n++))
         val m = MediaMuxer(f.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         vTrack = m.addTrack(vf)
         aTrack = audioFormat?.takeIf { audioEnabled }?.let { m.addTrack(it) } ?: -1
         m.start()
         muxer = m; file = f; segStart = at; lastUs = at
-        // forget what fell out of the buffer
-        while (done.isNotEmpty() && at - done.first().startUs > keepUs) done.removeAt(0).file.delete()
     }
 
-    private fun close() {
+    /** Hand the open segment to the closer thread; it joins `done` (usable for cuts) once its file is complete. */
+    private fun closeAsync() {
         val m = muxer ?: return
-        runCatching { m.stop() }
-        runCatching { m.release() }
-        file?.let { done.add(Segment(it, segStart, lastUs)) }
+        val seg = file?.let { Segment(it, segStart, lastUs) }
         muxer = null; file = null
+        closer.execute {
+            runCatching { m.stop() }
+            runCatching { m.release() }
+            if (seg != null) synchronized(this) {
+                done.add(seg)
+                // forget what fell out of the buffer
+                while (done.isNotEmpty() && seg.endUs - done.first().startUs > keepUs) done.removeAt(0).file.delete()
+            }
+        }
     }
 
     /** Closed segments only (the open one is still being written). */
@@ -84,7 +93,12 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
 
     @Synchronized fun hasAudioFormat() = audioFormat != null
 
-    @Synchronized fun finish() = close()
+    /** Close the open segment and wait until every segment is complete. */
+    fun finish() {
+        synchronized(this) { closeAsync() }
+        closer.shutdown()
+        runCatching { closer.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS) }
+    }
 
     /** Join the segments covering [fromUs, toUs] into one MP4 (stream copy). Returns its start time, or null. */
     fun join(fromUs: Long, toUs: Long, out: File): Long? {

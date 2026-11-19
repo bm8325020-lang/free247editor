@@ -455,14 +455,14 @@ class LiveCaptureService : Service() {
         runCatching { venc?.signalEndOfInputStream(); venc?.stop(); venc?.release() }
         runCatching { projection?.stop() }
         projection = null
-        writer?.finish()
         bubble?.let { b -> runCatching { getSystemService(WindowManager::class.java).removeView(b) } }
         bubble = null
         // cut what was already detected, with what was recorded
         val left = synchronized(pending) { pending.toList().also { pending.clear() } }
-        val newest = writer?.closed()?.lastOrNull()?.endUs ?: 0
         val clipsBefore = state.value.clips
         scope.launch {
+            writer?.finish() // waits for the last segment's file: not on the main thread
+            val newest = writer?.closed()?.lastOrNull()?.endUs ?: 0
             left.forEach { c -> cutLock.withLock { cut(c.copy(toUs = min(c.toUs, newest))) } }
             state.value = state.value.copy(running = false, status = "Parado. ${state.value.clips} clipe(s) nesta live.")
             wake?.let { if (it.isHeld) it.release() }
