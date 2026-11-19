@@ -161,29 +161,8 @@ class LiveCaptureService : Service() {
         val w = SegmentWriter(File(cacheDir, "live-buffer"))
         writer = w
 
-        // video: the screen, landscape (the live is watched full screen with the phone on its side), ~720p
-        val dm = resources.displayMetrics
-        val long = max(dm.widthPixels, dm.heightPixels).toDouble()
-        val short = min(dm.widthPixels, dm.heightPixels).toDouble()
-        val vw = 1280
-        val vh = ((1280 * short / long).toInt() / 2) * 2
-        val vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, vw, vh).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, 4_000_000)
-            setInteger(MediaFormat.KEY_FRAME_RATE, 30)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            // Android sends no frame while the screen does not change (paused live, still image): repeat the last one,
-            // or the buffer would stop advancing and nothing could be cut
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
-        }
-        val v = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        v.configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        val surface = v.createInputSurface()
-        v.start()
-        venc = v
-        display = proj.createVirtualDisplay("clipfactory-live", vw, vh, dm.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null)
-        Thread({ drain(v, true) }, "live-video").start()
+        // video: the screen at its real size, in the way the phone is held (restarted when the phone is turned)
+        startVideo(proj)
 
         // audio: what the phone is playing (the Twitch app), not the microphone
         val canAudio = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -220,9 +199,65 @@ class LiveCaptureService : Service() {
     }
 
     // ---------- encoders ----------
-    private fun drain(codec: MediaCodec, video: Boolean) {
+    @Volatile private var videoGen = 0
+    @Volatile private var capW = 0
+    @Volatile private var capH = 0
+
+    private fun realScreen(): android.graphics.Point = android.graphics.Point().also {
+        @Suppress("DEPRECATION")
+        getSystemService(DisplayManager::class.java).getDisplay(android.view.Display.DEFAULT_DISPLAY).getRealSize(it)
+    }
+
+    /** The largest size near the real screen that this phone's H.264 encoder takes at 30 fps (multiples of 16). */
+    private fun captureSize(rw: Int, rh: Int): Pair<Int, Int> {
+        val caps = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+            .filter { it.isEncoder && MediaFormat.MIMETYPE_VIDEO_AVC in it.supportedTypes }
+            .map { it.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities }
+        for (scale in doubleArrayOf(1.0, 0.9, 0.8, 0.75, 2.0 / 3, 0.6, 0.5)) {
+            val w = (rw * scale / 16).toInt() * 16
+            val h = (rh * scale / 16).toInt() * 16
+            if (caps.any { runCatching { it.areSizeAndRateSupported(w, h, 30.0) }.getOrDefault(false) }) return w to h
+        }
+        return if (rw > rh) 1280 to 720 else 720 to 1280
+    }
+
+    /** (Re)start the video encoder at the screen's current size; the old one finishes on its own thread. */
+    @Synchronized
+    private fun startVideo(proj: MediaProjection) {
+        val real = realScreen()
+        val (vw, vh) = captureSize(real.x, real.y)
+        // ~0.13 bits per pixel at 30 fps: sharp text and faces (the old fixed 4 Mbps at 720p smeared them)
+        val rate = (vw.toLong() * vh * 30 * 0.13).toInt().coerceIn(6_000_000, 16_000_000)
+        val vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, vw, vh).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, rate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            // Android sends no frame while the screen does not change (paused live, still image): repeat the last one,
+            // or the buffer would stop advancing and nothing could be cut
+            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
+        }
+        val v = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        v.configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val surface = v.createInputSurface()
+        v.start()
+        val gen = ++videoGen // the previous encoder's thread sees this and stops
+        val d = display
+        if (d == null) {
+            display = proj.createVirtualDisplay("clipfactory-live", vw, vh, resources.displayMetrics.densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null)
+        } else {
+            d.resize(vw, vh, resources.displayMetrics.densityDpi)
+            d.surface = surface
+        }
+        venc = v; capW = vw; capH = vh
+        Thread({ drain(v, true, gen) }, "live-video-$gen").start()
+        Log.i(TAG, "capturing ${vw}x$vh at ${rate / 1_000_000} Mbps")
+    }
+
+    private fun drain(codec: MediaCodec, video: Boolean, gen: Int = 0) {
         val info = MediaCodec.BufferInfo()
-        while (running) {
+        while (running && (!video || gen == videoGen)) {
             // video: its own thread, waits for frames; audio: called between reads, takes what is ready and returns
             val idx = try { codec.dequeueOutputBuffer(info, if (video) 20_000 else 0) } catch (e: IllegalStateException) { break }
             if (!video && idx == MediaCodec.INFO_TRY_AGAIN_LATER) break
@@ -236,6 +271,7 @@ class LiveCaptureService : Service() {
                 }
             }
         }
+        if (video && gen != videoGen) runCatching { codec.stop(); codec.release() } // replaced by a new encoder
     }
 
     private fun audioLoop(r: AudioRecord, a: MediaCodec) {
@@ -325,10 +361,13 @@ class LiveCaptureService : Service() {
                 warn("O som da live não chegou: gravando só a imagem. Os clipes vão sair sem áudio.")
             }
 
-            // the recording is landscape: with the phone upright the live is a small picture in the middle of the clip
-            val upright = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+            // the phone was turned: record at the new size (a cut keeps the part after the turn)
+            val real = realScreen()
+            val proj = projection
+            if (proj != null && capW > 0 && (real.x > real.y) != (capW > capH)) runCatching { startVideo(proj) }
+                .onFailure { Log.w(TAG, "restart after rotation failed", it) }
+            val upright = real.y > real.x
             uprightFor = if (upright) uprightFor + 1 else 0
-            if (uprightFor == 15) warn("O celular está em pé: o clipe fica pequeno no meio. Deite o celular e deixe a live em tela cheia.")
 
             val cooled = now - lastClipUs >= 90_000_000L
             val wantManual = manual.also { manual = false }
@@ -356,7 +395,7 @@ class LiveCaptureService : Service() {
             state.value = st
             main.post {
                 bubbleText?.text = "● @$channel · ${st.clips} clipes\n" + when {
-                    uprightFor >= 15 -> "↻ deite o celular"
+                    uprightFor in 60..75 -> "dica: deitado = mais qualidade"
                     st.warming -> "aquecendo"
                     else -> "$msgs msg/min"
                 }
@@ -370,8 +409,27 @@ class LiveCaptureService : Service() {
             val pid = "live" + System.currentTimeMillis()
             val dir = ProjectStore.dir(this, pid)
             val src = File(dir, "source.mp4")
-            val first = w.join(c.fromUs, c.toUs, src) ?: return warn("Perdi um corte: o vídeo já tinha saído do buffer.")
-            val uri = Uri.fromFile(src)
+            val joined = w.join(c.fromUs, c.toUs, src) ?: return warn("Perdi um corte: o vídeo já tinha saído do buffer.")
+            val first = joined.firstUs
+            var uri = Uri.fromFile(src)
+            if (joined.h > joined.w) {
+                // phone upright: the live is the 16:9 player just below the status bar, the rest is the app (chat,
+                // buttons). Keep only the player, so the clip is the live itself and the webcam is found in it.
+                val real = realScreen()
+                val scale = joined.w.toDouble() / min(real.x, real.y)
+                val bar = resources.getIdentifier("status_bar_height", "dimen", "android")
+                    .let { if (it > 0) resources.getDimensionPixelSize(it) else 0 } * scale
+                val bandH = joined.w * 9.0 / 16
+                val top = (bar / joined.h).coerceIn(0.0, 0.5)
+                val bottom = ((bar + bandH) / joined.h).coerceIn(top + 0.1, 1.0)
+                val outW = (joined.w / 2) * 2
+                val outH = (bandH.toInt() / 2) * 2
+                val player = File(dir, "player.mp4")
+                val ok = runCatching {
+                    kotlinx.coroutines.runBlocking { Renderer.cropBand(this@LiveCaptureService, uri, top, bottom, outW, outH, player) }
+                }.onFailure { Log.w(TAG, "crop failed", it) }.isSuccess
+                if (ok && player.length() > 0) { src.delete(); uri = Uri.fromFile(player) }
+            }
             val dur = (w.closed().last().endUs - first) / 1e6
             val a = max(0.0, (c.fromUs - first) / 1e6)
             val b = min(dur, (c.toUs - first) / 1e6)
@@ -431,7 +489,10 @@ class LiveCaptureService : Service() {
         }
         val lp = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = (12 * dp).toInt(); y = (80 * dp).toInt() }
+            PixelFormat.TRANSLUCENT).apply {
+            // starts over the chat (below the player), so it does not show up in the clips; it can be dragged
+            gravity = Gravity.TOP or Gravity.START; x = (12 * dp).toInt(); y = (realScreen().y * 0.62).toInt()
+        }
         // drag the bubble by its text
         var sx = 0f; var sy = 0f; var ox = 0; var oy = 0
         text.setOnTouchListener { _, e ->

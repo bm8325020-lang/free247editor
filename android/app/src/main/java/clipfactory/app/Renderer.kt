@@ -72,6 +72,41 @@ class GainProcessor(private val gain: Float) : BaseAudioProcessor() {
 @OptIn(UnstableApi::class)
 object Renderer {
 
+    /**
+     * Keep only part of each frame (the live player of a screen recording), at high quality, into [out].
+     * [top]/[bottom] are fractions of the height (0 = top); the result keeps the full width.
+     */
+    suspend fun cropBand(context: Context, uri: Uri, top: Double, bottom: Double, outW: Int, outH: Int, out: File) =
+        withContext(Dispatchers.Main) {
+            val crop = androidx.media3.effect.Crop(-1f, 1f, (1 - 2 * bottom).toFloat(), (1 - 2 * top).toFloat())
+            val size = androidx.media3.effect.Presentation.createForWidthAndHeight(outW, outH,
+                androidx.media3.effect.Presentation.LAYOUT_SCALE_TO_FIT)
+            val edited = EditedMediaItem.Builder(MediaItem.fromUri(uri))
+                .setEffects(Effects(emptyList(), listOf(crop, size))).build()
+            val composition = Composition.Builder(EditedMediaItemSequence.Builder(edited).build()).build()
+            suspendCancellableCoroutine { cont ->
+                val transformer = Transformer.Builder(context)
+                    .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    .setEncoderFactory(androidx.media3.transformer.DefaultEncoderFactory.Builder(context)
+                        .setRequestedVideoEncoderSettings(androidx.media3.transformer.VideoEncoderSettings.Builder()
+                            .setBitrate(14_000_000).build()).build())
+                    .setMaxDelayBetweenMuxerSamplesMs(C.TIME_UNSET)
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                            if (cont.isActive) cont.resume(Unit)
+                        }
+
+                        override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                            if (cont.isActive) cont.resumeWithException(exportException)
+                        }
+                    })
+                    .build()
+                out.parentFile?.mkdirs()
+                transformer.start(composition, out.absolutePath)
+                cont.invokeOnCancellation { Handler(Looper.getMainLooper()).post { transformer.cancel() } }
+            }
+        }
+
     /** Export one vertical clip to [out]. [onProgress] gets 0..1. */
     suspend fun render(
         context: Context, uri: Uri, clip: Clip, layout: Layout, srcW: Int, srcH: Int,

@@ -12,7 +12,10 @@ import java.nio.ByteBuffer
  * they fall out of `keepUs`. Times are the encoders' monotonic clock in microseconds.
  */
 class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_000L, private val segUs: Long = 10_000_000L) {
-    data class Segment(val file: File, val startUs: Long, val endUs: Long)
+    data class Segment(val file: File, val startUs: Long, val endUs: Long, val w: Int, val h: Int)
+
+    /** A joined cut: where it starts (encoder clock) and the size of its frames. */
+    data class Joined(val firstUs: Long, val w: Int, val h: Int)
 
     private var videoFormat: MediaFormat? = null
     private var audioFormat: MediaFormat? = null
@@ -22,6 +25,8 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
     private var vTrack = -1
     private var aTrack = -1
     private var segStart = 0L
+    private var segW = 0
+    private var segH = 0
     private var lastUs = 0L
     private var n = 0
     private val done = ArrayList<Segment>()
@@ -32,7 +37,11 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
 
     init { dir.deleteRecursively(); dir.mkdirs() }
 
-    @Synchronized fun setVideoFormat(f: MediaFormat) { videoFormat = f }
+    /** A new video encoder (the phone was turned): its frames go to a new segment. */
+    @Synchronized fun setVideoFormat(f: MediaFormat) {
+        if (videoFormat != null) closeAsync()
+        videoFormat = f
+    }
     @Synchronized fun setAudioFormat(f: MediaFormat) { audioFormat = f }
 
     @Synchronized
@@ -68,12 +77,13 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
         aTrack = audioFormat?.takeIf { audioEnabled }?.let { m.addTrack(it) } ?: -1
         m.start()
         muxer = m; file = f; segStart = at; lastUs = at
+        segW = vf.getInteger(MediaFormat.KEY_WIDTH); segH = vf.getInteger(MediaFormat.KEY_HEIGHT)
     }
 
     /** Hand the open segment to the closer thread; it joins `done` (usable for cuts) once its file is complete. */
     private fun closeAsync() {
         val m = muxer ?: return
-        val seg = file?.let { Segment(it, segStart, lastUs) }
+        val seg = file?.let { Segment(it, segStart, lastUs, segW, segH) }
         muxer = null; file = null
         closer.execute {
             runCatching { m.stop() }
@@ -101,9 +111,12 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
     }
 
     /** Join the segments covering [fromUs, toUs] into one MP4 (stream copy). Returns its start time, or null. */
-    fun join(fromUs: Long, toUs: Long, out: File): Long? {
-        val segs = closed().filter { it.endUs > fromUs && it.startUs < toUs && it.file.exists() }
-        if (segs.isEmpty()) return null
+    fun join(fromUs: Long, toUs: Long, out: File): Joined? {
+        val all = closed().filter { it.endUs > fromUs && it.startUs < toUs && it.file.exists() }
+        if (all.isEmpty()) return null
+        // if the phone was turned inside the range, keep the part after the turn (one frame size per file)
+        val last = all.last()
+        val segs = all.takeLastWhile { it.w == last.w && it.h == last.h }
         val first = segs.first().startUs
         val m = MediaMuxer(out.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         val map = HashMap<String, Int>() // mime -> track
@@ -142,6 +155,6 @@ class SegmentWriter(private val dir: File, private val keepUs: Long = 180_000_00
         } finally {
             runCatching { m.release() }
         }
-        return first
+        return Joined(first, last.w, last.h)
     }
 }
