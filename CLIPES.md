@@ -29,6 +29,13 @@ Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o 
 7. **Configurações** (engrenagem): chaves do Groq, da Coarena e da Anthropic com botão de testar, créditos, hashtags e os
    padrões de um clipe novo.
 
+**Clipar live (Twitch, no celular):** na tela inicial, toque em **Clipar live**, digite o canal e de onde vem a
+autorização, e toque em **Começar a clipar**. O Android pede para gravar a tela (escolha a tela inteira) e a Twitch
+abre na live. Deixe em tela cheia, celular deitado, tela ligada e carregando. O app guarda os últimos 3 minutos, lê o
+chat da live e corta sozinho quando o chat ou o som explodem (depois de 2 minutos aprendendo o ritmo). O botão
+flutuante **✂** corta na hora; **■** para. Cada clipe aparece na tela inicial e na galeria, com webcam no canto.
+Para o botão flutuante, permita "aparecer sobre outros apps" na própria tela.
+
 **Descobrir (YouTube):** na tela inicial, toque em **Descobrir**. Busque por criador, jogo ou assunto e veja os
 vídeos em português com uma **nota de oportunidade** (0 a 100) e os motivos: velocidade de views, desempenho acima do
 tamanho do canal, recência, duração e, quando você toca em ⟳ de novo depois de 30 min, o crescimento medido entre as

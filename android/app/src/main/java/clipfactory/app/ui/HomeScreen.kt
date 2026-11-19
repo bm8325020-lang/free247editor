@@ -58,7 +58,7 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun HomeScreen(onNew: (Uri) -> Unit, onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDiscover: () -> Unit = {}) {
+fun HomeScreen(onNew: (Uri) -> Unit, onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDiscover: () -> Unit = {}, onLive: () -> Unit = {}) {
     val ctx = LocalContext.current
     val projects by ProjectStore.projects.collectAsState()
     val work by JobState.flow.collectAsState()
@@ -69,14 +69,14 @@ fun HomeScreen(onNew: (Uri) -> Unit, onOpen: (Project) -> Unit, onSettings: () -
         }
     }
     HomeContent(projects, work.phase != "idle", work.stage, work.progress, onPick = { pick.launch(arrayOf("video/*")) },
-        onOpen = onOpen, onSettings = onSettings, onWork = onWork, onDelete = { ProjectStore.delete(ctx, it.id) }, onDiscover = onDiscover)
+        onOpen = onOpen, onSettings = onSettings, onWork = onWork, onDelete = { ProjectStore.delete(ctx, it.id) }, onDiscover = onDiscover, onLive = onLive)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress: Double, onPick: () -> Unit,
                 onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDelete: (Project) -> Unit,
-                onDiscover: () -> Unit = {}) {
+                onDiscover: () -> Unit = {}, onLive: () -> Unit = {}) {
     var confirm by remember { mutableStateOf<Project?>(null) }
     LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -103,6 +103,17 @@ fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress:
                     Spacer(Modifier.height(10.dp))
                     Text("Novo clipe", style = MaterialTheme.typography.headlineSmall, color = C.onAccent)
                     Text("Escolha uma live ou gameplay longo", style = MaterialTheme.typography.bodyMedium, color = C.onAccent.copy(alpha = 0.75f))
+                }
+            }
+        }
+        item(span = { GridItemSpan(2) }) {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(C.surface)
+                .combinedClickable(onClick = onLive).padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🔴", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text("Clipar live", style = MaterialTheme.typography.titleMedium, color = C.text)
+                    Text("Assista na Twitch e o app corta os melhores momentos", style = MaterialTheme.typography.bodyMedium, color = C.muted)
                 }
             }
         }

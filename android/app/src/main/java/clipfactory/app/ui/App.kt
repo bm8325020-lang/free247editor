@@ -32,6 +32,7 @@ sealed class Screen {
     data class Editor(val projectId: String, val index: Int) : Screen()
     data object Settings : Screen()
     data object Discover : Screen()
+    data object Live : Screen()
 }
 
 /** The whole app: a small screen stack, driven also by the background work (analysis done -> choose/results). */
@@ -74,6 +75,7 @@ fun App(incoming: StateFlow<Uri?>, consumeIncoming: () -> Unit, nameOf: (Uri) ->
                     onSettings = { go(Screen.Settings) },
                     onWork = { go(Screen.Processing(work.projectId)) },
                     onDiscover = { go(Screen.Discover) },
+                    onLive = { go(Screen.Live) },
                 )
                 is Screen.NewClip -> NewClipScreen(s.uri, s.name, onBack = ::back, onStarted = { replace(Screen.Processing(null)) })
                 is Screen.Processing -> ProcessingScreen(s.projectId, onBack = ::home)
@@ -82,6 +84,7 @@ fun App(incoming: StateFlow<Uri?>, consumeIncoming: () -> Unit, nameOf: (Uri) ->
                 is Screen.Editor -> EditorScreen(s.projectId, s.index, onBack = ::back, onApplied = { stack = stack.dropLast(2) + Screen.Processing(s.projectId) })
                 Screen.Settings -> SettingsScreen(onBack = ::back)
                 Screen.Discover -> DiscoverScreen(onBack = ::back, onSettings = { go(Screen.Settings) })
+                Screen.Live -> LiveScreen(onBack = ::back)
             }
         }
     }

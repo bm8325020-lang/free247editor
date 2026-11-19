@@ -56,7 +56,9 @@ class ClipService : Service() {
         // Android requires startForeground after startForegroundService, even when this request is turned down
         startForegroundCompat(notification("Preparando…", 0))
         if (job?.isActive == true) {
-            android.widget.Toast.makeText(this, "Espere o trabalho atual terminar.", android.widget.Toast.LENGTH_LONG).show()
+            // a render request waits in its project and is picked up when the current work ends
+            if (intent.action != ACTION_RENDER || intent.getStringExtra(EXTRA_PROJECT)?.startsWith("live") != true)
+                android.widget.Toast.makeText(this, "Espere o trabalho atual terminar.", android.widget.Toast.LENGTH_LONG).show()
             return START_NOT_STICKY
         }
         wake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
@@ -100,6 +102,14 @@ class ClipService : Service() {
                             p.copy(status = "rendering", clips = p.clips + Engine.clipsFor(p, ids.filter { it !in have }, opt))
                         }
                         renderPending(pid, opt)
+                        // clips that arrived while this one rendered (e.g. live clips) wait in their projects
+                        while (true) {
+                            val next = ProjectStore.projects.value.firstOrNull { p ->
+                                p.status == "rendering" && p.clips.any { it.status == "pending" }
+                            } ?: break
+                            projectId = next.id
+                            renderPending(next.id, opt)
+                        }
                     }
                     ACTION_RERENDER -> {
                         val pid = projectId ?: return@launch

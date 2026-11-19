@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
             "results" -> home + Screen.Results(p[1], p.getOrNull(2)?.toInt() ?: 0, openPost = p.getOrNull(3) == "post")
             "editor" -> home + Screen.Results(p[1]) + Screen.Editor(p[1], p[2].toInt())
             "processing" -> home + Screen.Processing(p[1])
+            "live" -> home + Screen.Live
             else -> null
         }
     }
