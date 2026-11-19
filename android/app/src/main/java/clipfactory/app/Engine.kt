@@ -36,6 +36,7 @@ data class Options(
     val groqKey: String = "",
     val claudeKey: String = "",
     val coarenaKey: String = "", // free alternative to claudeKey (coarena.ai)
+    val youtubeKey: String = "", // YouTube Data API v3, for Discover (metadata only)
     val language: String = "",
     val credit: String = "",
     val hashtags: String = "",

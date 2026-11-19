@@ -29,6 +29,13 @@ Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o 
 7. **Configurações** (engrenagem): chaves do Groq, da Coarena e da Anthropic com botão de testar, créditos, hashtags e os
    padrões de um clipe novo.
 
+**Descobrir (YouTube):** na tela inicial, toque em **Descobrir**. Busque por criador, jogo ou assunto e veja os
+vídeos em português com uma **nota de oportunidade** (0 a 100) e os motivos: velocidade de views, desempenho acima do
+tamanho do canal, recência, duração e, quando você toca em ⟳ de novo depois de 30 min, o crescimento medido entre as
+duas consultas. Siga criadores e marque quem você tem **autorização** para clipar; sem isso o app avisa.
+Precisa da chave grátis da YouTube Data API v3 (console.cloud.google.com, começa com AIza) em Configurações.
+A API só traz informações; para clipar, baixe o vídeo e use Compartilhar → Fábrica de Clipes.
+
 **IA grátis para escolher os momentos (Coarena):** crie uma chave grátis em coarena.ai (página da API) e cole em
 Configurações → **Chave da Coarena**. Ela escolhe os melhores momentos e escreve os títulos, sem pagar (usa os
 modelos grátis do dia: GPT-6 Luna, DeepSeek e Gemini, nessa ordem, se um falhar). Se você tiver também a chave da

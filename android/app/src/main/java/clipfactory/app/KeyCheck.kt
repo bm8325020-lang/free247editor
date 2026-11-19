@@ -34,6 +34,19 @@ object KeyCheck {
         }
     }
 
+    fun youtube(key: String): Result {
+        if (key.isBlank()) return Result(false, "Sem chave: a aba Descobrir não funciona.")
+        if (!key.trim().startsWith("AIza")) return Result(false, "Isso não parece uma chave do Google (começa com AIza).")
+        return try {
+            YouTubeApi.channels(key, listOf("UCdlJx-w37viXFNq__qZ7ARQ"))
+            Result(true, "YouTube funcionando: a aba Descobrir está liberada.")
+        } catch (e: YouTubeApi.ApiError) {
+            Result(false, e.message ?: "Chave recusada.")
+        } catch (e: IOException) {
+            Result(false, "Sem conexão com o YouTube. Verifique a internet.")
+        }
+    }
+
     fun coarena(key: String): Result {
         if (key.isBlank()) return Result(false, "Sem chave: o seletor automático escolhe os momentos.")
         val http = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()

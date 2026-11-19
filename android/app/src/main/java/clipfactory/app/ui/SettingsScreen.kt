@@ -51,6 +51,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var groqMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
     var claudeMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
     var coarenaMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
+    var ytMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         TopBar("Configurações", onBack)
@@ -65,6 +66,13 @@ fun SettingsScreen(onBack: () -> Unit) {
                         scope.launch { groqMsg = withContext(Dispatchers.IO) { KeyCheck.groq(opt.groqKey) } }
                     }
                     groqMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
+                    Field("Chave do YouTube (grátis)", opt.youtubeKey, secret = true,
+                        hint = "YouTube Data API v3, para a aba Descobrir. Começa com AIza") { set(opt.copy(youtubeKey = it)) }
+                    SoftButton("Testar YouTube", icon = Icons.Filled.Wifi) {
+                        ytMsg = KeyCheck.Result(true, "Testando…")
+                        scope.launch { ytMsg = withContext(Dispatchers.IO) { KeyCheck.youtube(opt.youtubeKey) } }
+                    }
+                    ytMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
                     Field("Chave da Coarena (grátis)", opt.coarenaKey, secret = true,
                         hint = "IA grátis que escolhe os momentos e escreve os títulos. coarena.ai") { set(opt.copy(coarenaKey = it)) }
                     SoftButton("Testar Coarena", icon = Icons.Filled.Wifi) {
