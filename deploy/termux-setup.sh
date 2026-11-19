@@ -19,10 +19,18 @@ for p in python-opencv-python opencv-python python-opencv; do
 done
 if python -c "import cv2" 2>/dev/null; then echo "OpenCV ok: o clipe sai com a webcam separada."
 else echo "Sem OpenCV neste celular: o bot funciona igual, mas o clipe sai com a gameplay no meio (sem webcam separada)."; fi
-pip install --upgrade streamlink websocket-client >/dev/null
+pip install --upgrade streamlink websocket-client >/dev/null 2>&1 || true
 
 say "2/4 Baixando o bot…"
-if [ -d "$APP/.git" ]; then git -C "$APP" pull --ff-only -q; else git clone -q --depth 1 -b "$BRANCH" https://github.com/bm8325020-lang/free247editor.git "$APP"; fi
+# a internet do celular oscila: tenta algumas vezes antes de desistir
+for i in 1 2 3 4 5; do
+  if [ -d "$APP/.git" ]; then git -C "$APP" pull --ff-only -q && break
+  else git clone -q --depth 1 -b "$BRANCH" https://github.com/bm8325020-lang/free247editor.git "$APP" && break; fi
+  echo "Sem internet (tentativa $i de 5). Tentando de novo em 15 s…"; sleep 15
+done
+[ -d "$APP/.git" ] || { echo "ERRO: sem internet para baixar o bot. Confira o Wi-Fi e rode o comando de novo."; exit 1; }
+python -c "import streamlink" 2>/dev/null || pip install --upgrade streamlink websocket-client >/dev/null || {
+  echo "ERRO: não consegui instalar o streamlink (internet?). Rode o comando de novo."; exit 1; }
 cd "$APP"
 
 say "3/4 Configuração (Enter aceita o que está entre colchetes)"
