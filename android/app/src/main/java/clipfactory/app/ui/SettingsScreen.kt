@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
     val ctx = LocalContext.current
     var opt by remember { mutableStateOf(Prefs.options(ctx)) }
     fun set(o: Options) { opt = o; Prefs.save(ctx, o) }
@@ -54,7 +54,9 @@ fun SettingsScreen(onBack: () -> Unit) {
     var ytMsg by remember { mutableStateOf<KeyCheck.Result?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar("Configurações", onBack)
+        TopBar("Configurações", onBack) {
+            androidx.compose.material3.TextButton(onClick = onDiagnostics) { Text("Diagnóstico", color = C.accent) }
+        }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Card {

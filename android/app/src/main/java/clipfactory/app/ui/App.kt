@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 sealed class Screen {
     data object Home : Screen()
-    data class NewClip(val uri: Uri, val name: String) : Screen()
+    data class NewClip(val uri: Uri, val name: String, val more: List<Pair<Uri, String>> = emptyList()) : Screen()
     data class Processing(val projectId: String?) : Screen()
     data class Choose(val projectId: String) : Screen()
     data class Results(val projectId: String, val start: Int = 0, val openPost: Boolean = false) : Screen()
@@ -33,6 +33,7 @@ sealed class Screen {
     data object Settings : Screen()
     data object Discover : Screen()
     data object Live : Screen()
+    data object Diagnostics : Screen()
 }
 
 /** The whole app: a small screen stack, driven also by the background work (analysis done -> choose/results). */
@@ -70,21 +71,22 @@ fun App(incoming: StateFlow<Uri?>, consumeIncoming: () -> Unit, nameOf: (Uri) ->
         AnimatedContent(stack.last(), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { s ->
             when (s) {
                 Screen.Home -> HomeScreen(
-                    onNew = { uri -> go(Screen.NewClip(uri, nameOf(uri))) },
+                    onNew = { uris -> go(Screen.NewClip(uris[0], nameOf(uris[0]), uris.drop(1).map { it to nameOf(it) })) },
                     onOpen = { p -> go(if (p.status == "choosing") Screen.Choose(p.id) else if (p.status in setOf("analyzing", "rendering")) Screen.Processing(p.id) else Screen.Results(p.id)) },
                     onSettings = { go(Screen.Settings) },
                     onWork = { go(Screen.Processing(work.projectId)) },
                     onDiscover = { go(Screen.Discover) },
                     onLive = { go(Screen.Live) },
                 )
-                is Screen.NewClip -> NewClipScreen(s.uri, s.name, onBack = ::back, onStarted = { replace(Screen.Processing(null)) })
+                is Screen.NewClip -> NewClipScreen(s.uri, s.name, s.more, onBack = ::back, onStarted = { replace(Screen.Processing(null)) })
                 is Screen.Processing -> ProcessingScreen(s.projectId, onBack = ::home)
                 is Screen.Choose -> ChooseScreen(s.projectId, onBack = ::home, onStarted = { replace(Screen.Processing(s.projectId)) })
                 is Screen.Results -> ResultsScreen(s.projectId, s.start, onBack = ::home, onEdit = { i -> go(Screen.Editor(s.projectId, i)) }, openPost = s.openPost)
                 is Screen.Editor -> EditorScreen(s.projectId, s.index, onBack = ::back, onApplied = { stack = stack.dropLast(2) + Screen.Processing(s.projectId) })
-                Screen.Settings -> SettingsScreen(onBack = ::back)
+                Screen.Settings -> SettingsScreen(onBack = ::back, onDiagnostics = { go(Screen.Diagnostics) })
                 Screen.Discover -> DiscoverScreen(onBack = ::back, onSettings = { go(Screen.Settings) })
                 Screen.Live -> LiveScreen(onBack = ::back)
+                Screen.Diagnostics -> DiagnosticsScreen(onBack = ::back)
             }
         }
     }

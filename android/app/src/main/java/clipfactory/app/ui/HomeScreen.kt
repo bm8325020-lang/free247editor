@@ -58,15 +58,16 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun HomeScreen(onNew: (Uri) -> Unit, onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDiscover: () -> Unit = {}, onLive: () -> Unit = {}) {
+fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDiscover: () -> Unit = {}, onLive: () -> Unit = {}) {
     val ctx = LocalContext.current
     val projects by ProjectStore.projects.collectAsState()
     val work by JobState.flow.collectAsState()
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
+    // one or several videos (several go into the queue and are processed one after another)
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        uris.forEach { uri ->
             runCatching { ctx.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            onNew(uri)
         }
+        if (uris.isNotEmpty()) onNew(uris)
     }
     HomeContent(projects, work.phase != "idle", work.stage, work.progress, onPick = { pick.launch(arrayOf("video/*")) },
         onOpen = onOpen, onSettings = onSettings, onWork = onWork, onDelete = { ProjectStore.delete(ctx, it.id) }, onDiscover = onDiscover, onLive = onLive)

@@ -7,8 +7,9 @@ Nada é publicado: os arquivos ficam na sua máquina.
 
 Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o Android pedir). O app tem estas telas:
 
-1. **Início:** toque em **Novo clipe** (ou, na galeria, **Compartilhar → Fábrica de Clipes**). Embaixo ficam seus
-   projetos. Segure um projeto para apagar.
+1. **Início:** toque em **Novo clipe** (ou, na galeria, **Compartilhar → Fábrica de Clipes**). Dá para marcar
+   **vários vídeos de uma vez**: eles entram numa fila e são processados um atrás do outro, com as mesmas opções.
+   Embaixo ficam seus projetos. Segure um projeto para apagar.
 2. **Novo clipe:** quantos clipes (1 a 15), duração máxima, estilo da legenda (Amarelo TikTok, Branco forte,
    Karaokê, Minimalista) e layout (Automático = webcam em cima quando houver webcam). A chave **Escolher os momentos
    antes de montar** vem desligada: o app escolhe sozinho. Ligada, ele para depois de achar os momentos.
@@ -26,7 +27,10 @@ Instale o `FabricaDeClipes.apk` (permita "instalar apps desconhecidos" quando o 
    insanos**. O arquivo baixado não traz o chat, então contam o áudio e o que foi falado. Uma live de horas demora
    (o celular precisa ouvir tudo); deixe carregando.
    Para o YouTube: baixe a live gravada (ex.: SnapTube) → Compartilhar → Fábrica de Clipes → Live gravada.
-7. **Configurações** (engrenagem): chaves do Groq, da Coarena e da Anthropic com botão de testar, créditos, hashtags e os
+7. **Diagnóstico** (em Configurações, no topo): mostra o que está ok e o que falta, com o botão para resolver:
+   notificações, som da live, botão flutuante, economia de bateria, espaço livre, codificadores, fila e o último
+   erro, e testa todas as chaves de uma vez.
+8. **Configurações** (engrenagem): chaves do Groq, da Coarena e da Anthropic com botão de testar, créditos, hashtags e os
    padrões de um clipe novo.
 
 **Clipar live (Twitch, no celular):** na tela inicial, toque em **Clipar live**, digite o canal e de onde vem a
@@ -46,7 +50,8 @@ A API só traz informações; para clipar, baixe o vídeo e use Compartilhar →
 **IA grátis para escolher os momentos (Coarena):** crie uma chave grátis em coarena.ai (página da API) e cole em
 Configurações → **Chave da Coarena**. Ela escolhe os melhores momentos e escreve os títulos, sem pagar (usa os
 modelos grátis do dia: GPT-6 Luna, DeepSeek e Gemini, nessa ordem, se um falhar). Se você tiver também a chave da
-Anthropic, o app usa a Anthropic primeiro.
+Anthropic, o app usa a Anthropic primeiro. Nos clipes de live (Live gravada e Clipar live), a Coarena escreve o
+título de cada clipe a partir do que foi falado.
 
 Os clipes também ficam na galeria, pasta `Movies/Clipes`.
 

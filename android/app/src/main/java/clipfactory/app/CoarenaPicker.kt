@@ -38,6 +38,38 @@ object CoarenaPicker {
         return null
     }
 
+    /**
+     * A title for each stretch of speech (live clips, which are not picked by the AI): null where the model gave none.
+     * Sent in batches of 20 to keep each request short.
+     */
+    fun titles(key: String, texts: List<String>, language: String?): List<String?> {
+        val out = MutableList<String?>(texts.size) { null }
+        if (key.isBlank()) return out
+        for (start in texts.indices step 20) {
+            val part = texts.subList(start, minOf(texts.size, start + 20))
+            val prompt = "You title clips from a gaming streamer's live. For each numbered stretch of what the streamer said, " +
+                "write a punchy clip title like on TikTok or Twitch: max 6 words, in ${language ?: "the language of the text"}, " +
+                "no hashtags, no emoji, no quotes. If a stretch has nothing to build on, use an empty title.\n\n" +
+                part.mapIndexed { i, t -> "[$i] ${t.take(600).ifBlank { "(no speech)" }}" }.joinToString("\n") +
+                "\n\nAnswer with ONLY a JSON object: {\"titles\":[{\"id\":0,\"title\":\"...\"}]}"
+            for (model in MODELS) {
+                val ok = runCatching {
+                    val text = ask(key.trim(), model, prompt)
+                    val json = Regex("\\{.*\\}", RegexOption.DOT_MATCHES_ALL).find(text)?.value ?: error("no json")
+                    val arr = JSONObject(json).getJSONArray("titles")
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        val id = o.optInt("id", -1)
+                        val t = o.optString("title").trim().trim('"')
+                        if (id in part.indices && t.isNotBlank() && t.length <= 80) out[start + id] = t
+                    }
+                }.isSuccess
+                if (ok) break
+            }
+        }
+        return out
+    }
+
     private fun ask(key: String, model: String, prompt: String): String {
         val body = JSONObject().put("model", model).put("max_tokens", 4000)
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))

@@ -149,6 +149,12 @@ object Engine {
         val all = best + extra
         Hype.fillText(all, words)
 
+        // a recorded live is not picked by the AI (every strong moment counts), but its titles can come from it
+        if (opt.live && opt.coarenaKey.isNotBlank() && best.isNotEmpty() && words.isNotEmpty()) {
+            report("A IA está escrevendo os títulos", 0.75)
+            val titles = CoarenaPicker.titles(opt.coarenaKey, best.map { it.text }, language)
+            best.forEachIndexed { i, c -> titles[i]?.let { t -> c.title = t; c.hook = t } }
+        }
         val t2 = System.currentTimeMillis()
         report("Separando as miniaturas", 0.8)
         val thumbs = momentThumbs(ctx, uri, projectId, all.map { (it.start + it.end) / 2 })

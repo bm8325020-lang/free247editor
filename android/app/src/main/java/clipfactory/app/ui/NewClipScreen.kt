@@ -53,7 +53,7 @@ import kotlinx.coroutines.withContext
 
 /** Before starting: a few choices, prefilled with the user's defaults (and saved as the new defaults). */
 @Composable
-fun NewClipScreen(uri: Uri, name: String, onBack: () -> Unit, onStarted: () -> Unit) {
+fun NewClipScreen(uri: Uri, name: String, more: List<Pair<Uri, String>> = emptyList(), onBack: () -> Unit, onStarted: () -> Unit) {
     val ctx = LocalContext.current
     // keep access to the video after the app closes, when the app that shared it allows that
     remember(uri) { runCatching { ctx.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
@@ -69,8 +69,11 @@ fun NewClipScreen(uri: Uri, name: String, onBack: () -> Unit, onStarted: () -> U
         }
     }
     val samples = rememberStyleSamples()
-    NewClipContent(name, frame.first, frame.second, opt, samples, onChange = { opt = it; Prefs.save(ctx, it) }, onBack = onBack) {
+    val shown = if (more.isEmpty()) name else "$name + ${more.size} vídeo(s) na fila"
+    NewClipContent(shown, frame.first, frame.second, opt, samples, onChange = { opt = it; Prefs.save(ctx, it) }, onBack = onBack) {
         ClipService.analyze(ctx, uri, name)
+        // the others wait in the queue; same settings for all
+        more.forEach { (u, n) -> ClipService.analyze(ctx, u, n) }
         onStarted()
     }
 }

@@ -33,4 +33,5 @@ Written to match the code as it is. Each item says what happens and what to do.
 
 ## Not built
 - Automatic posting through official APIs (TikTok requires an app audit; posts stay private until then).
-- Kick, multi-file import queue, cloud database, task orchestrator, posting schedules.
+- Kick, cloud database, task orchestrator, posting schedules.
+- Multi-file import works from the app's picker; sharing several files at once from the gallery is not supported yet.

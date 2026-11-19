@@ -358,7 +358,11 @@ class LiveCaptureService : Service() {
             val words: List<Word> = if (opt.groqKey.isNotBlank() && rec != null) runCatching {
                 Transcriber(opt.groqKey.trim(), opt.language.ifBlank { null }).words(AudioAnalyzer(this, uri).wav16k(a, b), a)
             }.getOrElse { Log.w(TAG, "transcription failed", it); emptyList() } else emptyList()
-            val hook = Hype.hookFrom(words, peak)
+            val said = words.filter { it.start >= a && it.start < b }.joinToString(" ") { it.text }
+            val aiTitle = if (opt.coarenaKey.isNotBlank() && said.isNotBlank())
+                runCatching { CoarenaPicker.titles(opt.coarenaKey, listOf(said), opt.language.ifBlank { null }).firstOrNull() }.getOrNull()
+            else null
+            val hook = aiTitle ?: Hype.hookFrom(words, peak)
             val clock = SimpleDateFormat("HH:mm", Locale.US).format(Date(c.wall))
             val title = hook.ifBlank { "@$channel às $clock" }
             val reason = if (c.manual) "Você tocou em ✂ às $clock." else

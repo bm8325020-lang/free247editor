@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
             "editor" -> home + Screen.Results(p[1]) + Screen.Editor(p[1], p[2].toInt())
             "processing" -> home + Screen.Processing(p[1])
             "live" -> home + Screen.Live
+            "diag" -> home + Screen.Settings + Screen.Diagnostics
             else -> null
         }
     }

@@ -55,6 +55,12 @@ class ClipService : Service() {
         }
         // Android requires startForeground after startForegroundService, even when this request is turned down
         startForegroundCompat(notification("Preparando…", 0))
+        if (job?.isActive == true && intent.action == ACTION_ANALYZE && intent.data != null) {
+            // another video while one is being processed: it waits in the queue
+            val n = AnalyzeQueue.add(this, intent.data.toString(), intent.getStringExtra(EXTRA_NAME) ?: "video")
+            android.widget.Toast.makeText(this, "Na fila: $n vídeo(s) esperando.", android.widget.Toast.LENGTH_SHORT).show()
+            return START_NOT_STICKY
+        }
         if (job?.isActive == true) {
             // a render request waits in its project and is picked up when the current work ends
             if (intent.action != ACTION_RENDER || intent.getStringExtra(EXTRA_PROJECT)?.startsWith("live") != true)
@@ -79,20 +85,7 @@ class ClipService : Service() {
                                 val p = it.split('\t'); clipfactory.core.Word(p[2], p[0].toDouble(), p[1].toDouble())
                             }
                         } else null
-                        val pid = projectId!!
-                        set(Work(pid, "analyzing", "Abrindo o vídeo", 0.0))
-                        val p = Engine.analyze(this@ClipService, pid, uri, intent.getStringExtra(EXTRA_NAME) ?: "video", opt, testWords) { st, pr ->
-                            set(Work(pid, "analyzing", st, pr))
-                        }
-                        if (opt.chooseMoments) {
-                            set(Work(pid, "idle"))
-                            nm().notify(ID_DONE, done("Escolha os momentos", "Achei ${p.moments.size} momentos. Toque para escolher quais viram clipe."))
-                            return@launch
-                        }
-                        ProjectStore.update(this@ClipService, pid) {
-                            it.copy(clips = Engine.clipsFor(it, it.moments.filter { m -> m.preselected }.map { m -> m.id }, opt))
-                        }
-                        renderPending(pid, opt)
+                        analyzeAndRender(projectId!!, uri, intent.getStringExtra(EXTRA_NAME) ?: "video", opt, testWords)
                     }
                     ACTION_RENDER -> {
                         val pid = projectId ?: return@launch
@@ -120,7 +113,23 @@ class ClipService : Service() {
                         renderPending(pid, opt)
                     }
                 }
+                // videos queued while this one was processed, one after another
+                while (true) {
+                    val (u, name) = AnalyzeQueue.pop(this@ClipService) ?: break
+                    val pid = "p" + System.currentTimeMillis()
+                    projectId = pid
+                    try {
+                        analyzeAndRender(pid, Uri.parse(u), name, Prefs.options(this@ClipService), null)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // one bad video does not stop the queue
+                        Log.e("ClipService", "queued video failed", e)
+                        ProjectStore.update(this@ClipService, pid) { it.copy(status = "failed", notes = listOf("Erro: ${e.message ?: e}") + it.notes) }
+                    }
+                }
             } catch (e: CancellationException) {
+                AnalyzeQueue.clear(this@ClipService) // "Cancelar" stops the queue too
                 projectId?.let { id -> ProjectStore.update(this@ClipService, id) {
                     it.copy(status = if (it.doneClips.isEmpty()) "canceled" else "done",
                         clips = it.clips.map { c -> if (c.status == "rendering") c.copy(status = "pending") else c })
@@ -139,6 +148,22 @@ class ClipService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    private suspend fun analyzeAndRender(pid: String, uri: Uri, name: String, opt: Options,
+                                         testWords: List<clipfactory.core.Word>?) {
+        fun stage(st: String): String { val q = AnalyzeQueue.size(this); return if (q > 0) "$st · fila: $q" else st }
+        set(Work(pid, "analyzing", stage("Abrindo o vídeo"), 0.0))
+        val p = Engine.analyze(this, pid, uri, name, opt, testWords) { st, pr -> set(Work(pid, "analyzing", stage(st), pr)) }
+        if (opt.chooseMoments) {
+            set(Work(pid, "idle"))
+            nm().notify(ID_DONE, done("Escolha os momentos", "Achei ${p.moments.size} momentos em ${p.name}. Toque para escolher."))
+            return
+        }
+        ProjectStore.update(this, pid) {
+            it.copy(clips = Engine.clipsFor(it, it.moments.filter { m -> m.preselected }.map { m -> m.id }, opt))
+        }
+        renderPending(pid, opt)
     }
 
     private suspend fun renderPending(pid: String, opt: Options) {
