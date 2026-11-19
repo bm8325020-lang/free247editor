@@ -70,6 +70,9 @@ object CoarenaPicker {
         return out
     }
 
+    /** One plain request to a Coarena model; returns the answer text. */
+    fun complete(key: String, model: String, prompt: String): String = ask(key, model, prompt)
+
     private fun ask(key: String, model: String, prompt: String): String {
         val body = JSONObject().put("model", model).put("max_tokens", 4000)
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))

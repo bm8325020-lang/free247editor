@@ -89,7 +89,8 @@ class ClipService : Service() {
                                 val p = it.split('\t'); clipfactory.core.Word(p[2], p[0].toDouble(), p[1].toDouble())
                             }
                         } else null
-                        analyzeAndRender(projectId!!, uri, intent.getStringExtra(EXTRA_NAME) ?: "video", opt, testWords)
+                        analyzeAndRender(projectId!!, uri, intent.getStringExtra(EXTRA_NAME) ?: "video", opt, testWords,
+                            intent.getStringExtra(EXTRA_LINK).orEmpty())
                     }
                     ACTION_RENDER -> {
                         val pid = projectId ?: return@launch
@@ -167,10 +168,10 @@ class ClipService : Service() {
     }
 
     private suspend fun analyzeAndRender(pid: String, uri: Uri, name: String, opt: Options,
-                                         testWords: List<clipfactory.core.Word>?) {
+                                         testWords: List<clipfactory.core.Word>?, link: String = "") {
         fun stage(st: String): String { val q = AnalyzeQueue.size(this); return if (q > 0) "$st · fila: $q" else st }
         set(Work(pid, "analyzing", stage("Abrindo o vídeo"), 0.0))
-        val p = Engine.analyze(this, pid, uri, name, opt, testWords) { st, pr -> set(Work(pid, "analyzing", stage(st), pr)) }
+        val p = Engine.analyze(this, pid, uri, name, opt, testWords, link) { st, pr -> set(Work(pid, "analyzing", stage(st), pr)) }
         if (opt.chooseMoments) {
             set(Work(pid, "idle"))
             nm().notify(ID_DONE, done("Escolha os momentos", "Achei ${p.moments.size} momentos em ${p.name}. Toque para escolher."))
@@ -286,14 +287,15 @@ class ClipService : Service() {
         const val EXTRA_PROJECT = "project"
         const val EXTRA_MOMENTS = "moments"
         const val EXTRA_INDEX = "index"
+        const val EXTRA_LINK = "link" // the video's YouTube link: what viewers marked in the comments
         const val ACTION_ANALYZE = "analyze"
         const val ACTION_RENDER = "render"
         const val ACTION_RERENDER = "rerender"
         const val ACTION_CANCEL = "cancel"
 
-        fun analyze(ctx: Context, uri: Uri, name: String, testWords: String? = null) = ctx.startForegroundService(
+        fun analyze(ctx: Context, uri: Uri, name: String, testWords: String? = null, link: String = "") = ctx.startForegroundService(
             Intent(ctx, ClipService::class.java).setAction(ACTION_ANALYZE).setData(uri).putExtra(EXTRA_NAME, name)
-                .putExtra("test_words", testWords).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                .putExtra("test_words", testWords).putExtra(EXTRA_LINK, link).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
 
         fun render(ctx: Context, projectId: String, momentIds: List<Int>) = ctx.startForegroundService(
             Intent(ctx, ClipService::class.java).setAction(ACTION_RENDER).putExtra(EXTRA_PROJECT, projectId)

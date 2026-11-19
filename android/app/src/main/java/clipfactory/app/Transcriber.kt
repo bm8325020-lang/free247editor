@@ -31,7 +31,23 @@ class Transcriber(private val key: String, private val language: String?) {
             .build()
         val req = Request.Builder().url("https://api.groq.com/openai/v1/audio/transcriptions")
             .header("Authorization", "Bearer $key").post(body).build()
-        http.newCall(req).execute().use { r ->
+        var waited = 0L
+        while (true) {
+            val r = http.newCall(req).execute()
+            // free-tier limit (audio per hour): wait as Groq says, up to 20 minutes in total, instead of failing
+            if (r.code == 429 && waited < 20 * 60) {
+                val wait = (r.header("retry-after")?.toDoubleOrNull()?.toLong() ?: 60L).coerceIn(5L, 300L)
+                r.close()
+                Thread.sleep(wait * 1000)
+                waited += wait
+                continue
+            }
+            return parse(r, offsetS)
+        }
+    }
+
+    private fun parse(resp: okhttp3.Response, offsetS: Double): List<Word> {
+        resp.use { r ->
             val text = r.body?.string().orEmpty()
             if (!r.isSuccessful) throw RuntimeException("Groq HTTP ${r.code}: ${text.take(200)}")
             val js = JSONObject(text)

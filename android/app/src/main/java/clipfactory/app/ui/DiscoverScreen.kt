@@ -258,6 +258,9 @@ fun DiscoverScreen(onBack: () -> Unit, onSettings: () -> Unit) {
                 Text("Para clipar: baixe o vídeo e use Compartilhar → Fábrica de Clipes (Vídeo ou Live gravada).",
                     color = C.muted, style = MaterialTheme.typography.bodyMedium)
                 BigButton("Abrir no YouTube") {
+                    // remembered for "Novo clipe": the comments of this video tell which moments viewers loved
+                    ctx.getSharedPreferences("clip", 0).edit().putString("lastLink", "https://www.youtube.com/watch?v=${v.id}")
+                        .putString("lastTitle", v.title).apply()
                     runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=${v.id}"))) }
                 }
                 if (cr == null) SoftButton("Seguir ${v.channelTitle}", Modifier.fillMaxWidth()) {

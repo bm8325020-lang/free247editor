@@ -70,8 +70,12 @@ fun NewClipScreen(uri: Uri, name: String, more: List<Pair<Uri, String>> = emptyL
     }
     val samples = rememberStyleSamples()
     val shown = if (more.isEmpty()) name else "$name + ${more.size} vídeo(s) na fila"
-    NewClipContent(shown, frame.first, frame.second, opt, samples, onChange = { opt = it; Prefs.save(ctx, it) }, onBack = onBack) {
-        ClipService.analyze(ctx, uri, name)
+    // a video opened from Discover brings its link (the comments say which moments viewers loved)
+    var link by remember { mutableStateOf(ctx.getSharedPreferences("clip", 0).getString("lastLink", "") ?: "") }
+    NewClipContent(shown, frame.first, frame.second, opt, samples, onChange = { opt = it; Prefs.save(ctx, it) }, onBack = onBack,
+        link = link, onLink = { link = it.trim() }) {
+        ctx.getSharedPreferences("clip", 0).edit().remove("lastLink").apply()
+        ClipService.analyze(ctx, uri, name, link = link)
         // the others wait in the queue; same settings for all
         more.forEach { (u, n) -> ClipService.analyze(ctx, u, n) }
         onStarted()
@@ -81,7 +85,8 @@ fun NewClipScreen(uri: Uri, name: String, more: List<Pair<Uri, String>> = emptyL
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NewClipContent(name: String, frame: ImageBitmap?, durationS: Double, opt: Options, samples: Map<String, ImageBitmap>,
-                   onChange: (Options) -> Unit, onBack: () -> Unit, onStart: () -> Unit) {
+                   onChange: (Options) -> Unit, onBack: () -> Unit, link: String = "", onLink: (String) -> Unit = {},
+                   onStart: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TopBar("Novo clipe", onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -93,6 +98,20 @@ fun NewClipContent(name: String, frame: ImageBitmap?, durationS: Double, opt: Op
                     .padding(14.dp)) {
                     Text(name, style = MaterialTheme.typography.titleMedium, color = C.text, maxLines = 1)
                     if (durationS > 0) Text("Duração ${mmss(durationS)}", style = MaterialTheme.typography.labelSmall, color = C.muted)
+                }
+            }
+            Card {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val smart = opt.coarenaKey.isNotBlank() && opt.groqKey.isNotBlank()
+                    SectionTitle(if (smart) "Modo clipador: ligado" else "Modo clipador: desligado",
+                        if (smart) "A IA lê tudo o que foi falado e escolhe como um clipador, até piada sem grito."
+                        else "Coloque as chaves grátis do Groq e da Coarena em Configurações: sem elas, o app só acha momentos com grito ou barulho.")
+                    androidx.compose.material3.OutlinedTextField(link, onLink, Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text("Link do vídeo no YouTube (opcional)") },
+                        supportingText = { Text("O app lê os comentários: os momentos que o público marcou (ex.: \"10:53 kkkk\") contam muito.", color = C.muted) },
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedBorderColor = C.accent,
+                            unfocusedBorderColor = C.line, focusedTextColor = C.text, unfocusedTextColor = C.text,
+                            focusedLabelColor = C.accent, unfocusedLabelColor = C.muted))
                 }
             }
             Card {

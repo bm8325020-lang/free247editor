@@ -51,6 +51,8 @@ data class Options(
 )
 
 const val LIVE_MAX = 50
+/** Clipper mode reads at most this much audio: the free Groq budget is ~2 h of audio per hour. */
+const val CLIPPER_BUDGET_S = 6000.0
 private val LIVE_SPIKE = doubleArrayOf(1.0, 1.5, 2.2)
 private val LIVE_HYPE = doubleArrayOf(2.0, 3.0, 4.5)
 
@@ -64,7 +66,7 @@ object Engine {
     private const val HOP = 0.1
 
     suspend fun analyze(ctx: Context, projectId: String, uri: Uri, name: String, opt: Options, testWords: List<Word>? = null,
-                        report: (String, Double) -> Unit): Project {
+                        link: String = "", report: (String, Double) -> Unit): Project {
         val notes = ArrayList<String>()
         val t0 = System.currentTimeMillis()
         fun mins(a: Long, b: Long) = "%.1f min".format((b - a) / 60000.0)
@@ -87,6 +89,8 @@ object Engine {
         report("Achando os momentos de hype", 0.33)
         val ex = Hype.audioExcitement(loud, HOP)
         val cands = Hype.audioCandidates(ex, info.durationS, s)
+        // clipper mode: the AI reads what was said and picks like a clipper (needs the two free keys)
+        val clipper = opt.coarenaKey.isNotBlank() && opt.groqKey.isNotBlank() && testWords == null
         var words: List<Word> = emptyList()
         var language: String? = opt.language.ifBlank { null }
         if (testWords != null) {
@@ -94,9 +98,27 @@ object Engine {
         } else if (opt.groqKey.isNotBlank()) {
             try {
                 val tr = Transcriber(opt.groqKey.trim(), language)
-                // only the strongest audio candidates are worth listening to (a live has up to 150 peaks)
-                val toHear = cands.sortedByDescending { it.audio }.take(if (opt.live) 60 else max(12, opt.clips * 3))
-                val ranges = Hype.transcriptionRanges(toHear, info.durationS).flatMap { (a, b) ->
+                // clipper mode reads everything that was said (up to ~100 min, the free Groq hourly budget);
+                // otherwise only the strongest audio candidates are worth listening to
+                val heard: List<Pair<Double, Double>> = if (clipper) {
+                    if (info.durationS <= CLIPPER_BUDGET_S) listOf(0.0 to info.durationS)
+                    else {
+                        // the busiest 5-minute blocks (loudest moments), up to the budget, in time order
+                        val block = 300.0
+                        val n = (info.durationS / block).toInt() + 1
+                        val busy = (0 until n).sortedByDescending { b ->
+                            val lo = (b * block / HOP).toInt().coerceIn(0, ex.size)
+                            val hi = ((b + 1) * block / HOP).toInt().coerceIn(lo, ex.size)
+                            if (hi > lo) ex.copyOfRange(lo, hi).sortedDescending().take(50).sum() else 0.0
+                        }.take((CLIPPER_BUDGET_S / block).toInt()).sorted()
+                        notes.add("Vídeo longo: a IA leu os ${busy.size * 5} minutos mais movimentados (limite grátis do Groq).")
+                        busy.map { b -> b * block to min(info.durationS, (b + 1) * block) }
+                    }
+                } else {
+                    val toHear = cands.sortedByDescending { it.audio }.take(if (opt.live) 60 else max(12, opt.clips * 3))
+                    Hype.transcriptionRanges(toHear, info.durationS)
+                }
+                val ranges = heard.flatMap { (a, b) ->
                     val parts = ArrayList<Pair<Double, Double>>() // keep each upload well under Groq's 25 MB limit
                     var x = a
                     while (x < b) { parts.add(x to min(b, x + 300)); x += 300 }
@@ -132,7 +154,34 @@ object Engine {
 
         val ranked = Hype.rescore(cands, ex, words, info.durationS, s.maxSeconds)
         var picked: List<Clip>? = null
-        if ((opt.claudeKey.isNotBlank() || opt.coarenaKey.isNotBlank()) && !opt.live) {
+        var clipperExtra: List<Clip> = emptyList()
+        if (clipper && words.isNotEmpty()) {
+            // what viewers marked in the comments (YouTube link), and the loudest spikes: hints the AI checks
+            val marks = AudienceSignals.youtubeId(link)?.takeIf { opt.youtubeKey.isNotBlank() }?.let { id ->
+                report("Vendo o que o público marcou nos comentários", 0.68)
+                runCatching { AudienceSignals.youtubeComments(opt.youtubeKey, id, info.durationS) }.getOrDefault(emptyList())
+            } ?: emptyList()
+            if (marks.isNotEmpty()) notes.add("O público marcou ${marks.size} momento(s) nos comentários do YouTube.")
+            val hints = cands.sortedByDescending { it.audio }.take(15).map { it.peak to "audio spike %.1fσ".format(it.audio) } +
+                marks.take(30).map { it.t to "viewers wrote: \"${it.sample.take(80)}\"" }
+            val picks = ClipperAI.find(opt.coarenaKey, words, info.durationS, language, hints) { p ->
+                report("A IA está assistindo como um clipador", 0.7 + 0.08 * p)
+            }
+            val clips = clipperClips(picks, marks, cands, words, info.durationS, s.maxSeconds)
+            if (clips.isNotEmpty()) {
+                val sorted = clips.sortedByDescending { it.score }
+                val chosen = ArrayList<Clip>()
+                val limit = if (opt.live) LIVE_MAX else opt.clips
+                val floor = if (opt.live) intArrayOf(60, 70, 82)[opt.liveLevel.coerceIn(0, 2)] else 55
+                for (c in sorted) {
+                    if (chosen.size >= limit || c.score < floor) break
+                    if (chosen.all { c.end <= it.start || c.start >= it.end }) chosen.add(c)
+                }
+                picked = chosen
+                clipperExtra = sorted.filter { c -> chosen.all { c.end <= it.start || c.start >= it.end } }.take(8)
+            } else notes.add("A IA não marcou nenhum momento; usei o seletor pelo áudio.")
+        }
+        if (picked == null && (opt.claudeKey.isNotBlank() || opt.coarenaKey.isNotBlank()) && !opt.live) {
             report("A IA está escolhendo os melhores", 0.7)
             val top = ranked.take(max(opt.clips * 3, 12))
             if (opt.claudeKey.isNotBlank()) picked = ClaudePicker.pick(opt.claudeKey.trim(), top, words, opt.clips, language)
@@ -143,7 +192,8 @@ object Engine {
         val strong = ranked.count { Hype.isStrong(it, s) }
         val best = picked ?: Hype.pick(ranked, words, s)
         // extra candidates the user can choose from: more strong moments that do not overlap the best ones
-        val extra = if (opt.live) emptyList() else Hype.pick(ranked.filter { c -> best.all { c.end <= it.start || c.start >= it.end } },
+        val extra = if (clipperExtra.isNotEmpty() || picked?.firstOrNull()?.picker == "clipador") clipperExtra
+            else if (opt.live) emptyList() else Hype.pick(ranked.filter { c -> best.all { c.end <= it.start || c.start >= it.end } },
             words, s.copy(clips = max(4, opt.clips)))
         // extras rank below the chosen ones
         val floor = (best.minOfOrNull { it.score } ?: 70) - 1
@@ -151,8 +201,8 @@ object Engine {
         val all = best + extra
         Hype.fillText(all, words)
 
-        // a recorded live is not picked by the AI (every strong moment counts), but its titles can come from it
-        if (opt.live && opt.coarenaKey.isNotBlank() && best.isNotEmpty() && words.isNotEmpty()) {
+        // a recorded live picked by audio gets its titles from the AI (the clipper already wrote its own)
+        if (opt.live && opt.coarenaKey.isNotBlank() && best.isNotEmpty() && words.isNotEmpty() && best[0].picker != "clipador") {
             report("A IA está escrevendo os títulos", 0.75)
             val titles = CoarenaPicker.titles(opt.coarenaKey, best.map { it.text }, language)
             best.forEachIndexed { i, c -> titles[i]?.let { t -> c.title = t; c.hook = t } }
@@ -177,6 +227,43 @@ object Engine {
                 "miniaturas ${mins(t2, System.currentTimeMillis())}.")
         ProjectStore.put(ctx, project)
         return project
+    }
+
+    /**
+     * The AI's picks as clips: boundaries snapped to pauses with room for the reaction, a bonus when viewers marked the
+     * moment or the audio spiked, and strong audience marks the AI skipped added on their own.
+     */
+    private fun clipperClips(picks: List<ClipperAI.Pick>, marks: List<AudienceSignals.Mark>, cands: List<Clip>,
+                             words: List<Word>, duration: Double, maxSeconds: Double): List<Clip> {
+        val out = ArrayList<Clip>()
+        for (p in picks) {
+            val (a0, b0) = Hype.snap(words, max(0.0, p.start - 2), min(duration, p.end + 4), duration)
+            val peak = (p.start + p.end) / 2
+            val (a, b) = Hype.capLength(a0, b0, peak, maxSeconds)
+            val viewers = marks.filter { it.t in (a - 10)..(b + 10) }.sumOf { it.weight }
+            val loud = cands.filter { it.peak in a..b }.maxOfOrNull { it.audio } ?: 0.0
+            val c = Clip(peak = peak, start = a, end = b, audio = loud)
+            c.title = p.title.ifBlank { Hype.hookFrom(words, peak) }
+            c.hook = c.title
+            c.score = (p.score + (if (viewers >= 2) 8 else if (viewers > 0) 4 else 0) + (if (loud >= 2) 4 else 0)).coerceAtMost(99)
+            c.reason = p.why + (if (viewers > 0) " O público marcou esse momento nos comentários." else "") +
+                (if (loud >= 2) " Pico de áudio %.1fσ.".format(loud) else "")
+            c.picker = "clipador"
+            out.add(c)
+        }
+        for (m in marks) {
+            if (m.weight < 3 || out.any { m.t in (it.start - 10)..(it.end + 10) }) continue
+            val (a0, b0) = Hype.snap(words, max(0.0, m.t - 22), min(duration, m.t + 12), duration)
+            val (a, b) = Hype.capLength(a0, b0, m.t, maxSeconds)
+            val c = Clip(peak = m.t, start = a, end = b, audio = 0.0)
+            c.title = Hype.hookFrom(words, m.t).ifBlank { "Momento %d:%02d".format((m.t / 60).toInt(), (m.t % 60).toInt()) }
+            c.hook = c.title
+            c.score = (62 + m.weight * 3).toInt().coerceAtMost(90)
+            c.reason = "O público marcou esse momento: \"${m.sample.take(90)}\""
+            c.picker = "clipador"
+            out.add(c)
+        }
+        return out
     }
 
     /** The clips to make for the chosen moments (default edit from the moment and the user's defaults). */

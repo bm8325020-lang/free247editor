@@ -47,6 +47,14 @@ duas consultas. Siga criadores e marque quem você tem **autorização** para cl
 Precisa da chave grátis da YouTube Data API v3 (console.cloud.google.com, começa com AIza) em Configurações.
 A API só traz informações; para clipar, baixe o vídeo e use Compartilhar → Fábrica de Clipes.
 
+**Modo clipador (como um clipador escolhe):** com as chaves grátis do **Groq** e da **Coarena** em Configurações,
+o app transcreve o vídeo inteiro (até ~1h40; em vídeos maiores, os trechos mais movimentados até esse limite, por
+causa do limite grátis do Groq) e a IA lê tudo em blocos de 10 minutos marcando o que viralizaria sozinho:
+piada (mesmo falada sem grito), situação absurda, jogada foda, raiva, susto, história com final. Grito e palavras de
+hype viram só um bônus. Cole o **link do vídeo no YouTube** em Novo clipe (vem sozinho quando você abre o vídeo pela
+aba Descobrir): o app lê os comentários e soma os momentos que o público marcou ("10:53 kkkk"). Um vídeo longo
+demora mais para analisar nesse modo, porque a IA lê tudo.
+
 **IA grátis para escolher os momentos (Coarena):** crie uma chave grátis em coarena.ai (página da API) e cole em
 Configurações → **Chave da Coarena**. Ela escolhe os melhores momentos e escreve os títulos, sem pagar (usa os
 modelos grátis do dia: GPT-6 Luna, DeepSeek e Gemini, nessa ordem, se um falhar). Se você tiver também a chave da
