@@ -128,6 +128,23 @@ clipe oficial na Twitch no mesmo instante e mostra o link.
 
 Precisa de um computador ligado o tempo todo. No celular não funciona: o Android encerra apps em segundo plano.
 
+## Bot de lives no próprio celular (Termux), sem precisar da tela
+
+O celular vira o servidor: grava a live por trás (tela apagada), lê o chat, corta, monta o clipe vertical e o app
+pega os clipes sozinho. Grátis. Uma live por vez, em 720p.
+
+1. Instale o **Termux** pelo F-Droid (f-droid.org) ou pelo GitHub (github.com/termux/termux-app/releases). Não use o
+   da Play Store: é uma versão velha.
+2. Abra o Termux, cole e dê Enter:
+   `curl -fsSL https://raw.githubusercontent.com/bm8325020-lang/free247editor/claude/clip-platform-tools-w2g52z/deploy/termux-setup.sh | bash`
+3. Ele instala tudo (10 a 20 minutos) e pergunta: canais (Enter aceita alanzoka, loud_coringa e paulinholokobr),
+   autorização, hashtags e a chave do Groq. No fim mostra o **código** para o app.
+4. No app: Configurações → Servidor do bot de lives → endereço `127.0.0.1` e o código → Conectar.
+5. Para ligar o bot: no Termux, `~/ligar-clipador.sh`. Pode apagar a tela e usar outros apps.
+
+Deixe no carregador e no **Wi-Fi** (uma live em 720p gasta uns 1 a 2 GB por hora) e tire o Termux da economia de
+bateria (Configurações do Android → Apps → Termux → Bateria → Sem restrições).
+
 ## Bot de lives na nuvem, só pelo celular (Oracle → app)
 
 O bot roda num computador da Oracle que fica ligado 24 h (plano grátis), vigia a live, lê o chat, corta, e o

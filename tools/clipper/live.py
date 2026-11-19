@@ -60,7 +60,11 @@ DEFAULTS = {
     "limiar": 3.0,
     "qualidade": "best",
     "clip_oficial_twitch": False,
+    # how many lives may record at the same time (0 = no limit); a phone handles one
+    "max_simultaneos": 0,
 }
+
+RECORDING = threading.BoundedSemaphore(1000)  # replaced in main() by max_simultaneos
 
 
 TG = None  # Telegram delivery, when TELEGRAM_BOT_TOKEN is set
@@ -503,6 +507,11 @@ class Channel(threading.Thread):
                     log(self.name, "offline; checando de novo em 60 s")
                     self.stopped.wait(60)
                     continue
+                if not RECORDING.acquire(blocking=False):
+                    log(self.name, "ao vivo, mas outra live já está sendo gravada (limite de lives ao mesmo tempo)")
+                    self.stopped.wait(60)
+                    continue
+                self.holding = True
                 log(self.name, "AO VIVO: gravando buffer e lendo o chat")
                 if not self.live and TG:
                     TG.send(f"🔴 {self.name} entrou ao vivo. Estou vigiando.")
@@ -538,6 +547,9 @@ class Channel(threading.Thread):
                 if chat:
                     chat.stop.set()
                 self.stop_recorder()
+                if getattr(self, "holding", False):
+                    self.holding = False
+                    RECORDING.release()
 
 
     def end_live(self):
@@ -595,10 +607,14 @@ def main(argv=None):
     cfg = load_config({"mode": "gaming"})
     if cfg["layout"] == "auto":
         cfg["layout"] = "pip"  # live clips: webcam small in the corner (videos use the stacked layout)
+    global RECORDING
+    if int(opts.get("max_simultaneos") or 0) > 0:
+        RECORDING = threading.BoundedSemaphore(int(opts["max_simultaneos"]))
     lock = threading.Lock()
     workers = [Channel(c, opts, cfg, lock) for c in chans]
+    # APP_HOST=127.0.0.1 on a phone (Termux): only apps on the same phone can fetch the clips
     clipserver.serve(os.environ.get("APP_CODE", "").strip(), int(os.environ.get("APP_PORT", "8080")),
-                     status=lambda: [w.describe() for w in workers])
+                     status=lambda: [w.describe() for w in workers], host=os.environ.get("APP_HOST", "0.0.0.0"))
     global TG
     tg = Telegram(status=lambda: "\n".join(w.describe() for w in workers))
     if tg.enabled:

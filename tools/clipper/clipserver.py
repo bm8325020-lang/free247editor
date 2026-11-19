@@ -51,7 +51,7 @@ def _public(c):
     return {k: c[k] for k in ("id", "channel", "title", "caption", "created", "bytes")}
 
 
-def serve(code, port=8080, status=lambda: []):
+def serve(code, port=8080, status=lambda: [], host="0.0.0.0"):
     """Run in a background thread. Refuses to start without a code of at least 8 characters."""
     if code in ("TROQUE_AQUI", "invente_um_codigo_secreto"):
         print("[servidor] APP_CODE ainda é o exemplo do script: troque por uma senha sua. Servidor de clipes desligado.",
@@ -97,7 +97,7 @@ def serve(code, port=8080, status=lambda: []):
                 return None
             return self._send(404, {"error": "não existe"})
 
-    srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    srv = ThreadingHTTPServer((host, port), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    print(f"[servidor] entregando clipes para o app na porta {port}", flush=True)
+    print(f"[servidor] entregando clipes para o app em {host}:{port}", flush=True)
     return srv
