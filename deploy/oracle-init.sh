@@ -3,9 +3,9 @@
 # "Script de inicialização" (cloud-init) ao criar a máquina. Ele instala tudo e liga o bot sozinho.
 #
 # ===================== PREENCHA SÓ ESTA PARTE =====================
-CANAL="nome_do_canal"                 # canal da Twitch, só o nome (o que vem depois de twitch.tv/)
+CANAIS="nome_do_canal outro_canal"    # canais da Twitch separados por espaço (o que vem depois de twitch.tv/)
 AUTORIZACAO="de onde vem a permissão"  # ex.: "campanha de clipping X" ou "regra de clipping do streamer"
-CREDITOS="@nome_do_streamer"           # vai na legenda: "Créditos: @..."
+CREDITOS=""                            # vazio = cada clipe credita o próprio canal ("Créditos: @canal")
 HASHTAGS="#cortes #clips"
 APP_CODE="invente_um_codigo_secreto"     # mínimo 8 caracteres; o mesmo vai no app (Configurações → Servidor)
 TELEGRAM_BOT_TOKEN=""                  # opcional: os clipes também chegam no Telegram
@@ -35,12 +35,13 @@ python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r tools/clipper/requirements.txt
 
-CANAL="$CANAL" AUTORIZACAO="$AUTORIZACAO" CREDITOS="$CREDITOS" HASHTAGS="$HASHTAGS" LIMIAR="$LIMIAR" \
+CANAIS="$CANAIS" AUTORIZACAO="$AUTORIZACAO" CREDITOS="$CREDITOS" HASHTAGS="$HASHTAGS" LIMIAR="$LIMIAR" \
 python3 - <<'PY'
 import json, os
-json.dump({"canais": [{"plataforma": "twitch", "canal": os.environ["CANAL"].strip().lstrip("@").lower(),
-                       "autorizacao": os.environ["AUTORIZACAO"], "ativo": True}],
-           "creditos": os.environ["CREDITOS"], "hashtags": os.environ["HASHTAGS"],
+canais = [c.strip().lstrip("@").lower() for c in os.environ["CANAIS"].replace(",", " ").split() if c.strip()]
+json.dump({"canais": [{"plataforma": "twitch", "canal": c, "autorizacao": os.environ["AUTORIZACAO"], "ativo": True,
+                       "creditos": os.environ["CREDITOS"].strip() or "@" + c} for c in canais],
+           "hashtags": os.environ["HASHTAGS"],
            "limiar": float(os.environ["LIMIAR"])},
           open("live-canais.json", "w"), ensure_ascii=False, indent=2)
 PY
