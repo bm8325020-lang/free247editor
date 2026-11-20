@@ -69,7 +69,7 @@ DEFAULTS = {
     # lives without chat: every N seconds the AI hears the last stretch and says whether it holds a clip (0 = off).
     # Uses the free Groq plan: at most groq_por_hora / groq_por_dia seconds of audio
     "escuta_segundos": 120,
-    "nota_escuta": 60,  # the manual: under 60 is normally not selected
+    "nota_escuta": 0,  # every stretch the AI analyses becomes a clip (the grade sorts them in the app)
     "groq_por_hora": 5400,
     "groq_por_dia": 24000,
     # Gemini (real eyes and ears: it watches a 360p video of each stretch with its sound). Free plan: a daily cap
@@ -642,11 +642,18 @@ class Channel(threading.Thread):
             n = out.count("scene_score")
             usual = sorted(self.motion)[len(self.motion) // 2] if len(self.motion) >= 12 else 1
             self.motion.append(n)
-            if (n >= max(4, usual + 3) and not getattr(self, "listening", False)
-                    and time.time() - getattr(self, "last_listen", 0) > 40 and len(self.motion) >= 12):
-                log(self.name, f"a tela agitou ({n} mudanças bruscas em 10 s): a IA vai olhar agora")
-                self.last_listen = 0
-                self.motion_alarm = time.time()
+            if n >= max(4, usual + 3) and len(self.motion) >= 12:
+                # the screen went wild: that IS the clip. The AI does not get a veto here: it only names it,
+                # grades it and finds the exact cut around it
+                peak = float(r[1]) + 5
+                if time.time() - self.last_clip < float(self.opts.get("intervalo_agito", 45)):
+                    continue
+                if self.already_clipped(peak - self.opts["antes"], peak + self.opts["depois"]):
+                    continue
+                self.last_clip = time.time()
+                self.pending.append({"peak": peak, "end": peak + self.opts["depois"], "back": 0, "chat_z": 0.0,
+                                     "audio_z": 0.0, "wall": time.time(), "motion": n})
+                log(self.name, f"a tela agitou muito ({n} mudanças bruscas em 10 s): CLIPANDO")
 
     def maybe_listen(self):
         """Without chat, a loud moment is a poor sign of a clip (a story told calmly has no spike): every couple of
@@ -740,13 +747,15 @@ class Channel(threading.Thread):
                 self.heard_until = (start + end) / 2
                 self.last_listen = time.time() - float(self.opts.get("escuta_segundos", 120)) + 60
                 log(self.name, f"a IA acha que algo está se formando: {v.get('event', '')[:90]}")
-            if not v or "start" not in v:
+            if not v:
                 return
-            bar = int(self.opts.get("nota_escuta", 60))
-            if not v["clip"] or v["score"] < bar:
-                log(self.name, f"{how} os últimos {length:.0f} s: nada que vire clipe (nota {v['score']})")
-                return
-            if time.time() - self.last_clip < 45:
+            if "start" not in v:  # no span given: the middle of the stretch
+                v["start"], v["end"] = max(0.0, length / 2 - 30), min(length, length / 2 + 30)
+            # everything the AI analyses becomes a clip (the owner's rule): the AI only picks the best part of the
+            # stretch, names it and grades it. "nota_escuta" (0 by default) brings a minimum back if wanted
+            bar = int(self.opts.get("nota_escuta", 0))
+            if v["score"] < bar:
+                log(self.name, f"{how} os últimos {length:.0f} s: nota {v['score']}, abaixo do mínimo {bar}")
                 return
             self.last_clip = time.time()
             if self.already_clipped(t0 + v["start"], t0 + v["end"]):
@@ -757,8 +766,7 @@ class Channel(threading.Thread):
             self.pending.append({"peak": t0 + v["start"] + self.opts["antes"], "end": t0 + v["end"], "back": 0,
                                  "chat_z": 0.0, "audio_z": 0.0, "wall": time.time(), "verdict": v,
                                  "span_abs": (t0 + v["start"], t0 + v["end"])})
-            log(self.name, f"a IA {'assistiu e achou' if how == 'assisti' else 'ouviu'} um momento (nota {v['score']}): "
-                           f"{v['why'][:110]}")
+            log(self.name, f"{how}: CLIPANDO o melhor pedaço (nota {v['score']}): {v['why'][:100]}")
         except Exception as e:
             log(self.name, f"escuta falhou: {str(e)[:150]}")
         finally:
@@ -818,6 +826,8 @@ class Channel(threading.Thread):
     def render(self, src, offset, p, folder, work, stamp):
         info = probe(src)
         cfg = dict(self.cfg)
+        # many clips now: the bot's own version is a quick one (the app renders it again from the raw cut)
+        cfg["preset"] = self.opts.get("preset_bot", "veryfast")
         peak = p["peak"] - offset
         end = p["end"] - offset
         a0, b0 = max(0.0, peak - self.opts["antes"]), min(info["duration"], end)
@@ -869,7 +879,9 @@ class Channel(threading.Thread):
         if not p.get("verdict"):
             self.remember(verdict)
         score, why = None, ""
-        if p.get("verdict") and p.get("span_abs"):
+        if p.get("motion"):
+            pass  # cut around the agitation itself; only the exact-cut look below may move its edges
+        elif p.get("verdict") and p.get("span_abs"):
             # chosen by the listener: its span, in this window's seconds
             a, b = snap(words, p["span_abs"][0] - offset, p["span_abs"][1] - offset, info["duration"], cfg)
             a, b = cap_length(a, b, (a + b) / 2, 95)
