@@ -69,7 +69,7 @@ DEFAULTS = {
     # lives without chat: every N seconds the AI hears the last stretch and says whether it holds a clip (0 = off).
     # Uses the free Groq plan: at most groq_por_hora / groq_por_dia seconds of audio
     "escuta_segundos": 120,
-    "nota_escuta": 65,
+    "nota_escuta": 60,  # the manual: under 60 is normally not selected
     "groq_por_hora": 5400,
     "groq_por_dia": 24000,
     # wipe the Termux screen every N minutes (0 = never) and print a summary; the full log stays in bot.log
@@ -319,6 +319,7 @@ class Channel(threading.Thread):
         self.live_since = None
         self.rank = 0  # set by main(): position in the list
         self.context = collections.deque(maxlen=8)  # one-line summaries of the live so far, for the AI
+        self.made_notes = collections.deque(maxlen=20)  # the clips made from this live, so the AI does not repeat them
         # the same streamer on several platforms shares one "pessoa": only one of those lives records
         self.person = str(spec.get("pessoa") or f"{self.platform}:{self.name}").lower()
 
@@ -578,17 +579,20 @@ class Channel(threading.Thread):
         start = max(getattr(self, "heard_until", 0) - 15, now - every - 15)
         if now - start < 60:
             return
-        if not groq_budget_ok(now - start, self.opts):
+        hear = groq_budget_ok(now - start, self.opts)
+        if not hear:
+            # no free audio minutes left this hour: keep watching the screen (frames only), a bit less often
+            if not self.chat_silent() or time.time() - getattr(self, "last_listen", 0) < every * 1.5:
+                return
             global _budget_warned
             if time.time() - _budget_warned > 1800:
                 _budget_warned = time.time()
-                log("ia", "o limite grátis do Groq desta hora acabou: as lives sem chat voltam a ser clipadas pelo "
-                          "som até a hora virar")
-            return
+                log("ia", "o limite grátis de áudio do Groq desta hora acabou: a IA continua olhando a tela (sem ouvir) "
+                          "até a hora virar")
         self.listening, self.last_listen = True, time.time()
-        threading.Thread(target=self.listen, args=(start, now), daemon=True).start()
+        threading.Thread(target=self.listen, args=(start, now, hear), daemon=True).start()
 
-    def listen(self, start, end):
+    def listen(self, start, end, hear=True):
         try:
             segs = [s for s in list(self.segments) if s["end"] > start and s["start"] < end and s["path"].exists()]
             if not segs:
@@ -602,23 +606,33 @@ class Channel(threading.Thread):
                 return
             try:
                 info = probe(src)
-                words = transcribe_ranges(src, [(0.0, info["duration"])], dict(self.cfg), work / "words.json")["words"]
-                groq_spent(info["duration"])
+                words = []
+                if hear:
+                    words = transcribe_ranges(src, [(0.0, info["duration"])], dict(self.cfg), work / "words.json")["words"]
+                    groq_spent(info["duration"])
                 self.heard_until = end
-                if len(words) < 8:  # nobody talking: nothing to judge from the speech
-                    return
+                # little or no talk is no reason to skip: a silent chase or crash is judged from the screen alone
+                timed = aigate.timed_lines(words) if len(words) >= 8 else [
+                    "[0] (quase ninguém falando: julgue pelas imagens)" if hear else "[0] (áudio não analisado: julgue pelas imagens)"]
                 # with chat, what people typed during this stretch (reactions only: no commands, no bots)
                 since = time.time() - info["duration"] - 20
                 heard_chat = [t for w, wt, t in self.chat.copy() if w >= since and wt > 0][-80:]
-                v = aigate.review(self.name, "", heard_chat, timed=aigate.timed_lines(words), peak=info["duration"] / 2,
-                                  duration=info["duration"], frames=grab_frames(src, info["duration"], work, n=4),
-                                  context=list(self.context))
+                # the eyes: a frame about every 10 s across the stretch
+                n_frames = max(6, min(14, int(info["duration"] / 10)))
+                v = aigate.review(self.name, "", heard_chat, timed=timed, peak=info["duration"] / 2,
+                                  duration=info["duration"], frames=grab_frames(src, info["duration"], work, n=n_frames),
+                                  context=list(self.context), made=list(self.made_notes))
                 self.remember(v)
+                if v and v.get("developing"):
+                    # something is building up: look again in a minute, overlapping this stretch
+                    self.heard_until = (start + end) / 2
+                    self.last_listen = time.time() - float(self.opts.get("escuta_segundos", 120)) + 60
+                    log(self.name, f"a IA acha que algo está se formando: {v.get('event', '')[:90]}")
             finally:
                 src.unlink(missing_ok=True)
             if not v or "start" not in v:
                 return
-            bar = int(self.opts.get("nota_escuta", 65))
+            bar = int(self.opts.get("nota_escuta", 60))
             if not v["clip"] or v["score"] < bar:
                 log(self.name, f"ouvi os últimos {info['duration']:.0f} s: nada que vire clipe (nota {v['score']})")
                 return
@@ -629,8 +643,11 @@ class Channel(threading.Thread):
             if self.already_clipped(t0 + v["start"], t0 + v["end"]):
                 log(self.name, "a IA ouviu um momento que já virou clipe: não repito")
                 return
+            # the listener's judgement travels with the moment: the cut uses its grade, span and title (judging the
+            # same moment twice gave 74 and then 40)
             self.pending.append({"peak": t0 + v["start"] + self.opts["antes"], "end": t0 + v["end"], "back": 0,
-                                 "chat_z": 0.0, "audio_z": 0.0, "wall": time.time()})
+                                 "chat_z": 0.0, "audio_z": 0.0, "wall": time.time(), "verdict": v,
+                                 "span_abs": (t0 + v["start"], t0 + v["end"])})
             log(self.name, f"a IA ouviu um momento (nota {v['score']}): {v['why'][:110]}")
         except Exception as e:
             log(self.name, f"escuta falhou: {str(e)[:150]}")
@@ -719,12 +736,17 @@ class Channel(threading.Thread):
         # bursts about something else (giveaway, subs) are dropped before spending time on the render.
         said = " ".join(w["text"] for w in words if a <= w["start"] < b)
         chat_lines = [t for w, wt, t in self.chat.copy() if p["wall"] - 25 <= w <= p["wall"] + 12 and wt > 0]
-        verdict = aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
+        verdict = p.get("verdict") or aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
                                 duration=info["duration"], frames=grab_frames(src, info["duration"], work),
-                                context=list(self.context))
-        self.remember(verdict)
+                                context=list(self.context), made=list(self.made_notes))
+        if not p.get("verdict"):
+            self.remember(verdict)
         score, why = None, ""
-        if verdict is not None and "start" in verdict:
+        if p.get("verdict") and p.get("span_abs"):
+            # chosen by the listener: its span, in this window's seconds
+            a, b = snap(words, p["span_abs"][0] - offset, p["span_abs"][1] - offset, info["duration"], cfg)
+            a, b = cap_length(a, b, (a + b) / 2, 95)
+        elif verdict is not None and "start" in verdict:
             # the AI read the whole window and points at where the story really starts and ends
             a, b = snap(words, verdict["start"], verdict["end"], info["duration"], cfg)
             a, b = cap_length(a, b, (a + b) / 2, 95)
@@ -781,7 +803,16 @@ class Channel(threading.Thread):
             raw = None
         clipserver.add_clip(folder / name, self.name, title, caption, score, why,  # the phone app picks it up
                             raw=raw, raw_start=meta.get("start", a), raw_end=meta.get("end", b),
-                            category=(verdict or {}).get("category", ""))
+                            category=(verdict or {}).get("category", ""),
+                            info={  # what a clipper logs for each cut
+                                "streamer": self.name, "fonte": self.url, "data": datetime.now().strftime("%Y-%m-%d"),
+                                "inicio": datetime.fromtimestamp(p["wall"] - (end - a)).strftime("%H:%M:%S"),
+                                "fim": datetime.fromtimestamp(p["wall"] - (end - b)).strftime("%H:%M:%S"),
+                                "duracao": round(b - a, 1), "acontecimento": (verdict or {}).get("event", ""),
+                                "reacao": (verdict or {}).get("reaction", ""), "descricao": (verdict or {}).get("summary", ""),
+                                "transcricao": " ".join(w["text"] for w in words if a <= w["start"] < b)[:600]})
+        self.made_notes.append(f"{datetime.now():%H:%M} {title}: {(verdict or {}).get('event') or why}"[:160]
+                               + (f" (nota {score})" if score is not None else ""))
         if TG:
             TG.send_clip(folder / name, caption)
 
@@ -953,7 +984,7 @@ def grab_frames(src, duration, work, n=6):
         t = duration * (i + 0.5) / n
         f = Path(work) / f"eye-{os.getpid()}-{threading.get_ident()}-{i}.jpg"
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1",
-                        "-vf", "scale=384:-2", "-q:v", "6", str(f)], check=False)
+                        "-vf", f"scale={384 if n <= 8 else 320}:-2", "-q:v", "6", str(f)], check=False)
         if f.exists():
             out.append((t, f.read_bytes()))
             f.unlink(missing_ok=True)

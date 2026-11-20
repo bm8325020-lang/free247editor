@@ -34,9 +34,9 @@ def _frames_note(frames):
     if not frames:
         return ""
     when = ", ".join(f"{t:.0f}" for t, _ in frames)
-    return (f"\nThe images attached are frames of the stream at seconds {when} (same clock as the transcript). "
-            "Judge the visuals too: a crash, a fall, a chase, something absurd on screen can be the clip even with "
-            "little talk.\n")
+    return (f"\nThe images attached are frames of the stream at seconds {when} (same clock as the transcript), "
+            "about every 10 s: follow what happens on screen across them. A crash, a fall, a chase, something absurd "
+            "can be the clip even with little or no talk. Say only what the frames and the speech actually show.\n")
 
 
 def _window(timed, peak, duration):
@@ -82,7 +82,8 @@ def playbook():
 CATEGORIES = ("engraçado", "épico", "fail", "raiva", "susto", "história", "polêmica", "fofo", "absurdo")
 
 
-def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None, context=None):
+def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None, context=None,
+           made=None):
     """{"clip", "score", "title", "why", "category", "caption", "summary", "start"?, "end"?}, or None when no AI is
     available (keep the clip). With `timed` (lines of the whole recorded window, seconds from its start) the AI also
     picks where the clip should start and end, so a story that started earlier or ended later is not cut off.
@@ -94,6 +95,7 @@ def review(channel, said, chat_lines, language="pt", timed=None, peak=None, dura
         return None
     chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat available: judge from the speech and the images)"
     earlier = "\n".join(f"- {c}" for c in (context or [])[-6:]) or "(start of the live)"
+    done = "\n".join(f"- {c}" for c in (made or [])[-12:]) or "(none yet)"
     prompt = f"""{playbook()}
 
 ---
@@ -102,6 +104,9 @@ You are watching {channel}'s live now. Judge this stretch exactly as the manual 
 What happened earlier in this live (for callbacks and running jokes):
 {earlier}
 
+Clips already made from this live (do not repeat the same kind of moment unless clearly better):
+{done}
+
 {_window(timed, peak, duration) if timed else "What the streamer said in the clip:" + chr(10) + (said.strip() or "(nothing understandable)")}
 
 What the chat wrote right then:
@@ -109,12 +114,16 @@ What the chat wrote right then:
 {_frames_note(frames)}
 Answer with ONLY a JSON object:
 {{"clip": true, "score": 0-100, "title": "...", "why": "one short sentence", "category": "one of {"/".join(CATEGORIES)}",
- "caption": "...", "summary": "..."{', "start": seconds, "end": seconds' if timed else ''}}}
+ "caption": "...", "summary": "...", "event": "...", "reaction": "...", "developing": false{', "start": seconds, "end": seconds' if timed else ''}}}
 - "title" is a hook a viewer would click, written from what was said (max 6 words, in {language}, no hashtags, no
   emoji), even when the score is low. Never describe the clip's quality in it ("sem contexto", "conversa
   aleatória", "nada acontece"): that goes in "why".
 - "caption": the post text in {language}: one short punchy line plus 3 hashtags that fit this moment.
 - "summary": one sentence of what is going on in the live right now (it becomes context for the next judgement).
+- "event": the main thing that happens, in a few words, only what the images and the speech show (never invent).
+- "reaction": how the streamer reacts (laughs, screams, despair, silence…), or "" if there is none.
+- "developing": true when something is building up and may become a clip in the next minutes (cops provoked,
+  a fight starting, a risky stunt coming), even if this stretch is not a clip yet.
 - "start"/"end": start right before the hook line (no dead air before it), end after the reaction settles."""
     order = ([(m, frames) for m in VISION] + [(m, None) for m in MODELS]) if frames else [(m, None) for m in MODELS]
     for model, imgs in order:
@@ -141,7 +150,9 @@ Answer with ONLY a JSON object:
                     "title": title, "why": str(d.get("why", "")).strip(),
                     "category": cat if cat in CATEGORIES else "",
                     "caption": str(d.get("caption", "")).strip()[:300],
-                    "summary": str(d.get("summary", "")).strip()[:200], **span}
+                    "summary": str(d.get("summary", "")).strip()[:200],
+                    "event": str(d.get("event", "")).strip()[:160], "reaction": str(d.get("reaction", "")).strip()[:120],
+                    "developing": bool(d.get("developing")), **span}
         except Exception:
             continue
     return None
