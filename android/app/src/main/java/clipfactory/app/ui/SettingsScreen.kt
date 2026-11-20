@@ -121,6 +121,49 @@ fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
                 }
             }
             Card {
+                // posting by itself to Instagram (official API, with a veto before each post)
+                var ap by remember { mutableStateOf(clipfactory.app.AutoPost.config(ctx)) }
+                var slots by remember { mutableStateOf(clipfactory.app.AutoPost.slotsText(ctx)) }
+                var igToken by remember { mutableStateOf("") }
+                var igMsg by remember { mutableStateOf("") }
+                fun saveAp(c: clipfactory.app.AutoPost.Config, sl: String = slots) {
+                    clipfactory.app.AutoPost.save(ctx, c.enabled, c.minScore, c.perDay, sl)
+                    ap = clipfactory.app.AutoPost.config(ctx)
+                }
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionTitle("Postar sozinho no Instagram", "Só os clipes do bot com nota alta, nos horários escolhidos. " +
+                        "30 min antes chega um aviso com Cancelar. TikTok continua em um toque.")
+                    if (ap.connected) {
+                        Text("Conectado: @${ap.username}", color = C.good, style = MaterialTheme.typography.bodyMedium)
+                        Toggle("Postar sozinho", ap.enabled) { saveAp(ap.copy(enabled = it)) }
+                        Text("Nota mínima: ${ap.minScore}", color = C.text, style = MaterialTheme.typography.bodyMedium)
+                        Slider(ap.minScore.toFloat(), { saveAp(ap.copy(minScore = (it / 5).toInt() * 5)) }, valueRange = 60f..95f,
+                            colors = sliderColors())
+                        Text("Até ${ap.perDay} post(s) por dia", color = C.text, style = MaterialTheme.typography.bodyMedium)
+                        Slider(ap.perDay.toFloat(), { saveAp(ap.copy(perDay = it.toInt())) }, valueRange = 1f..8f, steps = 6,
+                            colors = sliderColors())
+                        Field("Horários (ex.: 12:30, 18:30, 21:30)", slots) { slots = it; saveAp(ap, it) }
+                        androidx.compose.material3.TextButton({ clipfactory.app.AutoPost.disconnect(ctx); ap = clipfactory.app.AutoPost.config(ctx) }) {
+                            Text("Desconectar", color = C.bad)
+                        }
+                    } else {
+                        Field("Chave da Meta (Graph API Explorer)", igToken, secret = true,
+                            hint = "Permissões: instagram_basic, instagram_content_publish, pages_show_list, pages_read_engagement") { igToken = it }
+                        SoftButton("Conectar Instagram", icon = Icons.Filled.Wifi) {
+                            igMsg = "Conectando…"
+                            scope.launch {
+                                igMsg = withContext(Dispatchers.IO) {
+                                    runCatching { clipfactory.app.AutoPost.connect(ctx, igToken) }.getOrElse { "Falhou: ${it.message}" }
+                                }
+                                igToken = ""
+                                ap = clipfactory.app.AutoPost.config(ctx)
+                            }
+                        }
+                    }
+                    if (igMsg.isNotEmpty()) Text(igMsg, color = C.muted, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SectionTitle("Postagem", "Vai na legenda copiada ao postar.")
                     Field("Créditos (ex.: @paulinholoko)", opt.credit) { set(opt.copy(credit = it)) }

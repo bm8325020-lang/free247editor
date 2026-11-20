@@ -70,5 +70,7 @@
             android:name=".LiveCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+        <!-- the "Cancelar" / "Postar agora" buttons of the auto-post notification -->
+        <receiver android:name=".AutoPost$Receiver" android:exported="false" />
     </application>
 </manifest>

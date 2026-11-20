@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ProjectStore.load(this)
         ServerSync.schedule(this) // keeps the 15-min check running when a server is set
+        Thread { runCatching { AutoPost.tick(this) } }.start()
         // bot clips waiting to be rendered with the app's layout (Android may refuse to start that from the background)
         ProjectStore.projects.value.firstOrNull { p -> p.status == "rendering" && p.clips.any { it.status == "pending" } }
             ?.let { runCatching { ClipService.render(this, it.id, emptyList()) } }

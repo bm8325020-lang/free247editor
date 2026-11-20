@@ -237,6 +237,7 @@ object ServerSync {
     class Worker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
         override suspend fun doWork(): androidx.work.ListenableWorker.Result {
             sync(applicationContext)
+            runCatching { AutoPost.tick(applicationContext) } // the Instagram queue rides the same 15-minute check
             return androidx.work.ListenableWorker.Result.success()
         }
     }
