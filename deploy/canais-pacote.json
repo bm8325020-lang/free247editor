@@ -1,5 +1,5 @@
 {
-  "versao": 4,
+  "versao": 5,
   "nota": "Pacote de canais aplicado pelo bot ao ligar (live.py), uma vez por versão. 'pessoa' junta os canais do mesmo streamer: se ele estiver ao vivo na Twitch e no YouTube ao mesmo tempo, grava só um (o de cima). A ordem é a prioridade quando o limite de lives ao mesmo tempo enche. Canais que você remover não voltam. Kick: sem leitura do chat, detecta pelo áudio + IA.",
   "canais": [
     {
@@ -68,6 +68,6 @@
     }
   ],
   "opcoes": {
-    "max_simultaneos": 1
+    "max_simultaneos": 3
   }
 }
