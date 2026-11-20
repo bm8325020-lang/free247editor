@@ -36,7 +36,7 @@ from .media import probe, slugify
 from .render import render_clip
 from .report import write_report
 from .telegram import Telegram, post_text
-from . import aigate, clipserver
+from . import aigate, clipserver, gemini
 from .transcribe import transcribe_ranges
 
 SEG = 10  # seconds per recorded segment
@@ -72,6 +72,9 @@ DEFAULTS = {
     "nota_escuta": 60,  # the manual: under 60 is normally not selected
     "groq_por_hora": 5400,
     "groq_por_dia": 24000,
+    # Gemini (real eyes and ears: it watches a 360p video of each stretch with its sound). Free plan: a daily cap
+    "olhos_video": True,
+    "gemini_por_dia": 900,
     # wipe the Termux screen every N minutes (0 = never) and print a summary; the full log stays in bot.log
     "limpar_tela_minutos": 15,
     "qualidade": "best",
@@ -362,13 +365,60 @@ class Channel(threading.Thread):
         self.sl = subprocess.Popen(sl, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.proc = subprocess.Popen(ff, stdin=self.sl.stdout, stderr=subprocess.DEVNULL)
         self.sl.stdout.close()
+        self.start_eyes(sl)
         self.segments, self.loud = [], []
         self.seen_segments = set()  # every segment ever listed, also the ones already dropped from the buffer
         self.spans = []  # stream seconds of the clips made from this recording (no clip twice)
         self.seg_count = 0
 
+    def start_eyes(self, sl):
+        """The AI's eyes and ears: a light copy of the live (360p) recorded alongside, so Gemini can watch a video
+        of each stretch with its sound. Re-encoding the 1080p recording on the phone every couple of minutes would
+        be far too heavy; a 360p copy costs ~1 Mbps and almost no CPU."""
+        self.eyes_sl = self.eyes_proc = None
+        if self.simulated or not gemini.available() or not self.opts.get("olhos_video", True):
+            return
+        eyes = self.work / "olhos"
+        eyes.mkdir(parents=True, exist_ok=True)
+        esl = sl[:-1] + ["360p,480p,360p30,480p30,worst"]
+        eff = ["ffmpeg", "-v", "error", "-i", "pipe:0", "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-f", "segment",
+               "-segment_time", str(SEG), "-segment_format", "mpegts", "-reset_timestamps", "0",
+               "-segment_list", str(eyes / "list.csv"), "-segment_list_type", "csv", str(eyes / "eye_%06d.ts")]
+        try:
+            self.eyes_sl = subprocess.Popen(esl, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self.eyes_proc = subprocess.Popen(eff, stdin=self.eyes_sl.stdout, stderr=subprocess.DEVNULL)
+            self.eyes_sl.stdout.close()
+        except OSError:
+            self.eyes_sl = self.eyes_proc = None
+
+    def eyes_video(self, start, end, out):
+        """A small MP4 (360p, 2 frames per second, mono sound) of stream seconds start..end from the light copy, and
+        the stream second where it begins; None when the light copy does not cover it."""
+        eyes = self.work / "olhos"
+        try:
+            rows = [r for r in csv.reader(open(eyes / "list.csv", newline="")) if len(r) >= 3]
+        except OSError:
+            return None
+        segs = [(eyes / r[0], float(r[1]), float(r[2])) for r in rows]
+        # drop what is far behind (the light copy has no buffer logic of its own)
+        for f, a, b in segs:
+            if b < end - 400:
+                f.unlink(missing_ok=True)
+        use = [(f, a, b) for f, a, b in segs if b > start and a < end and f.exists()]
+        if not use or use[-1][2] < end - 20:
+            return None
+        cut0 = max(0.0, start - use[0][1])
+        r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", "concat:" + "|".join(f.as_posix() for f, _, _ in use),
+                            "-ss", f"{cut0:.2f}", "-t", f"{end - start:.2f}", "-vf", "fps=2,scale=-2:360",
+                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-ac", "1", "-b:a", "48k",
+                            "-movflags", "+faststart", str(out)], capture_output=True)
+        if r.returncode != 0 or not out.exists() or out.stat().st_size > 15_000_000:
+            out.unlink(missing_ok=True)
+            return None
+        return max(start, use[0][1])
+
     def stop_recorder(self):
-        for p in (getattr(self, "sl", None), self.proc):
+        for p in (getattr(self, "sl", None), self.proc, getattr(self, "eyes_sl", None), getattr(self, "eyes_proc", None)):
             if p and p.poll() is None:
                 p.terminate()
         self.proc = None
@@ -567,7 +617,10 @@ class Channel(threading.Thread):
         every = float(self.opts.get("escuta_segundos", 120))
         if not every or getattr(self, "listening", False) or not self.segments:
             return
-        if not self.chat_silent():
+        watching = gemini.available(int(self.opts.get("gemini_por_dia", 900)))
+        if watching and not self.chat_silent():
+            every *= 1.5  # with chat, bursts also point at moments: watch a little less often
+        elif not self.chat_silent():
             # with chat, bursts already point at moments; but a big chat bursts at everything and calm stories get
             # no burst: listen too while the free Groq hour has plenty of room (lives without chat come first)
             if groq_hour_used() > float(self.opts.get("groq_por_hora", 5400)) * 0.35:
@@ -579,7 +632,7 @@ class Channel(threading.Thread):
         start = max(getattr(self, "heard_until", 0) - 15, now - every - 15)
         if now - start < 60:
             return
-        hear = groq_budget_ok(now - start, self.opts)
+        hear = watching or groq_budget_ok(now - start, self.opts)
         if not hear:
             # no free audio minutes left this hour: keep watching the screen (frames only), a bit less often
             if not self.chat_silent() or time.time() - getattr(self, "last_listen", 0) < every * 1.5:
@@ -599,56 +652,76 @@ class Channel(threading.Thread):
                 return
             work = self.work.parent / ".escuta"
             work.mkdir(parents=True, exist_ok=True)
-            src = work / f"escuta-{int(time.time())}.mp4"
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", "concat:" + "|".join(s["path"].as_posix() for s in segs),
-                            "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-fflags", "+genpts", str(src)], check=False)
-            if not src.exists():
-                return
-            try:
-                info = probe(src)
-                words = []
-                if hear:
-                    words = transcribe_ranges(src, [(0.0, info["duration"])], dict(self.cfg), work / "words.json")["words"]
-                    groq_spent(info["duration"])
-                self.heard_until = end
-                # little or no talk is no reason to skip: a silent chase or crash is judged from the screen alone
-                timed = aigate.timed_lines(words) if len(words) >= 8 else [
-                    "[0] (quase ninguém falando: julgue pelas imagens)" if hear else "[0] (áudio não analisado: julgue pelas imagens)"]
-                # with chat, what people typed during this stretch (reactions only: no commands, no bots)
-                since = time.time() - info["duration"] - 20
-                heard_chat = [t for w, wt, t in self.chat.copy() if w >= since and wt > 0][-80:]
-                # the eyes: a frame about every 10 s across the stretch
-                n_frames = max(6, min(14, int(info["duration"] / 10)))
-                v = aigate.review(self.name, "", heard_chat, timed=timed, peak=info["duration"] / 2,
-                                  duration=info["duration"], frames=grab_frames(src, info["duration"], work, n=n_frames),
-                                  context=list(self.context), made=list(self.made_notes))
-                self.remember(v)
-                if v and v.get("developing"):
-                    # something is building up: look again in a minute, overlapping this stretch
-                    self.heard_until = (start + end) / 2
-                    self.last_listen = time.time() - float(self.opts.get("escuta_segundos", 120)) + 60
-                    log(self.name, f"a IA acha que algo está se formando: {v.get('event', '')[:90]}")
-            finally:
-                src.unlink(missing_ok=True)
+            # with chat, what people typed during this stretch (reactions only: no commands, no bots)
+            since = time.time() - (end - start) - 20
+            heard_chat = [t for w, wt, t in self.chat.copy() if w >= since and wt > 0][-80:]
+            v, t0, length, how = None, segs[0]["start"], end - start, ""
+            # real eyes and ears: Gemini watches a video of the stretch with its sound
+            if gemini.available():
+                small = work / f"olhos-{int(time.time())}.mp4"
+                base = self.eyes_video(start, end, small)
+                if base is not None:
+                    try:
+                        length = probe(small)["duration"]
+                        v = gemini.review_video(self.name, small, length, heard_chat, context=list(self.context),
+                                                made=list(self.made_notes), peak=length / 2)
+                    finally:
+                        small.unlink(missing_ok=True)
+                    if v:
+                        t0, how = base, "assisti"
+                    elif not getattr(self, "said_gemini_error", False):
+                        self.said_gemini_error = True
+                        log(self.name, f"o Gemini não respondeu ({gemini.last_error()[:120]}): uso as fotos + a fala")
+            if v is None:
+                # fallback: frames about every 10 s + what was said
+                src = work / f"escuta-{int(time.time())}.mp4"
+                subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", "concat:" + "|".join(s["path"].as_posix() for s in segs),
+                                "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-fflags", "+genpts", str(src)], check=False)
+                if not src.exists():
+                    return
+                try:
+                    info = probe(src)
+                    length = info["duration"]
+                    words = []
+                    if hear and groq_budget_ok(length, self.opts):
+                        words = transcribe_ranges(src, [(0.0, length)], dict(self.cfg), work / "words.json")["words"]
+                        groq_spent(length)
+                    # little or no talk is no reason to skip: a silent chase or crash is judged from the screen alone
+                    timed = aigate.timed_lines(words) if len(words) >= 8 else [
+                        "[0] (quase ninguém falando: julgue pelas imagens)" if hear else "[0] (áudio não analisado: julgue pelas imagens)"]
+                    n_frames = max(6, min(14, int(length / 10)))
+                    v = aigate.review(self.name, "", heard_chat, timed=timed, peak=length / 2, duration=length,
+                                      frames=grab_frames(src, length, work, n=n_frames),
+                                      context=list(self.context), made=list(self.made_notes))
+                    how = "ouvi e olhei"
+                finally:
+                    src.unlink(missing_ok=True)
+            self.heard_until = end
+            self.remember(v)
+            if v and v.get("developing"):
+                # something is building up: look again in a minute, overlapping this stretch
+                self.heard_until = (start + end) / 2
+                self.last_listen = time.time() - float(self.opts.get("escuta_segundos", 120)) + 60
+                log(self.name, f"a IA acha que algo está se formando: {v.get('event', '')[:90]}")
             if not v or "start" not in v:
                 return
             bar = int(self.opts.get("nota_escuta", 60))
             if not v["clip"] or v["score"] < bar:
-                log(self.name, f"ouvi os últimos {info['duration']:.0f} s: nada que vire clipe (nota {v['score']})")
+                log(self.name, f"{how} os últimos {length:.0f} s: nada que vire clipe (nota {v['score']})")
                 return
             if time.time() - self.last_clip < 45:
                 return
-            t0 = segs[0]["start"]
             self.last_clip = time.time()
             if self.already_clipped(t0 + v["start"], t0 + v["end"]):
-                log(self.name, "a IA ouviu um momento que já virou clipe: não repito")
+                log(self.name, "a IA achou um momento que já virou clipe: não repito")
                 return
             # the listener's judgement travels with the moment: the cut uses its grade, span and title (judging the
             # same moment twice gave 74 and then 40)
             self.pending.append({"peak": t0 + v["start"] + self.opts["antes"], "end": t0 + v["end"], "back": 0,
                                  "chat_z": 0.0, "audio_z": 0.0, "wall": time.time(), "verdict": v,
                                  "span_abs": (t0 + v["start"], t0 + v["end"])})
-            log(self.name, f"a IA ouviu um momento (nota {v['score']}): {v['why'][:110]}")
+            log(self.name, f"a IA {'assistiu e achou' if how == 'assisti' else 'ouviu'} um momento (nota {v['score']}): "
+                           f"{v['why'][:110]}")
         except Exception as e:
             log(self.name, f"escuta falhou: {str(e)[:150]}")
         finally:
@@ -736,7 +809,24 @@ class Channel(threading.Thread):
         # bursts about something else (giveaway, subs) are dropped before spending time on the render.
         said = " ".join(w["text"] for w in words if a <= w["start"] < b)
         chat_lines = [t for w, wt, t in self.chat.copy() if p["wall"] - 25 <= w <= p["wall"] + 12 and wt > 0]
-        verdict = p.get("verdict") or aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
+        verdict = p.get("verdict")
+        if verdict is None and gemini.available(int(self.opts.get("gemini_por_dia", 900))):
+            # a chat burst or a loud second: Gemini watches the whole window with its sound before the cut
+            small = work / f"olhos-{stamp}.mp4"
+            base = self.eyes_video(offset, offset + info["duration"], small)
+            if base is not None:
+                try:
+                    v = gemini.review_video(self.name, small, probe(small)["duration"], chat_lines[-80:],
+                                            context=list(self.context), made=list(self.made_notes),
+                                            peak=peak - (base - offset))
+                finally:
+                    small.unlink(missing_ok=True)
+                if v:
+                    shift = base - offset  # Gemini's seconds -> this window's seconds
+                    if "start" in v:
+                        v["start"], v["end"] = v["start"] + shift, v["end"] + shift
+                    verdict = v
+        verdict = verdict or aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
                                 duration=info["duration"], frames=grab_frames(src, info["duration"], work),
                                 context=list(self.context), made=list(self.made_notes))
         if not p.get("verdict"):

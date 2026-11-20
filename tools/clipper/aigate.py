@@ -82,17 +82,8 @@ def playbook():
 CATEGORIES = ("engraçado", "épico", "fail", "raiva", "susto", "história", "polêmica", "fofo", "absurdo")
 
 
-def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None, context=None,
-           made=None):
-    """{"clip", "score", "title", "why", "category", "caption", "summary", "start"?, "end"?}, or None when no AI is
-    available (keep the clip). With `timed` (lines of the whole recorded window, seconds from its start) the AI also
-    picks where the clip should start and end, so a story that started earlier or ended later is not cut off.
-    frames: [(second, jpeg bytes)] from the same window: the AI sees what happened on screen, not only what was said
-    (a visual moment with little talk got a grade of 12). context: one-line summaries of what happened earlier in
-    this live, oldest first: callbacks and running jokes make sense only with them."""
-    key = os.environ.get("COARENA_API_KEY", "").strip()
-    if not key:
-        return None
+def build_prompt(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None,
+                 context=None, made=None, video=False):
     chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat available: judge from the speech and the images)"
     earlier = "\n".join(f"- {c}" for c in (context or [])[-6:]) or "(start of the live)"
     done = "\n".join(f"- {c}" for c in (made or [])[-12:]) or "(none yet)"
@@ -107,14 +98,14 @@ What happened earlier in this live (for callbacks and running jokes):
 Clips already made from this live (do not repeat the same kind of moment unless clearly better):
 {done}
 
-{_window(timed, peak, duration) if timed else "What the streamer said in the clip:" + chr(10) + (said.strip() or "(nothing understandable)")}
+{_video_note(peak, duration) if video else _window(timed, peak, duration) if timed else "What the streamer said in the clip:" + chr(10) + (said.strip() or "(nothing understandable)")}
 
 What the chat wrote right then:
 {chat}
 {_frames_note(frames)}
 Answer with ONLY a JSON object:
 {{"clip": true, "score": 0-100, "title": "...", "why": "one short sentence", "category": "one of {"/".join(CATEGORIES)}",
- "caption": "...", "summary": "...", "event": "...", "reaction": "...", "developing": false{', "start": seconds, "end": seconds' if timed else ''}}}
+ "caption": "...", "summary": "...", "event": "...", "reaction": "...", "developing": false{', "start": seconds, "end": seconds' if (timed or video) else ''}}}
 - "title" is a hook a viewer would click, written from what was said (max 6 words, in {language}, no hashtags, no
   emoji), even when the score is low. Never describe the clip's quality in it ("sem contexto", "conversa
   aleatória", "nada acontece"): that goes in "why".
@@ -125,34 +116,63 @@ Answer with ONLY a JSON object:
 - "developing": true when something is building up and may become a clip in the next minutes (cops provoked,
   a fight starting, a risky stunt coming), even if this stretch is not a clip yet.
 - "start"/"end": start right before the hook line (no dead air before it), end after the reaction settles."""
+    return prompt
+
+
+def _video_note(peak, duration):
+    return (f"The attached VIDEO is this stretch of the live ({duration:.0f} s) WITH ITS AUDIO: watch it and listen to "
+            f"it from start to end, like a viewer would. Seconds below are seconds of this video. Something may have "
+            f"happened around second {peak:.0f}, but judge the whole video and pick its best moment.\n\n"
+            "Also choose where the clip should START and END (seconds of this video, 20 to 90 s long) so it holds "
+            "the whole moment: the natural beginning, the main event, and the reaction.")
+
+
+def parse(text, timed=True, duration=None):
+    """The model's JSON answer -> the verdict dict (None if unreadable)."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return None
+    d = json.loads(m.group(0))
+    title = str(d.get("title", "")).strip().strip('"')
+    span = {}
+    if timed and duration:
+        try:
+            st, en = float(d.get("start")), float(d.get("end"))
+            st, en = max(0.0, st), min(float(duration), en)
+            if 15 <= en - st <= 120:
+                span = {"start": st, "end": en}
+        except (TypeError, ValueError):
+            pass
+    if _VERDICT.search(title):  # a verdict, not a title: never burn it on the video
+        title = ""
+    cat = str(d.get("category", "")).strip().lower()
+    return {"clip": bool(d.get("clip")), "score": int(d.get("score", 0)),
+            "title": title, "why": str(d.get("why", "")).strip(),
+            "category": cat if cat in CATEGORIES else "",
+            "caption": str(d.get("caption", "")).strip()[:300],
+            "summary": str(d.get("summary", "")).strip()[:200],
+            "event": str(d.get("event", "")).strip()[:160], "reaction": str(d.get("reaction", "")).strip()[:120],
+            "developing": bool(d.get("developing")), **span}
+
+
+def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None, context=None,
+           made=None):
+    """{"clip", "score", "title", "why", "category", "caption", "summary", "start"?, "end"?}, or None when no AI is
+    available (keep the clip). With `timed` (lines of the whole recorded window, seconds from its start) the AI also
+    picks where the clip should start and end, so a story that started earlier or ended later is not cut off.
+    frames: [(second, jpeg bytes)] from the same window: the AI sees what happened on screen, not only what was said
+    (a visual moment with little talk got a grade of 12). context: one-line summaries of what happened earlier in
+    this live, oldest first: callbacks and running jokes make sense only with them."""
+    key = os.environ.get("COARENA_API_KEY", "").strip()
+    if not key:
+        return None
+    prompt = build_prompt(channel, said, chat_lines, language, timed, peak, duration, frames, context, made)
     order = ([(m, frames) for m in VISION] + [(m, None) for m in MODELS]) if frames else [(m, None) for m in MODELS]
     for model, imgs in order:
         try:
-            text = _ask(key, model, prompt, imgs)
-            m = re.search(r"\{.*\}", text, re.S)
-            if not m:
-                continue
-            d = json.loads(m.group(0))
-            title = str(d.get("title", "")).strip().strip('"')
-            span = {}
-            if timed and duration:
-                try:
-                    st, en = float(d.get("start")), float(d.get("end"))
-                    st, en = max(0.0, st), min(float(duration), en)
-                    if 15 <= en - st <= 120:
-                        span = {"start": st, "end": en}
-                except (TypeError, ValueError):
-                    pass
-            if _VERDICT.search(title):  # a verdict, not a title: never burn it on the video
-                title = ""
-            cat = str(d.get("category", "")).strip().lower()
-            return {"clip": bool(d.get("clip")), "score": int(d.get("score", 0)),
-                    "title": title, "why": str(d.get("why", "")).strip(),
-                    "category": cat if cat in CATEGORIES else "",
-                    "caption": str(d.get("caption", "")).strip()[:300],
-                    "summary": str(d.get("summary", "")).strip()[:200],
-                    "event": str(d.get("event", "")).strip()[:160], "reaction": str(d.get("reaction", "")).strip()[:120],
-                    "developing": bool(d.get("developing")), **span}
+            v = parse(_ask(key, model, prompt, imgs), timed=bool(timed), duration=duration)
+            if v:
+                return v
         except Exception:
             continue
     return None
