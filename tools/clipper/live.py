@@ -202,17 +202,28 @@ class YouTubeChat(threading.Thread):
         except ImportError:
             log("youtube", "sem leitor do chat (pip install chat-downloader): clipando só pelo áudio")
             return
+        got, started, upgraded = 0, time.time(), False
         while not self.stop.is_set():
             try:
-                for m in ChatDownloader().get_chat(self.url):
+                for m in ChatDownloader().get_chat(self.url, timeout=240):
                     if self.stop.is_set():
                         return
                     text = m.get("message") or ""
                     nick = (m.get("author") or {}).get("name", "")
                     self.sink(time.time(), message_weight(text, nick), text)
+                    if got == 0:
+                        log("youtube", "chat do YouTube chegando")
+                    got += 1
             except Exception as e:
-                log("youtube", f"chat reconnecting ({type(e).__name__}: {str(e)[:80]})")
-                time.sleep(10)
+                log("youtube", f"chat do YouTube falhou ({type(e).__name__}: {str(e)[:80]}); tentando de novo")
+            # nothing in 4 minutes on a live with viewers: YouTube changed something the reader depends on.
+            # Updating the reader once usually fixes it; otherwise the live is clipped by listening (no chat)
+            if got == 0 and time.time() - started > 230 and not upgraded:
+                upgraded = True
+                log("youtube", "o chat do YouTube não está chegando: atualizando o leitor (chat-downloader)")
+                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "chat-downloader"],
+                               capture_output=True)
+            time.sleep(10)
 
 
 def chat_onset(series, window=240, max_back=20):
@@ -371,6 +382,7 @@ class Channel(threading.Thread):
             if len(row) < 3 or row[0] in known:
                 continue
             known.add(row[0])
+            self.last_new_segment = time.time()
             seg = {"path": self.work / row[0], "start": float(row[1]), "end": float(row[2]), "wall": time.time()}
             self.segments.append(seg)
             self.add_loudness(seg)
@@ -559,7 +571,14 @@ class Channel(threading.Thread):
             return
         now = self.segments[-1]["end"]
         start = max(getattr(self, "heard_until", 0) - 15, now - every - 15)
-        if now - start < 60 or not groq_budget_ok(now - start, self.opts):
+        if now - start < 60:
+            return
+        if not groq_budget_ok(now - start, self.opts):
+            global _budget_warned
+            if time.time() - _budget_warned > 1800:
+                _budget_warned = time.time()
+                log("ia", "o limite grátis do Groq desta hora acabou: as lives sem chat voltam a ser clipadas pelo "
+                          "som até a hora virar")
             return
         self.listening, self.last_listen = True, time.time()
         threading.Thread(target=self.listen, args=(start, now), daemon=True).start()
@@ -810,7 +829,13 @@ class Channel(threading.Thread):
                     chat.start()
                 last_status = 0
                 yielded = None
+                self.last_new_segment = time.time()
                 while not self.stopped.is_set() and self.proc.poll() is None:
+                    # watchdog: the download can freeze without the programs ending (a dropped connection on the
+                    # phone): with no new piece for 90 s, start the recording again instead of waiting forever
+                    if time.time() - self.last_new_segment > 90:
+                        log(self.name, "a gravação travou (nada novo há 90 s): religando")
+                        break
                     if not self.pending and self.segments:
                         yielded = higher_waiting(self.rank, self.name)
                         if yielded:
@@ -881,6 +906,9 @@ def groq_budget_ok(seconds, opts):
     return hour + seconds <= float(opts.get("groq_por_hora", 5400)) and day + seconds <= float(opts.get("groq_por_dia", 24000))
 
 
+_budget_warned = 0.0
+
+
 def groq_hour_used():
     now = time.time()
     with _groq_lock:
@@ -916,6 +944,9 @@ def clear_screen(workers):
     for w in workers:
         if w.live:
             print("  " + w.describe(), file=sys.stderr)
+    used = groq_hour_used() / 60
+    print(f"  ouvido da IA (Groq grátis): {used:.0f} de {float(workers[0].opts.get('groq_por_hora', 5400)) / 60:.0f} min "
+          f"nesta hora" if workers else "", file=sys.stderr)
     off = [w.name for w in workers if not w.live]
     if off:
         print(f"  offline: {', '.join(off)}", file=sys.stderr)
