@@ -69,3 +69,15 @@ def test_no_burst_means_no_extra_going_back():
 
 def test_default_goes_back_three_seconds_and_is_configurable():
     assert live.DEFAULTS["volta_segundos"] == 3
+
+
+def test_priority_queue_lets_a_higher_channel_in():
+    from tools.clipper import live
+    live.WAITING.clear()
+    assert live.higher_waiting(2, "c") is None
+    live.WAITING["a"] = 0
+    assert live.higher_waiting(2, "c") == "a"      # a is above c: c yields
+    assert live.higher_waiting(0, "a") is None     # a never yields to itself
+    live.WAITING["d"] = 5
+    assert live.higher_waiting(2, "c") == "a"      # d is below c: does not count
+    live.WAITING.clear()

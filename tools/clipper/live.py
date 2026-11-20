@@ -67,6 +67,15 @@ DEFAULTS = {
 }
 
 RECORDING = threading.BoundedSemaphore(1000)  # replaced in main() by max_simultaneos
+# Channels that are live but not recording (the limit is full): name -> rank in the list (0 = top priority).
+# A live higher on the list takes the recorder from a lower one (once that one has no clip waiting to finish).
+WAITING = {}
+_waiting_lock = threading.Lock()
+
+
+def higher_waiting(rank, name):
+    with _waiting_lock:
+        return next((n for n, r in WAITING.items() if r < rank and n != name), None)
 
 
 TG = None  # Telegram delivery, when TELEGRAM_BOT_TOKEN is set
@@ -155,14 +164,19 @@ class YouTubeChat(threading.Thread):
         self.url, self.sink, self.stop = url, sink, threading.Event()
 
     def run(self):
-        from chat_downloader import ChatDownloader
+        try:
+            from chat_downloader import ChatDownloader
+        except ImportError:
+            log("youtube", "sem leitor do chat (pip install chat-downloader): clipando só pelo áudio")
+            return
         while not self.stop.is_set():
             try:
                 for m in ChatDownloader().get_chat(self.url):
                     if self.stop.is_set():
                         return
                     text = m.get("message") or ""
-                    self.sink(time.time(), message_weight(text), text)
+                    nick = (m.get("author") or {}).get("name", "")
+                    self.sink(time.time(), message_weight(text, nick), text)
             except Exception as e:
                 log("youtube", f"chat reconnecting ({type(e).__name__}: {str(e)[:80]})")
                 time.sleep(10)
@@ -253,6 +267,7 @@ class Channel(threading.Thread):
         self.cam_samples = collections.deque(maxlen=60)  # one frame every ~30 s of live, for webcam detection
         self.live = False
         self.live_since = None
+        self.rank = 0  # set by main(): position in the list
 
     # ---------- recording ----------
     def live_now(self):
@@ -268,7 +283,9 @@ class Channel(threading.Thread):
         self.work.mkdir(parents=True)
         sl = ["streamlink", "--stdout", "--twitch-disable-ads", "--hls-live-restart", self.url, self.opts["qualidade"]]
         if self.platform != "twitch":
+            # YouTube keeps hours of DVR: "restart" would record from the start of the live instead of now
             sl.remove("--twitch-disable-ads")
+            sl.remove("--hls-live-restart")
         ff = ["ffmpeg", "-v", "error", "-i", "pipe:0", "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-f", "segment",
               "-segment_time", str(SEG), "-segment_format", "mpegts", "-reset_timestamps", "0",
               "-segment_list", str(self.work / "list.csv"), "-segment_list_type", "csv", str(self.work / "seg_%06d.ts")]
@@ -536,14 +553,26 @@ class Channel(threading.Thread):
         while not self.stopped.is_set():
             try:
                 if not self.live_now():
+                    with _waiting_lock:
+                        WAITING.pop(self.name, None)
                     log(self.name, "offline; checando de novo em 60 s")
                     self.stopped.wait(60)
                     continue
-                if not RECORDING.acquire(blocking=False):
-                    log(self.name, "ao vivo, mas outra live já está sendo gravada (limite de lives ao mesmo tempo)")
-                    self.stopped.wait(60)
+                first = higher_waiting(self.rank, self.name)
+                if first or not RECORDING.acquire(blocking=False):
+                    with _waiting_lock:
+                        WAITING[self.name] = self.rank
+                    msg = (f"ao vivo, esperando a vez ({first} está mais acima na lista)" if first else
+                           "ao vivo, esperando: outra live já está sendo gravada (uma por vez)")
+                    if msg != getattr(self, "last_wait_msg", None):  # say it once, not every 15 s
+                        log(self.name, msg)
+                        self.last_wait_msg = msg
+                    self.stopped.wait(15)
                     continue
+                with _waiting_lock:
+                    WAITING.pop(self.name, None)
                 self.holding = True
+                self.last_wait_msg = None
                 log(self.name, "AO VIVO: gravando buffer e lendo o chat")
                 if not self.live and TG:
                     TG.send(f"🔴 {self.name} entrou ao vivo. Estou vigiando.")
@@ -557,7 +586,13 @@ class Channel(threading.Thread):
                     chat = YouTubeChat(self.url, self.chat_sink)
                 chat.start()
                 last_status = 0
+                yielded = None
                 while not self.stopped.is_set() and self.proc.poll() is None:
+                    if not self.pending and self.segments:
+                        yielded = higher_waiting(self.rank, self.name)
+                        if yielded:
+                            log(self.name, f"{yielded} entrou ao vivo e está mais acima na lista: passo a vez")
+                            break
                     self.poll_segments()
                     self.detect()
                     self.ready_pending()
@@ -569,6 +604,8 @@ class Channel(threading.Thread):
                                        f"{getattr(self, 'discarded', 0)} descartados pela IA")
                         last_status = time.time()
                     self.stopped.wait(1)
+                if yielded:
+                    continue
                 log(self.name, "a gravação parou (live acabou ou caiu); reconectando")
                 if not self.simulated and not self.live_now():
                     self.end_live()
@@ -645,6 +682,8 @@ def main(argv=None):
         RECORDING = threading.BoundedSemaphore(int(opts["max_simultaneos"]))
     lock = threading.Lock()
     workers = [Channel(c, opts, cfg, lock) for c in chans]
+    for i, w in enumerate(workers):
+        w.rank = i  # order in live-canais.json = priority when only some lives can record
     # APP_HOST=127.0.0.1 on a phone (Termux): only apps on the same phone can fetch the clips
     clipserver.serve(os.environ.get("APP_CODE", "").strip(), int(os.environ.get("APP_PORT", "8080")),
                      status=lambda: [w.describe() for w in workers], host=os.environ.get("APP_HOST", "0.0.0.0"))

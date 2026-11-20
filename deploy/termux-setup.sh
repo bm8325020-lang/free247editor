@@ -19,7 +19,7 @@ for p in python-opencv-python opencv-python python-opencv; do
 done
 if python -c "import cv2" 2>/dev/null; then echo "OpenCV ok: o clipe sai com a webcam separada."
 else echo "Sem OpenCV neste celular: o bot funciona igual, mas o clipe sai com a gameplay no meio (sem webcam separada)."; fi
-pip install --upgrade streamlink websocket-client >/dev/null 2>&1 || true
+pip install --upgrade streamlink websocket-client chat-downloader >/dev/null 2>&1 || true
 
 say "2/4 Baixando o bot…"
 # a internet do celular oscila: tenta algumas vezes antes de desistir
