@@ -12,8 +12,8 @@ android {
         applicationId = "com.free247.clipfactory"
         minSdk = 29
         targetSdk = 36
-        versionCode = 28
-        versionName = "3.15.0"
+        versionCode = 29
+        versionName = "3.16.0"
     }
 
     signingConfigs {

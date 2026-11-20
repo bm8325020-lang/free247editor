@@ -124,7 +124,7 @@ uniform float uOutAspect;
 uniform vec4 uPip;   // webcam window in the output (fractions, origin top-left)
 uniform float uRound;
 uniform vec2 uBand;    // picture-in-picture: the gameplay band (top, height; fractions of the output height)
-uniform float uCamOn;  // stacked layout: 0 while the webcam is off screen (the top keeps the blurred background)
+uniform float uCamOn;  // 0 while the webcam is off its spot: stacked keeps the blurred top, pip hides the corner
 uniform vec2 uTexel;   // one source pixel
 varying vec2 vTexSamplingCoord;
 
@@ -203,7 +203,7 @@ void main() {
       col = vec4(blurred(p).rgb * 0.5, 1.0);
     }
     vec2 q = (o - uPip.xy) / uPip.zw;
-    if (q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
+    if (uCamOn > 0.5 && q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
       vec2 size = uPip.zw * vec2(1080.0, 1920.0);          // window size in output pixels
       float bw = max(3.0, floor(size.x / 90.0));            // white border
       vec4 cam = camImg(uCam.xy + q * uCam.zw);

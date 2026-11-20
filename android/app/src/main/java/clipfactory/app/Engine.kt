@@ -291,7 +291,8 @@ object Engine {
         val overlay = if (events.isNotEmpty() || pc.edit.hook.isNotBlank())
             CaptionOverlay(ctx, events, pc.edit.hook, 3.0, cy, hy, pc.edit.style) else null
         val out = File(File(ctx.cacheDir, "render").apply { mkdirs() }, "${project.id}-$index.mp4")
-        val camOn = if (layout is Layout.Stack && det is Facecam) runCatching { frames.presence(det, info, c.start, c.end) }.getOrNull() else null
+        // the webcam can leave its spot (a camera-only scene, a menu): there the corner window would show the wall
+        val camOn = if ((layout is Layout.Stack || layout is Layout.Pip) && det is Facecam) runCatching { frames.presence(det, info, c.start, c.end) }.getOrNull() else null
         try {
             var attempt = 0 // a busy phone can fail to start the video encoder; try twice more
             while (true) {
