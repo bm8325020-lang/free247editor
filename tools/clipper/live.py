@@ -66,6 +66,12 @@ DEFAULTS = {
     "limiar_audio_sem_chat": 2.5,
     # ...and after this many minutes without a clip, the loudest moment of the last 3 minutes is clipped anyway
     "minutos_sem_clipe": 8,
+    # lives without chat: every N seconds the AI hears the last stretch and says whether it holds a clip (0 = off).
+    # Uses the free Groq plan: at most groq_por_hora / groq_por_dia seconds of audio
+    "escuta_segundos": 120,
+    "nota_escuta": 65,
+    "groq_por_hora": 5400,
+    "groq_por_dia": 24000,
     # wipe the Termux screen every N minutes (0 = never) and print a summary; the full log stays in bot.log
     "limpar_tela_minutos": 15,
     "qualidade": "best",
@@ -472,7 +478,8 @@ class Channel(threading.Thread):
                 self.recent_peaks = [(t, z) for t, z in getattr(self, "recent_peaks", []) if t > time.time() - 180]
                 self.recent_peaks.append((time.time(), az))
                 quiet_for = time.time() - max(self.last_clip, self.live_since or 0)
-                if (quiet_for >= 60 * float(self.opts.get("minutos_sem_clipe", 8)) and az >= 1.0
+                listening = time.time() - getattr(self, "last_listen", 0) < 600
+                if (not listening and quiet_for >= 60 * float(self.opts.get("minutos_sem_clipe", 8)) and az >= 1.0
                         and az >= max(z for _, z in self.recent_peaks)):
                     strong = True
         elif getattr(self, "said_no_chat", False):
@@ -516,6 +523,62 @@ class Channel(threading.Thread):
             log(self.name, f"clipe oficial falhou: {str(e)[:150]}")
 
     # ---------- cutting ----------
+    # ---------- listening: lives without chat ----------
+    def maybe_listen(self):
+        """Without chat, a loud moment is a poor sign of a clip (a story told calmly has no spike): every couple of
+        minutes the last stretch of the live is transcribed and the AI is asked whether it holds a clip."""
+        every = float(self.opts.get("escuta_segundos", 120))
+        if (not every or getattr(self, "listening", False) or not self.chat_silent() or not self.segments
+                or time.time() - getattr(self, "last_listen", 0) < every):
+            return
+        now = self.segments[-1]["end"]
+        start = max(getattr(self, "heard_until", 0) - 15, now - every - 15)
+        if now - start < 60 or not groq_budget_ok(now - start, self.opts):
+            return
+        self.listening, self.last_listen = True, time.time()
+        threading.Thread(target=self.listen, args=(start, now), daemon=True).start()
+
+    def listen(self, start, end):
+        try:
+            segs = [s for s in list(self.segments) if s["end"] > start and s["start"] < end and s["path"].exists()]
+            if not segs:
+                return
+            work = self.work.parent / ".escuta"
+            work.mkdir(parents=True, exist_ok=True)
+            src = work / f"escuta-{int(time.time())}.mp4"
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", "concat:" + "|".join(s["path"].as_posix() for s in segs),
+                            "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-fflags", "+genpts", str(src)], check=False)
+            if not src.exists():
+                return
+            try:
+                info = probe(src)
+                words = transcribe_ranges(src, [(0.0, info["duration"])], dict(self.cfg), work / "words.json")["words"]
+                groq_spent(info["duration"])
+                self.heard_until = end
+                if len(words) < 8:  # nobody talking: nothing to judge from the speech
+                    return
+                v = aigate.review(self.name, "", [], timed=aigate.timed_lines(words), peak=info["duration"] / 2,
+                                  duration=info["duration"], frames=grab_frames(src, info["duration"], work, n=4))
+            finally:
+                src.unlink(missing_ok=True)
+            if not v or "start" not in v:
+                return
+            bar = int(self.opts.get("nota_escuta", 65))
+            if not v["clip"] or v["score"] < bar:
+                log(self.name, f"ouvi os últimos {info['duration']:.0f} s: nada que vire clipe (nota {v['score']})")
+                return
+            if time.time() - self.last_clip < 45:
+                return
+            t0 = segs[0]["start"]
+            self.last_clip = time.time()
+            self.pending.append({"peak": t0 + v["start"] + self.opts["antes"], "end": t0 + v["end"], "back": 0,
+                                 "chat_z": 0.0, "audio_z": 0.0, "wall": time.time()})
+            log(self.name, f"a IA ouviu um momento (nota {v['score']}): {v['why'][:110]}")
+        except Exception as e:
+            log(self.name, f"escuta falhou: {str(e)[:150]}")
+        finally:
+            self.listening = False
+
     def ready_pending(self):
         if not self.segments:
             return
@@ -570,6 +633,7 @@ class Channel(threading.Thread):
         end = p["end"] - offset
         a0, b0 = max(0.0, peak - self.opts["antes"]), min(info["duration"], end)
         words = transcribe_ranges(src, [(0.0, info["duration"])], cfg, work / f"words-{stamp}.json")["words"]
+        groq_spent(info["duration"])
         # snapping may extend to finish a sentence, but never drop the scene start or the reaction
         a, b = snap(words, a0, b0, info["duration"], cfg)
         a, b = cap_length(a, b, peak, (b0 - a0) + 6)
@@ -594,7 +658,7 @@ class Channel(threading.Thread):
         said = " ".join(w["text"] for w in words if a <= w["start"] < b)
         chat_lines = [t for w, wt, t in self.chat.copy() if p["wall"] - 25 <= w <= p["wall"] + 12 and wt > 0]
         verdict = aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
-                                duration=info["duration"])
+                                duration=info["duration"], frames=grab_frames(src, info["duration"], work))
         score, why = None, ""
         if verdict is not None and "start" in verdict:
             # the AI read the whole window and points at where the story really starts and ends
@@ -713,6 +777,7 @@ class Channel(threading.Thread):
                     self.poll_segments()
                     self.detect()
                     self.ready_pending()
+                    self.maybe_listen()
                     if time.time() - last_status > 60:
                         cz, az, _ = self.scores()
                         msgs = sum(1 for w, _, _ in self.chat.copy() if w >= time.time() - 60)
@@ -755,6 +820,42 @@ class Channel(threading.Thread):
         msgs = sum(1 for w, _, _ in self.chat.copy() if w >= time.time() - 60)
         return (f"🔴 {self.name} ({self.platform}): ao vivo há {mins} min, {msgs} msgs/min no chat, "
                 f"{len(self.made)} clipe(s) nesta live.")
+
+
+_groq_log = collections.deque()  # (time, audio seconds) sent to Groq: the free plan allows ~7200 s/hour, 28800 s/day
+_groq_lock = threading.Lock()
+
+
+def groq_budget_ok(seconds, opts):
+    """Room in the free Groq plan for `seconds` more of audio (keeps a margin for the clips' own transcription)."""
+    if not os.environ.get("GROQ_API_KEY"):
+        return False
+    now = time.time()
+    with _groq_lock:
+        while _groq_log and _groq_log[0][0] < now - 86400:
+            _groq_log.popleft()
+        hour = sum(s for t, s in _groq_log if t > now - 3600)
+        day = sum(s for _, s in _groq_log)
+    return hour + seconds <= float(opts.get("groq_por_hora", 5400)) and day + seconds <= float(opts.get("groq_por_dia", 24000))
+
+
+def groq_spent(seconds):
+    with _groq_lock:
+        _groq_log.append((time.time(), float(seconds)))
+
+
+def grab_frames(src, duration, work, n=6):
+    """n small JPEG frames spread over the window, [(second, bytes)]: the AI's eyes."""
+    out = []
+    for i in range(n):
+        t = duration * (i + 0.5) / n
+        f = Path(work) / f"eye-{os.getpid()}-{threading.get_ident()}-{i}.jpg"
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1",
+                        "-vf", "scale=384:-2", "-q:v", "6", str(f)], check=False)
+        if f.exists():
+            out.append((t, f.read_bytes()))
+            f.unlink(missing_ok=True)
+    return out
 
 
 def clear_screen(workers):

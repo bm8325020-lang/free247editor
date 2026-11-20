@@ -88,6 +88,11 @@ def test_raw_cut_is_served_once_then_freed(tmp_path, monkeypatch):
     lst = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/clips", headers=h)).read())
     assert lst[0]["raw"] is True and lst[0]["raw_start"] == 30 and lst[0]["raw_end"] == 95
     assert urllib.request.urlopen(urllib.request.Request(f"{base}/api/raw/{cid}", headers=h)).read() == b"raw-video"
+    import time
+    for _ in range(50):  # the server frees it right after the last byte goes out
+        if not (d / "a-bruto.mp4").exists():
+            break
+        time.sleep(0.05)
     assert not (d / "a-bruto.mp4").exists()                    # freed after sending
     lst = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/clips", headers=h)).read())
     assert "raw" not in lst[0]                                  # no longer offered

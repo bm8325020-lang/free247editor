@@ -12,15 +12,31 @@ URL = "https://coarena.ai/api/v1/chat/completions"
 _VERDICT = re.compile(r"contexto|aleat[oó]ri|nada (de )?(acontece|demais)|sem graça|irrelevante|fraco|"
                       r"no context|random|nothing happens", re.I)
 MODELS = ["deepseek-v4-1-flash-1017", "gpt-6-luna", "gemini-3-8-flash"]
+VISION = ["gpt-6-luna", "gemini-3-8-flash"]  # these two also see images (checked: deepseek does not)
 
 
-def _ask(key, model, prompt):
-    body = json.dumps({"model": model, "max_tokens": 1500, "messages": [{"role": "user", "content": prompt}]}).encode()
+def _ask(key, model, prompt, frames=None):
+    content = prompt
+    if frames:
+        import base64
+        content = [{"type": "text", "text": prompt}] + [
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpg).decode()}}
+            for _, jpg in frames]
+    body = json.dumps({"model": model, "max_tokens": 1500, "messages": [{"role": "user", "content": content}]}).encode()
     req = urllib.request.Request(URL, data=body, method="POST", headers={
         "Authorization": f"Bearer {key}", "Content-Type": "application/json",
         "User-Agent": "fabrica-de-clipes/1.0"})  # some APIs refuse Python's default agent
     with urllib.request.urlopen(req, timeout=90) as r:
         return json.loads(r.read())["choices"][0]["message"]["content"]
+
+
+def _frames_note(frames):
+    if not frames:
+        return ""
+    when = ", ".join(f"{t:.0f}" for t, _ in frames)
+    return (f"\nThe images attached are frames of the stream at seconds {when} (same clock as the transcript). "
+            "Judge the visuals too: a crash, a fall, a chase, something absurd on screen can be the clip even with "
+            "little talk.\n")
 
 
 def _window(timed, peak, duration):
@@ -47,10 +63,12 @@ def timed_lines(words, every=5.0):
     return out
 
 
-def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None):
+def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None):
     """{"clip": bool, "score": int, "title": str, "why": str, "start"?: s, "end"?: s}, or None when no AI is
     available (keep the clip). With `timed` (lines of the whole recorded window, seconds from its start) the AI also
-    picks where the clip should start and end, so a story that started earlier or ended later is not cut off."""
+    picks where the clip should start and end, so a story that started earlier or ended later is not cut off.
+    frames: [(second, jpeg bytes)] from the same window: the AI sees what happened on screen, not only what was said
+    (a visual moment with little talk got a grade of 12)."""
     key = os.environ.get("COARENA_API_KEY", "").strip()
     if not key:
         return None
@@ -66,14 +84,15 @@ talk that needs context. Be strict: a wrong clip costs more than a missed one.
 
 What the chat wrote right then:
 {chat}
-
+{_frames_note(frames)}
 Answer with ONLY a JSON object: {{"clip": true, "score": 0-100, "title": "...", "why": "one short sentence"{', "start": seconds, "end": seconds' if timed else ''}}}
 "title" is burned on the video and posted, so it is ALWAYS a hook a viewer would click, written from what was said
 (max 6 words, in {language}, no hashtags, no emoji), even when the score is low. Never describe the clip's quality
 in the title (no "sem contexto", "conversa aleatória", "nada acontece"): that goes in "why"."""
-    for model in MODELS:
+    order = ([(m, frames) for m in VISION] + [(m, None) for m in MODELS]) if frames else [(m, None) for m in MODELS]
+    for model, imgs in order:
         try:
-            text = _ask(key, model, prompt)
+            text = _ask(key, model, prompt, imgs)
             m = re.search(r"\{.*\}", text, re.S)
             if not m:
                 continue
