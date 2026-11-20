@@ -438,7 +438,7 @@ class Channel(threading.Thread):
                 self.recent_peaks = [(t, z) for t, z in getattr(self, "recent_peaks", []) if t > time.time() - 180]
                 self.recent_peaks.append((time.time(), az))
                 quiet_for = time.time() - max(self.last_clip, self.live_since or 0)
-                if (quiet_for >= 60 * float(self.opts.get("minutos_sem_clipe", 8)) and az >= 1.5
+                if (quiet_for >= 60 * float(self.opts.get("minutos_sem_clipe", 8)) and az >= 1.0
                         and az >= max(z for _, z in self.recent_peaks)):
                     strong = True
         elif getattr(self, "said_no_chat", False):
