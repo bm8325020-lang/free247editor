@@ -53,6 +53,7 @@ CANAIS=$(ask "Canais da Twitch, separados por espaço" "alanzoka loud_coringa pa
 AUTORIZACAO=$(ask "De onde vem a autorização" "Grupo de clipadores autorizados pelos streamers (permissão coletiva)")
 HASHTAGS=$(ask "Hashtags" "#gtarp #gta6 #cortes #clips")
 read -r -s -p "Chave do Groq (gsk_..., para as legendas; não aparece na tela): " GROQ </dev/tty; echo
+read -r -s -p "Chave da Coarena (coa_..., a IA que descarta momentos fracos; Enter pula): " COARENA </dev/tty; echo
 # a senha entre o bot e o app: gerada aqui, só vale dentro deste celular
 CODE="cel-$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -66,7 +67,7 @@ json.dump({"canais": [{"plataforma": "twitch", "canal": c, "autorizacao": os.env
            "max_simultaneos": 1, "qualidade": "best"},
           open("live-canais.json", "w"), ensure_ascii=False, indent=2)
 PY
-printf 'GROQ_API_KEY=%s\nAPP_CODE=%s\nAPP_PORT=8080\nAPP_HOST=127.0.0.1\n' "$GROQ" "$CODE" > .env
+printf 'GROQ_API_KEY=%s\nCOARENA_API_KEY=%s\nAPP_CODE=%s\nAPP_PORT=8080\nAPP_HOST=127.0.0.1\n' "$GROQ" "$COARENA" "$CODE" > .env
 chmod 600 .env
 fi
 

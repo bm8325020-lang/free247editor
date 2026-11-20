@@ -9,7 +9,9 @@ import org.junit.Test
 class LiveDetectTest {
     @Test
     fun reactionsWeighMore() {
-        assertEquals(1.0, LiveDetect.messageWeight("boa noite galera"), 1e-9)
+        assertEquals(0.25, LiveDetect.messageWeight("boa noite galera"), 1e-9)
+        assertEquals(0.0, LiveDetect.messageWeight("!sorteio"), 1e-9)
+        assertEquals(0.0, LiveDetect.messageWeight("Obrigado pelo sub!", "StreamElements"), 1e-9)
         assertTrue(LiveDetect.messageWeight("KEKW KEKW kkkkkkk CLIPA") >= 5.0)
         assertEquals(6.0, LiveDetect.messageWeight("clip clip clip clip clip"), 1e-9)
     }

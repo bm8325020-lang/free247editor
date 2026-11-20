@@ -36,7 +36,7 @@ from .media import probe, slugify
 from .render import render_clip
 from .report import write_report
 from .telegram import Telegram, post_text
-from . import clipserver
+from . import aigate, clipserver
 from .transcribe import transcribe_ranges
 
 SEG = 10  # seconds per recorded segment
@@ -86,9 +86,18 @@ def proxy():
     return urllib.parse.urlparse(p) if p else None
 
 
-def message_weight(text):
+# chat bots and commands make bursts that are not moments (giveaways "!sorteio", sub trains, alerts)
+BOTS = {"nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts", "botisimo",
+        "sery_bot", "kofistreambot", "pokemoncommunitygame", "blerp", "own3d", "streamstickers", "tangiabot"}
+
+
+def message_weight(text, nick=""):
+    """How much a chat message says 'something just happened': reactions count, plain talk barely does."""
+    if nick.lower() in BOTS or text.lstrip().startswith("!"):
+        return 0.0
     toks = [t.lower() for t in TOKEN.findall(text)]
-    w = 1.0
+    # a plain message counts little: a big chat is always busy; the burst that matters is of reactions
+    w = 0.25
     for t in toks:
         if t in EMOTES:
             w += EMOTES[t]
@@ -130,9 +139,10 @@ class TwitchChat(threading.Thread):
                         if line.startswith("PING"):
                             ws.send("PONG :tmi.twitch.tv")
                         elif " PRIVMSG #" in line:
+                            nick = line[1:].split("!", 1)[0] if line.startswith(":") else ""
                             rest = line.split(" PRIVMSG #", 1)[1]
                             text = rest.split(" :", 1)[1] if " :" in rest else ""
-                            self.sink(time.time(), message_weight(text), text)
+                            self.sink(time.time(), message_weight(text, nick), text)
                 ws.close()
             except Exception as e:
                 log(self.login, f"chat reconnecting ({type(e).__name__})")
@@ -486,6 +496,19 @@ class Channel(threading.Thread):
         hook = hook_from(words, peak)
         clock = datetime.fromtimestamp(p["wall"]).strftime("%H:%M")
         title = hook or f"{self.name} às {clock}"
+        # a clipper's second look: what was said and what the chat wrote right then. Random gameplay and chat
+        # bursts about something else (giveaway, subs) are dropped before spending time on the render.
+        said = " ".join(w["text"] for w in words if a <= w["start"] < b)
+        chat_lines = [t for w, wt, t in self.chat.copy() if p["wall"] - 25 <= w <= p["wall"] + 12 and wt > 0]
+        verdict = aigate.review(self.name, said, chat_lines[-80:])
+        if verdict is not None:
+            if not verdict["clip"] or verdict["score"] < int(self.opts.get("nota_minima", 60)):
+                self.discarded = getattr(self, "discarded", 0) + 1
+                log(self.name, f"descartado pela IA (nota {verdict['score']}): {verdict['why'][:120]}")
+                return
+            if verdict["title"]:
+                title = hook = verdict["title"]
+            log(self.name, f"aprovado pela IA (nota {verdict['score']}): {verdict['why'][:120]}")
         clip = {"start": a, "end": b, "hook": hook, "title": title}
         n = len(self.made) + 1
         name = f"{stamp}-{slugify(title)[:40]}.mp4"
@@ -542,7 +565,8 @@ class Channel(threading.Thread):
                         cz, az, _ = self.scores()
                         msgs = sum(1 for w, _, _ in self.chat.copy() if w >= time.time() - 60)
                         log(self.name, f"ok — {len(self.segments)} segmentos no buffer, {msgs} msgs/min, "
-                                       f"chat {cz:+.1f}σ, áudio {az:+.1f}σ, {len(self.made)} clipes")
+                                       f"chat {cz:+.1f}σ, áudio {az:+.1f}σ, {len(self.made)} clipes, "
+                                       f"{getattr(self, 'discarded', 0)} descartados pela IA")
                         last_status = time.time()
                     self.stopped.wait(1)
                 log(self.name, "a gravação parou (live acabou ou caiu); reconectando")

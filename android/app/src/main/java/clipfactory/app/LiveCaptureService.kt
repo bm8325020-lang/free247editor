@@ -318,7 +318,8 @@ class LiveCaptureService : Service() {
                     val j = line.indexOf(" :", i)
                     if (j < 0) continue
                     val sec = nowUs() / 1_000_000
-                    chat.merge(sec, LiveDetect.messageWeight(line.substring(j + 2)), Double::plus)
+                    val nick = if (line.startsWith(":")) line.substring(1).substringBefore('!') else ""
+                    chat.merge(sec, LiveDetect.messageWeight(line.substring(j + 2), nick), Double::plus)
                     chatCount.merge(sec, 1, Int::plus)
                 }
             }

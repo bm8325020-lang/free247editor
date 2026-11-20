@@ -21,9 +21,14 @@ object LiveDetect {
     private val TOKEN = Regex("[\\p{L}\\p{N}_?!]+")
     private val LAUGH = Regex("k{4,}|(ha){3,}|\\?{3,}|w{4,}")
 
-    /** One chat message counts more when it is a reaction (emotes, kkkk, "clipa"). */
-    fun messageWeight(text: String): Double {
-        var w = 1.0
+    /** Chat bots: their bursts (giveaways, sub alerts) are not moments. */
+    val BOTS = setOf("nightbot", "streamelements", "streamlabs", "moobot", "fossabot", "wizebot", "soundalerts",
+        "botisimo", "sery_bot", "kofistreambot", "pokemoncommunitygame", "blerp", "own3d", "streamstickers", "tangiabot")
+
+    /** How much a message says "something just happened": reactions count, plain talk barely does, commands and bots not at all. */
+    fun messageWeight(text: String, nick: String = ""): Double {
+        if (nick.lowercase() in BOTS || text.trimStart().startsWith("!")) return 0.0
+        var w = 0.25 // a big chat is always busy: the burst that matters is of reactions
         for (t in TOKEN.findAll(text.lowercase()).map { it.value }) {
             val e = EMOTES[t]
             if (e != null) w += e else if (LAUGH.matches(t)) w += 1.5
