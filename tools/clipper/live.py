@@ -637,12 +637,47 @@ class Channel(threading.Thread):
                 f"{len(self.made)} clipe(s) nesta live.")
 
 
+def apply_channel_pack(data, pack):
+    """Merge a shipped channel pack into the user's list once (per pack version).
+
+    The pack's order becomes the priority; the user's other channels follow. Channels already there keep their
+    settings (paused stays paused), and a channel removed after the pack was applied does not come back.
+    Returns the names added (empty when the pack was already applied).
+    """
+    if int(data.get("pacote_versao", 0)) >= int(pack.get("versao", 0)):
+        return []
+    mine = data.get("canais", [])
+    key = lambda c: (c.get("plataforma", "twitch").lower(), c["canal"].lower())
+    by_key = {key(c): c for c in mine}
+    aut = next((c.get("autorizacao") for c in mine if c.get("autorizacao")), "")
+    ordered, added = [], []
+    for c in pack.get("canais", []):
+        if key(c) in by_key:
+            ordered.append(by_key.pop(key(c)))
+        elif aut:
+            ordered.append({**c, "autorizacao": aut, "ativo": True})
+            added.append(c["canal"])
+    data["canais"] = ordered + [c for c in mine if key(c) in by_key]
+    data["pacote_versao"] = int(pack["versao"])
+    return added
+
+
 def load_channels():
     path = ROOT / "live-canais.json"
     if not path.exists():
         example = ROOT / "live-canais.example.json"
         raise SystemExit(f"Crie {path.name} (copie {example.name}) com os canais que você tem autorização para clipar.")
     data = json.loads(path.read_text(encoding="utf-8"))
+    pack_file = ROOT / "deploy" / "canais-pacote.json"
+    if pack_file.exists():
+        try:
+            added = apply_channel_pack(data, json.loads(pack_file.read_text(encoding="utf-8")))
+            if "pacote_versao" in data:
+                path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            if added:
+                print(f"Canais novos adicionados: {', '.join(added)}", file=sys.stderr)
+        except (ValueError, KeyError, OSError) as e:
+            print(f"pacote de canais ignorado ({e})", file=sys.stderr)
     opts = {**DEFAULTS, **{k: v for k, v in data.items() if k != "canais"}}
     chans = []
     for c in data.get("canais", []):
@@ -680,6 +715,12 @@ def main(argv=None):
     global RECORDING
     if int(opts.get("max_simultaneos") or 0) > 0:
         RECORDING = threading.BoundedSemaphore(int(opts["max_simultaneos"]))
+    if any(c["plataforma"].lower() == "youtube" for c in chans):
+        try:
+            import chat_downloader  # noqa: F401
+        except ImportError:
+            print("Instalando o leitor do chat do YouTube (só desta vez)…", file=sys.stderr)
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "chat-downloader"])
     lock = threading.Lock()
     workers = [Channel(c, opts, cfg, lock) for c in chans]
     for i, w in enumerate(workers):

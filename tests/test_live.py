@@ -81,3 +81,18 @@ def test_priority_queue_lets_a_higher_channel_in():
     live.WAITING["d"] = 5
     assert live.higher_waiting(2, "c") == "a"      # d is below c: does not count
     live.WAITING.clear()
+
+
+def test_channel_pack_merges_once_in_priority_order():
+    from tools.clipper import live
+    data = {"canais": [{"plataforma": "twitch", "canal": "paulinholokobr", "autorizacao": "grupo", "ativo": False},
+                       {"plataforma": "twitch", "canal": "meu", "autorizacao": "grupo", "ativo": True}]}
+    pack = {"versao": 1, "canais": [{"plataforma": "twitch", "canal": "alanzoka"},
+                                    {"plataforma": "youtube", "canal": "@x", "url": "u"},
+                                    {"plataforma": "twitch", "canal": "PaulinhoLokoBR"}]}
+    assert live.apply_channel_pack(data, pack) == ["alanzoka", "@x"]
+    assert [c["canal"] for c in data["canais"]] == ["alanzoka", "@x", "paulinholokobr", "meu"]
+    assert data["canais"][1]["autorizacao"] == "grupo" and data["canais"][2]["ativo"] is False  # paused stays paused
+    data["canais"].pop(0)  # the user removes one: it must not come back
+    assert live.apply_channel_pack(data, pack) == []
+    assert [c["canal"] for c in data["canais"]] == ["@x", "paulinholokobr", "meu"]

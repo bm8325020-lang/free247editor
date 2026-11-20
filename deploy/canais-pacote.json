@@ -1,0 +1,14 @@
+{
+  "versao": 1,
+  "nota": "Pacote de canais aplicado uma vez pelo bot ao ligar (live.py). A ordem é a prioridade: quando só uma live pode gravar, grava a mais de cima. Canais que você remover depois não voltam.",
+  "canais": [
+    {"plataforma": "twitch", "canal": "alanzoka", "creditos": "@alanzoka"},
+    {"plataforma": "youtube", "canal": "@paulinholokooficial", "url": "https://www.youtube.com/@paulinholokooficial/live", "creditos": "@paulinholoko"},
+    {"plataforma": "youtube", "canal": "@gameplayrj", "url": "https://www.youtube.com/@gameplayrj/live", "creditos": "@davyjones"},
+    {"plataforma": "twitch", "canal": "loud_coringa", "creditos": "@loud_coringa"},
+    {"plataforma": "twitch", "canal": "paulinholokobr", "creditos": "@paulinholokobr"},
+    {"plataforma": "youtube", "canal": "@alanzoka", "url": "https://www.youtube.com/@alanzoka/live", "creditos": "@alanzoka"},
+    {"plataforma": "youtube", "canal": "@LOUDCoringa", "url": "https://www.youtube.com/@LOUDCoringa/live", "creditos": "@loud_coringa"},
+    {"plataforma": "twitch", "canal": "davyjones", "creditos": "@davyjones"}
+  ]
+}
