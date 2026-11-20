@@ -9,6 +9,8 @@ import re
 import urllib.request
 
 URL = "https://coarena.ai/api/v1/chat/completions"
+_VERDICT = re.compile(r"contexto|aleat[oó]ri|nada (de )?(acontece|demais)|sem graça|irrelevante|fraco|"
+                      r"no context|random|nothing happens", re.I)
 MODELS = ["deepseek-v4-1-flash-1017", "gpt-6-luna", "gemini-3-8-flash"]
 
 
@@ -40,7 +42,10 @@ What the streamer said in the clip:
 What the chat wrote right then:
 {chat}
 
-Answer with ONLY a JSON object: {{"clip": true, "score": 0-100, "title": "punchy title, max 6 words, in {language}, no hashtags, no emoji", "why": "one short sentence"}}"""
+Answer with ONLY a JSON object: {{"clip": true, "score": 0-100, "title": "...", "why": "one short sentence"}}
+"title" is burned on the video and posted, so it is ALWAYS a hook a viewer would click, written from what was said
+(max 6 words, in {language}, no hashtags, no emoji), even when the score is low. Never describe the clip's quality
+in the title (no "sem contexto", "conversa aleatória", "nada acontece"): that goes in "why"."""
     for model in MODELS:
         try:
             text = _ask(key, model, prompt)
@@ -48,8 +53,11 @@ Answer with ONLY a JSON object: {{"clip": true, "score": 0-100, "title": "punchy
             if not m:
                 continue
             d = json.loads(m.group(0))
+            title = str(d.get("title", "")).strip().strip('"')
+            if _VERDICT.search(title):  # a verdict, not a title: never burn it on the video
+                title = ""
             return {"clip": bool(d.get("clip")), "score": int(d.get("score", 0)),
-                    "title": str(d.get("title", "")).strip().strip('"'), "why": str(d.get("why", "")).strip()}
+                    "title": title, "why": str(d.get("why", "")).strip()}
         except Exception:
             continue
     return None

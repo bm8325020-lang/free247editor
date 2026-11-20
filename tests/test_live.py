@@ -137,3 +137,11 @@ def test_buffer_drops_old_segments_and_never_takes_them_back(tmp_path, monkeypat
     assert ends == sorted(ends) and ends[-1] == 600.0
     assert len(ch.segments) <= live.DEFAULTS["buffer_segundos"] / 10 + 2
     assert not (tmp_path / "seg_000000.ts").exists()
+
+
+def test_ai_verdicts_are_never_used_as_titles():
+    from tools.clipper import aigate
+    for bad in ("Conversa aleatória sem contexto", "Faltou contexto", "Nada acontece aqui", "Random talk"):
+        assert aigate._VERDICT.search(bad)
+    for ok in ("Ele caiu do prédio KKK", "A polícia não acreditou", "Fugiu de cueca"):
+        assert not aigate._VERDICT.search(ok)
