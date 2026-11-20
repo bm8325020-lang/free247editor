@@ -593,8 +593,14 @@ class Channel(threading.Thread):
         # bursts about something else (giveaway, subs) are dropped before spending time on the render.
         said = " ".join(w["text"] for w in words if a <= w["start"] < b)
         chat_lines = [t for w, wt, t in self.chat.copy() if p["wall"] - 25 <= w <= p["wall"] + 12 and wt > 0]
-        verdict = aigate.review(self.name, said, chat_lines[-80:])
+        verdict = aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
+                                duration=info["duration"])
         score, why = None, ""
+        if verdict is not None and "start" in verdict:
+            # the AI read the whole window and points at where the story really starts and ends
+            a, b = snap(words, verdict["start"], verdict["end"], info["duration"], cfg)
+            a, b = cap_length(a, b, (a + b) / 2, 95)
+            log(self.name, f"a IA ajustou o corte: {a:.0f}s a {b:.0f}s da janela ({b - a:.0f} s)")
         if verdict is not None:
             score, why = (verdict["score"] if verdict["clip"] else min(verdict["score"], 40)), verdict["why"]
             # "descartar": true in live-canais.json lets the AI throw clips away; by default every clip is made and
