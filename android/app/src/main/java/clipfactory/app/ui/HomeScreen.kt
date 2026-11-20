@@ -60,7 +60,8 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDiscover: () -> Unit = {}, onLive: () -> Unit = {}) {
+fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDiscover: () -> Unit = {}, onLive: () -> Unit = {},
+               onReview: (List<String>) -> Unit = {}) {
     val ctx = LocalContext.current
     val projects by ProjectStore.projects.collectAsState()
     val work by JobState.flow.collectAsState()
@@ -93,7 +94,8 @@ fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings
             }
             ProjectStore.delete(ctx, p.id)
         }, onDiscover = onDiscover, onLive = onLive,
-        botCard = if (configured) ({ BotCard(bot, botDown) }) else null, weakBar = Prefs.options(ctx).weakBar)
+        botCard = if (configured) ({ BotCard(bot, botDown) }) else null, weakBar = Prefs.options(ctx).weakBar,
+        onReview = onReview)
 }
 
 /** The bot at a glance: lives being recorded, clips, its latest decision. */
@@ -132,7 +134,7 @@ private fun BotCard(st: org.json.JSONObject?, down: Boolean) {
 fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress: Double, onPick: () -> Unit,
                 onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDelete: (Project) -> Unit,
                 onDiscover: () -> Unit = {}, onLive: () -> Unit = {}, botCard: (@Composable () -> Unit)? = null,
-                weakBar: Int = WEAK) {
+                weakBar: Int = WEAK, onReview: (List<String>) -> Unit = {}) {
     var confirm by remember { mutableStateOf<Project?>(null) }
     var confirmWeak by remember { mutableStateOf(false) }
     // the bot's clips: best first, the weak ones (AI grade under 40) out of the way but one tap away
@@ -215,6 +217,13 @@ fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress:
                         if (posted.isNotEmpty()) Chip("Postados (${posted.size})", botTab == "postados") { botTab = "postados" }
                         if (botTab == "fracos" && weak.isNotEmpty())
                             TextButton({ confirmWeak = true }) { Text("Apagar fracos", color = C.bad) }
+                    }
+                    // review mode: the list's clips one after another, swiping, like the feed they will be posted to
+                    val list = when (botTab) { "bons" -> good; "postados" -> posted; else -> weak }.filter { it.doneClips.isNotEmpty() }
+                    if (list.size > 1) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.accent)
+                        .combinedClickable(onClick = { onReview(list.map { it.id }) }).padding(12.dp),
+                        horizontalArrangement = Arrangement.Center) {
+                        Text("▶  Revisar ${list.size} em sequência", color = C.onAccent, style = MaterialTheme.typography.titleSmall)
                     }
                     if (botTab == "bons" && good.isEmpty())
                         Text("Nenhum com nota $weakBar ou mais ainda. Os outros estão em Fracos.", color = C.muted,

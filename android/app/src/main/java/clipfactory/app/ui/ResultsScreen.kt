@@ -67,11 +67,14 @@ import clipfactory.core.PostText
 @OptIn(UnstableApi::class)
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (Int) -> Unit, openPost: Boolean = false) {
+fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (String, Int) -> Unit, openPost: Boolean = false,
+                  group: List<String> = listOf(projectId)) {
     val ctx = LocalContext.current
     val projects by ProjectStore.projects.collectAsState()
     val p = projects.firstOrNull { it.id == projectId } ?: return
-    val clips = p.doneClips
+    // one project's clips, or (review mode) the clips of several projects one after another
+    val entries = group.mapNotNull { id -> projects.firstOrNull { it.id == id } }.flatMap { pr -> pr.doneClips.map { pr to it } }
+    val clips = entries.map { it.second }
     if (clips.isEmpty()) {
         Column(Modifier.fillMaxSize()) {
             TopBar(p.name, onBack)
@@ -92,12 +95,12 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
         current ?: return@LaunchedEffect
         player.setMediaItem(MediaItem.fromUri(Uri.parse(current.uri))); player.prepare(); player.play()
     }
-    var posting by remember { mutableStateOf(if (openPost) clips.getOrNull(start) else null) }
-    var deleting by remember { mutableStateOf<PClip?>(null) }
+    var posting by remember { mutableStateOf(if (openPost) entries.getOrNull(start) else null) }
+    var deleting by remember { mutableStateOf<Pair<clipfactory.app.Project, PClip>?>(null) }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         VerticalPager(pager, Modifier.fillMaxSize(), key = { clips[it].uri }) { page ->
-            val c = clips[page]
+            val (pp, c) = entries[page]
             Box(Modifier.fillMaxSize()) {
                 if (page == pager.currentPage) {
                     AndroidView({ PlayerView(it).apply { useController = false; resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT } },
@@ -114,7 +117,7 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
                     }
                     Text(c.title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black), color = Color.White,
                         maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    if (page == 0) p.notes.firstOrNull()?.let {
+                    if (page == 0 || group.size > 1) pp.notes.firstOrNull()?.let {
                         Text(it, style = MaterialTheme.typography.labelSmall, color = C.accent, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     }
                     // the AI's reason in full on a tap (two lines cut it in the middle)
@@ -126,15 +129,15 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
                 // side buttons
                 Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    SideButton(Icons.Filled.Send, "Postar", accent = true) { posting = c }
+                    SideButton(Icons.Filled.Send, "Postar", accent = true) { posting = pp to c }
                     SideButton(Icons.Filled.Edit, "Editar") {
                         // a clip from the bot is already vertical: re-laying it out would ruin it
                         if (c.layoutName == "do servidor") android.widget.Toast.makeText(ctx,
                             "Este clipe veio pronto do bot. Para cortar diferente, use o vídeo original em Novo clipe.",
                             android.widget.Toast.LENGTH_LONG).show()
-                        else onEdit(p.clips.indexOf(c))
+                        else onEdit(pp.id, pp.clips.indexOf(c))
                     }
-                    SideButton(Icons.Filled.Delete, "Apagar") { deleting = c }
+                    SideButton(Icons.Filled.Delete, "Apagar") { deleting = pp to c }
                 }
             }
         }
@@ -143,7 +146,7 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
         }
     }
 
-    posting?.let { c ->
+    posting?.let { (pp, c) ->
         ModalBottomSheet(onDismissRequest = { posting = null }, containerColor = C.surface) {
             Column(Modifier.navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Postar em", style = MaterialTheme.typography.titleLarge, color = C.text)
@@ -153,11 +156,11 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.surface2)
                         .clickable {
                             posting = null
-                            val ready = p.notes.firstOrNull { it.startsWith("Legenda sugerida pelo servidor:") }
+                            val ready = pp.notes.firstOrNull { it.startsWith("Legenda sugerida pelo servidor:") }
                                 ?.substringAfter("\n")?.trim()
                             Poster.post(ctx as Activity, Uri.parse(c.uri), c.title, Prefs.options(ctx), pl, ready)
                             // marked as posted: the home screen keeps posted clips in their own tab
-                            ProjectStore.update(ctx, p.id) { pr ->
+                            ProjectStore.update(ctx, pp.id) { pr ->
                                 pr.copy(clips = pr.clips.map { x -> if (x.uri == c.uri) x.copy(posted = System.currentTimeMillis()) else x })
                             }
                         }
@@ -166,13 +169,13 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
             }
         }
     }
-    deleting?.let { c ->
+    deleting?.let { (pp, c) ->
         AlertDialog(onDismissRequest = { deleting = null }, containerColor = C.surface,
             title = { Text("Apagar este clipe?", color = C.text) },
             text = { Text("Ele sai da galeria também.", color = C.muted) },
             confirmButton = { TextButton({
                 runCatching { ctx.contentResolver.delete(Uri.parse(c.uri), null, null) }
-                ProjectStore.update(ctx, projectId) { pr -> pr.copy(clips = pr.clips.filter { it !== c && it.uri != c.uri }) }
+                ProjectStore.update(ctx, pp.id) { pr -> pr.copy(clips = pr.clips.filter { it !== c && it.uri != c.uri }) }
                 deleting = null
             }) { Text("Apagar", color = C.bad) } },
             dismissButton = { TextButton({ deleting = null }) { Text("Cancelar", color = C.text) } })

@@ -28,7 +28,8 @@ sealed class Screen {
     data class NewClip(val uri: Uri, val name: String, val more: List<Pair<Uri, String>> = emptyList()) : Screen()
     data class Processing(val projectId: String?) : Screen()
     data class Choose(val projectId: String) : Screen()
-    data class Results(val projectId: String, val start: Int = 0, val openPost: Boolean = false) : Screen()
+    data class Results(val projectId: String, val start: Int = 0, val openPost: Boolean = false,
+                       val group: List<String>? = null) : Screen()
     data class Editor(val projectId: String, val index: Int) : Screen()
     data object Settings : Screen()
     data object Discover : Screen()
@@ -77,11 +78,13 @@ fun App(incoming: StateFlow<Uri?>, consumeIncoming: () -> Unit, nameOf: (Uri) ->
                     onWork = { go(Screen.Processing(work.projectId)) },
                     onDiscover = { go(Screen.Discover) },
                     onLive = { go(Screen.Live) },
+                    onReview = { ids -> if (ids.isNotEmpty()) go(Screen.Results(ids[0], group = ids)) },
                 )
                 is Screen.NewClip -> NewClipScreen(s.uri, s.name, s.more, onBack = ::back, onStarted = { replace(Screen.Processing(null)) })
                 is Screen.Processing -> ProcessingScreen(s.projectId, onBack = ::home)
                 is Screen.Choose -> ChooseScreen(s.projectId, onBack = ::home, onStarted = { replace(Screen.Processing(s.projectId)) })
-                is Screen.Results -> ResultsScreen(s.projectId, s.start, onBack = ::home, onEdit = { i -> go(Screen.Editor(s.projectId, i)) }, openPost = s.openPost)
+                is Screen.Results -> ResultsScreen(s.projectId, s.start, onBack = ::home, onEdit = { id, i -> go(Screen.Editor(id, i)) },
+                    openPost = s.openPost, group = s.group ?: listOf(s.projectId))
                 is Screen.Editor -> EditorScreen(s.projectId, s.index, onBack = ::back, onApplied = { stack = stack.dropLast(2) + Screen.Processing(s.projectId) })
                 Screen.Settings -> SettingsScreen(onBack = ::back, onDiagnostics = { go(Screen.Diagnostics) })
                 Screen.Discover -> DiscoverScreen(onBack = ::back, onSettings = { go(Screen.Settings) })
