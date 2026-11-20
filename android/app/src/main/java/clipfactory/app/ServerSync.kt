@@ -77,6 +77,7 @@ object ServerSync {
         }
         fillKeys(ctx, base, opt)
         var added = 0
+        var best: Triple<Int, String, String>? = null // grade, channel, title of the best new clip
         val toRender = ArrayList<String>()
         for (i in 0 until list.length()) {
             val c = list.getJSONObject(i)
@@ -129,6 +130,7 @@ object ServerSync {
                     notes = listOf("Legenda sugerida pelo servidor:\n" + c.optString("caption")),
                     status = if (useRaw) "rendering" else "done"))
                 if (useRaw) toRender.add(pid)
+                if (best == null || score > best!!.first) best = Triple(score, channel, title)
                 seen.add(id)
                 added++
             } catch (e: Exception) {
@@ -140,7 +142,7 @@ object ServerSync {
         // the render service picks up every project waiting to render; from the background Android may refuse to
         // start it, and then the app does it the next time it opens
         if (toRender.isNotEmpty()) runCatching { ClipService.render(ctx, toRender.first(), emptyList()) }
-        if (added > 0) notifyNew(ctx, added)
+        if (added > 0) notifyNew(ctx, added, best)
         return Result(true, if (added > 0) "$added clipe(s) novo(s) do servidor." else "Conectado. Nenhum clipe novo.", added)
     }
 
@@ -196,11 +198,15 @@ object ServerSync {
         wm.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, req)
     }
 
-    private fun notifyNew(ctx: Context, n: Int) {
+    private fun notifyNew(ctx: Context, n: Int, best: Triple<Int, String, String>?) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("server", "Clipes do servidor", NotificationManager.IMPORTANCE_DEFAULT))
-        nm.notify(30, android.app.Notification.Builder(ctx, "server").setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle("$n clipe(s) novo(s) da live").setContentText("Toque para assistir e postar.")
+        // a strong clip deserves to be seen now: its own louder notification
+        val hot = best != null && best.first >= 70
+        if (hot) nm.createNotificationChannel(NotificationChannel("hot", "Clipes nota alta", NotificationManager.IMPORTANCE_HIGH))
+        nm.notify(30, android.app.Notification.Builder(ctx, if (hot) "hot" else "server").setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle(if (hot) "🔥 Nota ${best!!.first} · @${best.second}" else "$n clipe(s) novo(s) da live")
+            .setContentText(if (hot) best!!.third + if (n > 1) " (+${n - 1} outro(s))" else "" else "Toque para assistir e postar.")
             .setAutoCancel(true)
             .setContentIntent(PendingIntent.getActivity(ctx, 3, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
             .build())
