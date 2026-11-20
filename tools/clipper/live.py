@@ -249,6 +249,7 @@ class Channel(threading.Thread):
         self.platform = spec["plataforma"].lower()
         self.name = spec["canal"]
         self.url = (f"https://www.twitch.tv/{self.name}" if self.platform == "twitch"
+                    else f"https://kick.com/{self.name}" if self.platform == "kick"
                     else spec.get("url") or f"https://www.youtube.com/{self.name}/live")
         self.simulated = self.platform == "simulado"  # a local file played in real time, for testing the bot
         self.key = slugify(f"{self.platform}-{self.name}")
@@ -573,7 +574,7 @@ class Channel(threading.Thread):
                     WAITING.pop(self.name, None)
                 self.holding = True
                 self.last_wait_msg = None
-                log(self.name, "AO VIVO: gravando buffer e lendo o chat")
+                log(self.name, "AO VIVO: gravando buffer" + ("" if self.platform == "kick" else " e lendo o chat"))
                 if not self.live and TG:
                     TG.send(f"🔴 {self.name} entrou ao vivo. Estou vigiando.")
                 self.live, self.live_since = True, self.live_since or time.time()
@@ -582,9 +583,14 @@ class Channel(threading.Thread):
                     chat = SimulatedChat(self.spec.get("chat", []), self.chat_sink)
                 elif self.platform == "twitch":
                     chat = TwitchChat(self.name, self.chat_sink)
+                elif self.platform == "kick":
+                    # Kick has no open chat feed: moments come from the audio, and the AI review decides
+                    chat = None
+                    log(self.name, "Kick: sem leitura do chat; detectando pelo áudio (gritos, risadas) + revisão da IA")
                 else:
                     chat = YouTubeChat(self.url, self.chat_sink)
-                chat.start()
+                if chat:
+                    chat.start()
                 last_status = 0
                 yielded = None
                 while not self.stopped.is_set() and self.proc.poll() is None:
@@ -641,7 +647,7 @@ def apply_channel_pack(data, pack):
     """Merge a shipped channel pack into the user's list once (per pack version).
 
     The pack's order becomes the priority; the user's other channels follow. Channels already there keep their
-    settings (paused stays paused), and a channel removed after the pack was applied does not come back.
+    settings (paused stays paused), and a channel removed after a pack offered it never comes back.
     Returns the names added (empty when the pack was already applied).
     """
     if int(data.get("pacote_versao", 0)) >= int(pack.get("versao", 0)):
@@ -650,15 +656,19 @@ def apply_channel_pack(data, pack):
     key = lambda c: (c.get("plataforma", "twitch").lower(), c["canal"].lower())
     by_key = {key(c): c for c in mine}
     aut = next((c.get("autorizacao") for c in mine if c.get("autorizacao")), "")
+    offered = set(data.get("pacote_oferecidos", []))  # "plataforma:canal" of every channel a pack ever added
     ordered, added = [], []
     for c in pack.get("canais", []):
-        if key(c) in by_key:
-            ordered.append(by_key.pop(key(c)))
-        elif aut:
+        k = key(c)
+        if k in by_key:
+            ordered.append(by_key.pop(k))
+        elif aut and f"{k[0]}:{k[1]}" not in offered:
             ordered.append({**c, "autorizacao": aut, "ativo": True})
             added.append(c["canal"])
+        offered.add(f"{k[0]}:{k[1]}")
     data["canais"] = ordered + [c for c in mine if key(c) in by_key]
     data["pacote_versao"] = int(pack["versao"])
+    data["pacote_oferecidos"] = sorted(offered)
     return added
 
 
@@ -687,8 +697,8 @@ def load_channels():
             print(f"IGNORADO {c.get('canal')}: sem 'autorizacao'. Diga de onde vem a permissão (campanha, regra "
                   f"publicada pelo streamer, acordo). Clipar sem permissão gera strike.", file=sys.stderr)
             continue
-        if c.get("plataforma", "").lower() not in ("twitch", "youtube", "simulado"):
-            print(f"IGNORADO {c.get('canal')}: plataforma deve ser twitch ou youtube", file=sys.stderr)
+        if c.get("plataforma", "").lower() not in ("twitch", "youtube", "kick", "simulado"):
+            print(f"IGNORADO {c.get('canal')}: plataforma deve ser twitch, youtube ou kick", file=sys.stderr)
             continue
         chans.append(c)
     return chans, opts

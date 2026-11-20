@@ -1,11 +1,13 @@
 {
-  "versao": 1,
-  "nota": "Pacote de canais aplicado uma vez pelo bot ao ligar (live.py). A ordem é a prioridade: quando só uma live pode gravar, grava a mais de cima. Canais que você remover depois não voltam.",
+  "versao": 2,
+  "nota": "Pacote de canais aplicado pelo bot ao ligar (live.py), uma vez por versão. A ordem é a prioridade: quando só uma live pode gravar, grava a mais de cima. Canais que você remover não voltam. Kick: sem leitura do chat, detecta pelo áudio + IA.",
   "canais": [
     {"plataforma": "twitch", "canal": "alanzoka", "creditos": "@alanzoka"},
     {"plataforma": "youtube", "canal": "@paulinholokooficial", "url": "https://www.youtube.com/@paulinholokooficial/live", "creditos": "@paulinholoko"},
     {"plataforma": "youtube", "canal": "@gameplayrj", "url": "https://www.youtube.com/@gameplayrj/live", "creditos": "@davyjones"},
     {"plataforma": "twitch", "canal": "loud_coringa", "creditos": "@loud_coringa"},
+    {"plataforma": "kick", "canal": "bistecone", "creditos": "@bistecone"},
+    {"plataforma": "kick", "canal": "gabepeixe", "creditos": "@gabepeixe"},
     {"plataforma": "twitch", "canal": "paulinholokobr", "creditos": "@paulinholokobr"},
     {"plataforma": "youtube", "canal": "@alanzoka", "url": "https://www.youtube.com/@alanzoka/live", "creditos": "@alanzoka"},
     {"plataforma": "youtube", "canal": "@LOUDCoringa", "url": "https://www.youtube.com/@LOUDCoringa/live", "creditos": "@loud_coringa"},

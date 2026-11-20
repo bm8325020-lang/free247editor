@@ -40,7 +40,7 @@ def test_channels_without_authorization_are_refused(tmp_path, monkeypatch, capsy
     (tmp_path / "live-canais.json").write_text(json.dumps({"canais": [
         {"plataforma": "twitch", "canal": "sem_permissao"},
         {"plataforma": "twitch", "canal": "com_permissao", "autorizacao": "campanha X"},
-        {"plataforma": "kick", "canal": "outro", "autorizacao": "y"},
+        {"plataforma": "tiktok", "canal": "outro", "autorizacao": "y"},
         {"plataforma": "youtube", "canal": "@desligado", "autorizacao": "z", "ativo": False},
     ], "limiar": 2.5}), encoding="utf-8")
     chans, opts = live.load_channels()
@@ -96,3 +96,13 @@ def test_channel_pack_merges_once_in_priority_order():
     data["canais"].pop(0)  # the user removes one: it must not come back
     assert live.apply_channel_pack(data, pack) == []
     assert [c["canal"] for c in data["canais"]] == ["@x", "paulinholokobr", "meu"]
+
+
+def test_kick_channels_are_accepted(tmp_path, monkeypatch):
+    monkeypatch.setattr(live, "ROOT", tmp_path)
+    (tmp_path / "live-canais.json").write_text(json.dumps({"canais": [
+        {"plataforma": "kick", "canal": "bistecone", "autorizacao": "grupo"}]}), encoding="utf-8")
+    chans, _ = live.load_channels()
+    assert [c["canal"] for c in chans] == ["bistecone"]
+    ch = live.Channel(chans[0], dict(live.DEFAULTS), {}, None)
+    assert ch.url == "https://kick.com/bistecone"

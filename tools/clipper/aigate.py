@@ -26,9 +26,9 @@ def review(channel, said, chat_lines, language="pt"):
     key = os.environ.get("COARENA_API_KEY", "").strip()
     if not key:
         return None
-    chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat messages)"
+    chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat available: judge from the speech alone)"
     prompt = f"""You are a top Brazilian clipper of gaming lives (GTA RP, GTA 6, and others).
-A bot flagged a moment of {channel}'s live because the chat reacted. Decide like a clipper whether it deserves a
+A bot flagged a moment of {channel}'s live because the chat or the streamer's audio spiked. Decide like a clipper whether it deserves a
 TikTok/Reels/Shorts clip: something clearly happened that works on its own (funny line or situation, epic play,
 fail, rage, scare, absurd moment, savage reply). Reject when nothing clear happened: random gameplay, the chat
 reacting to something off-stream (giveaway, subs, raid, a donation message, a meme unrelated to the moment), or

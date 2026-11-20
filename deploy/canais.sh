@@ -39,6 +39,7 @@ while True:
     if op.startswith("a"):
         print("Twitch: o nome (alanzoka) ou o link twitch.tv/alanzoka")
         print("YouTube: o @ do canal (@alanzoka) ou o link youtube.com/@alanzoka")
+        print("Kick: o link kick.com/bistecone")
         nomes = ask("Canal(is), separados por espaço: ")
         padrao = canais[0].get("autorizacao", "") if canais else ""
         aut = ask(f"De onde vem a autorização [{padrao}]: ") or padrao
@@ -63,6 +64,17 @@ while True:
                 existentes.add(("youtube", handle.lower()))
                 novo_youtube = True
                 print(f"  + {handle}  [youtube]")
+                continue
+            kk = re.match(r"^(?:https?://)?(?:www\.)?kick\.com/([\w-]{3,40})", n, re.I)
+            if kk:
+                slug = kk.group(1).lower()
+                if ("kick", slug) in existentes:
+                    print(f"  {slug} (Kick) já está na lista")
+                    continue
+                canais.append({"plataforma": "kick", "canal": slug, "autorizacao": aut, "ativo": True,
+                               "creditos": "@" + slug})
+                existentes.add(("kick", slug))
+                print(f"  + {slug}  [kick: sem chat, detecta pelo áudio]")
                 continue
             n = re.sub(r"^(https?://)?(www\.|m\.)?twitch\.tv/", "", n.lower())
             if not re.fullmatch(r"[a-z0-9_]{3,25}", n):
