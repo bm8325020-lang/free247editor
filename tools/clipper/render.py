@@ -149,7 +149,9 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
 def _render_ffmpeg_only(src, info, words, clip, cfg, out_path, workdir, ranges, S, E, tl):
     """Without OpenCV (some phones): gameplay band in the middle over a blurred copy, captions, all in one ffmpeg."""
     fps, W, H = cfg["fps"], cfg["width"], cfg["height"]
-    band = min(1.0, cfg["game_zoom"] * W / info["width"] * info["height"] / H)
+    # the whole frame, no zoom: without OpenCV the webcam's place is unknown, and zooming into the middle cut off
+    # a webcam in a corner (seen on a real live)
+    band = min(1.0, W / info["width"] * info["height"] / H)
     bh = int(H * band / 2) * 2
     cfg = dict(cfg)
     cfg["caption_y"] = min(0.9, 0.5 + band / 2 + 0.07)
@@ -160,7 +162,7 @@ def _render_ffmpeg_only(src, info, words, clip, cfg, out_path, workdir, ranges, 
     lufs = cfg["loudness_lufs"]
     fc = (f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps={fps},split[a][b];"
           f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20:2,eq=brightness=-0.18[bg];"
-          f"[b]scale=-2:{bh},crop={W}:{bh}[fg];"
+          f"[b]scale={W}:{bh}[fg];"
           f"[bg][fg]overlay=0:{(H - bh) // 2},"
           f"ass='{_filter_path(ass, workdir)}':fontsdir='{_filter_path(HERE / 'fonts', workdir)}',format=yuv420p[v];"
           f"[0:a]aselect='{sel}',asetpts=N/SR/TB,loudnorm=I={lufs}:TP=-1.5:LRA=11,aresample=48000[au]")
