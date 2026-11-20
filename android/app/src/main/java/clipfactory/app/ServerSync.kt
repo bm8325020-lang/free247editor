@@ -23,6 +23,13 @@ import java.util.concurrent.TimeUnit
  * Brings the clips made by the live bot on the server into the app: lists them, downloads the new ones to the
  * gallery and adds each as a ready project (Results → Postar). Runs every 15 minutes, and on "Buscar agora".
  */
+/** The AI's clip categories, with the emoji the app shows next to them. */
+val CATEGORY_EMOJI = mapOf("engraçado" to "😂", "épico" to "🔥", "fail" to "🤦", "raiva" to "😡", "susto" to "😱",
+    "história" to "📖", "polêmica" to "🌶️", "fofo" to "🥹", "absurdo" to "🤯")
+
+/** "😂 engraçado" from a bot clip's reason, or "" */
+fun categoryOf(reason: String): String = reason.substringBefore(" · ", "").takeIf { it.length in 3..20 } ?: ""
+
 object ServerSync {
     data class Result(val ok: Boolean, val message: String, val newClips: Int = 0)
 
@@ -103,7 +110,8 @@ object ServerSync {
                 // the bot makes every clip; its AI only grades them (0-100) so the best can be posted first
                 val score = if (c.has("score") && !c.isNull("score")) c.optInt("score", 60).coerceIn(0, 99) else 60
                 val why = c.optString("why").trim()
-                val reason = "Cortado pelo bot às ${c.optString("created").substringAfter('T').take(5)}." +
+                val cat = c.optString("category").trim()
+                val reason = (if (cat.isNotEmpty()) "${CATEGORY_EMOJI[cat] ?: "🎬"} $cat · " else "") + "Cortado pelo bot às ${c.optString("created").substringAfter('T').take(5)}." +
                     (if (why.isNotEmpty()) " Nota da IA $score: $why" else "")
                 val pid = "srv$id"
                 // the raw cut around the clip (original quality, with room on both sides): Editar can then move the

@@ -117,8 +117,11 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
                     if (page == 0) p.notes.firstOrNull()?.let {
                         Text(it, style = MaterialTheme.typography.labelSmall, color = C.accent, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     }
-                    if (c.reason.isNotBlank()) Text(c.reason, style = MaterialTheme.typography.bodyMedium, color = C.muted, maxLines = 2,
-                        overflow = TextOverflow.Ellipsis)
+                    // the AI's reason in full on a tap (two lines cut it in the middle)
+                    var open by remember(c.uri) { mutableStateOf(false) }
+                    if (c.reason.isNotBlank()) Text(c.reason, style = MaterialTheme.typography.bodyMedium, color = C.muted,
+                        maxLines = if (open) 12 else 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { open = !open })
                 }
                 // side buttons
                 Column(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(18.dp),

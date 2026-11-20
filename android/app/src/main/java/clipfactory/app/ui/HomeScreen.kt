@@ -284,6 +284,9 @@ private fun BotTile(p: Project, grade: Int, onOpen: () -> Unit, onLong: () -> Un
         Column(Modifier.padding(10.dp)) {
             Text(clip?.title ?: p.name, style = MaterialTheme.typography.titleSmall, color = C.text, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)
+            clipfactory.app.categoryOf(clip?.reason ?: "").takeIf { it.isNotEmpty() }?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = C.accent, maxLines = 1)
+            }
             Text(p.name.removeSuffix(" ao vivo (servidor)") + " · " +
                 SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(p.createdAt)),
                 style = MaterialTheme.typography.labelSmall, color = C.muted, maxLines = 1)
