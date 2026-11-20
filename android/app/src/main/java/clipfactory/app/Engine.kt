@@ -41,6 +41,8 @@ data class Options(
     val youtubeKey: String = "", // YouTube Data API v3, for Discover (metadata only)
     val serverAddr: String = "", // the live bot's server ("IP:8080"), to bring its clips into the app
     val serverCode: String = "", // APP_CODE chosen in the server script
+    val weakBar: Int = 40, // bot clips graded under this go to the "Fracos" tab
+    val cleanWeakDays: Int = 3, // weak bot clips not posted are deleted after this many days (0 = never)
     val language: String = "",
     val credit: String = "",
     val hashtags: String = "",

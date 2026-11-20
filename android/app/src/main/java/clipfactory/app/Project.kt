@@ -22,6 +22,7 @@ data class PClip(
     val momentId: Int, val title: String, val score: Int, val reason: String, val edit: ClipEdit,
     val uri: String = "", val status: String = "pending", // pending | rendering | done | failed
     val error: String = "", val layoutName: String = "",
+    val posted: Long = 0, // when the user posted it (0 = not yet)
 ) {
     val seconds get() = edit.end - edit.start
 }
@@ -104,6 +105,7 @@ object ProjectStore {
                 put(JSONObject().apply {
                     put("momentId", c.momentId); put("title", c.title); put("score", c.score); put("reason", c.reason)
                     put("uri", c.uri); put("status", c.status); put("error", c.error); put("layoutName", c.layoutName)
+                    put("posted", c.posted)
                     put("edit", JSONObject().apply {
                         put("start", c.edit.start); put("end", c.edit.end); put("hook", c.edit.hook)
                         put("style", c.edit.style); put("layout", c.edit.layout)
@@ -134,7 +136,8 @@ object ProjectStore {
                 PClip(c.getInt("momentId"), c.optString("title"), c.optInt("score"), c.optString("reason"),
                     ClipEdit(e.getDouble("start"), e.getDouble("end"), e.optString("hook"), e.optString("style", "amarelo"),
                         e.optString("layout", "auto")),
-                    c.optString("uri"), c.optString("status", "pending"), c.optString("error"), c.optString("layoutName"))
+                    c.optString("uri"), c.optString("status", "pending"), c.optString("error"), c.optString("layoutName"),
+                    c.optLong("posted", 0))
             },
             (0 until ns.length()).map { ns.getString(it) },
             o.optString("folder"), o.optString("status", "done"),

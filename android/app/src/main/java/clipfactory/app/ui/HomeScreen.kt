@@ -54,6 +54,7 @@ import clipfactory.app.JobState
 import clipfactory.app.Project
 import clipfactory.app.ProjectStore
 import clipfactory.app.ServerSync
+import clipfactory.app.Prefs
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -92,7 +93,7 @@ fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings
             }
             ProjectStore.delete(ctx, p.id)
         }, onDiscover = onDiscover, onLive = onLive,
-        botCard = if (configured) ({ BotCard(bot, botDown) }) else null)
+        botCard = if (configured) ({ BotCard(bot, botDown) }) else null, weakBar = Prefs.options(ctx).weakBar)
 }
 
 /** The bot at a glance: lives being recorded, clips, its latest decision. */
@@ -130,15 +131,19 @@ private fun BotCard(st: org.json.JSONObject?, down: Boolean) {
 @Composable
 fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress: Double, onPick: () -> Unit,
                 onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDelete: (Project) -> Unit,
-                onDiscover: () -> Unit = {}, onLive: () -> Unit = {}, botCard: (@Composable () -> Unit)? = null) {
+                onDiscover: () -> Unit = {}, onLive: () -> Unit = {}, botCard: (@Composable () -> Unit)? = null,
+                weakBar: Int = WEAK) {
     var confirm by remember { mutableStateOf<Project?>(null) }
     var confirmWeak by remember { mutableStateOf(false) }
     // the bot's clips: best first, the weak ones (AI grade under 40) out of the way but one tap away
     var botTab by remember { mutableStateOf("bons") }
     val botAll = projects.filter { it.id.startsWith("srv") }
     val grade = { p: Project -> p.clips.firstOrNull()?.score ?: 0 }
-    val good = botAll.filter { grade(it) >= WEAK }.sortedWith(compareByDescending<Project> { grade(it) }.thenByDescending { it.createdAt })
-    val weak = botAll.filter { grade(it) < WEAK }.sortedByDescending { it.createdAt }
+    val posted = botAll.filter { it.clips.any { c -> c.posted > 0 } }
+        .sortedByDescending { it.clips.maxOf { c -> c.posted } }
+    val fresh = botAll - posted.toSet()
+    val good = fresh.filter { grade(it) >= weakBar }.sortedWith(compareByDescending<Project> { grade(it) }.thenByDescending { it.createdAt })
+    val weak = fresh.filter { grade(it) < weakBar }.sortedByDescending { it.createdAt }
     val mine = projects.filter { !it.id.startsWith("srv") }
     LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -207,15 +212,16 @@ fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress:
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Chip("Melhores (${good.size})", botTab == "bons") { botTab = "bons" }
                         Chip("Fracos (${weak.size})", botTab == "fracos") { botTab = "fracos" }
+                        if (posted.isNotEmpty()) Chip("Postados (${posted.size})", botTab == "postados") { botTab = "postados" }
                         if (botTab == "fracos" && weak.isNotEmpty())
                             TextButton({ confirmWeak = true }) { Text("Apagar fracos", color = C.bad) }
                     }
                     if (botTab == "bons" && good.isEmpty())
-                        Text("Nenhum com nota 40 ou mais ainda. Os outros estão em Fracos.", color = C.muted,
+                        Text("Nenhum com nota $weakBar ou mais ainda. Os outros estão em Fracos.", color = C.muted,
                             style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            items(if (botTab == "bons") good else weak, key = { it.id }) { p -> BotTile(p, grade(p), { onOpen(p) }, { confirm = p }) }
+            items(when (botTab) { "bons" -> good; "postados" -> posted; else -> weak }, key = { it.id }) { p -> BotTile(p, grade(p), { onOpen(p) }, { confirm = p }) }
         }
         item(span = { GridItemSpan(2) }) {
             Text(if (projects.isEmpty()) "Seus clipes aparecem aqui." else if (mine.isEmpty()) "" else "Seus projetos",

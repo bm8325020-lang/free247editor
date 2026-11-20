@@ -109,6 +109,15 @@ fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
                         }
                     }
                     srvMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
+                    Text("Nota mínima dos bons: ${opt.weakBar} (abaixo disso vão para Fracos)", color = C.text,
+                        style = MaterialTheme.typography.bodyMedium)
+                    Slider(opt.weakBar.toFloat(), { set(opt.copy(weakBar = (it / 5).toInt() * 5)) }, valueRange = 0f..80f,
+                        colors = sliderColors())
+                    Text(if (opt.cleanWeakDays == 0) "Fracos nunca são apagados sozinhos"
+                        else "Fracos não postados somem depois de ${opt.cleanWeakDays} dia(s)", color = C.text,
+                        style = MaterialTheme.typography.bodyMedium)
+                    Slider(opt.cleanWeakDays.toFloat(), { set(opt.copy(cleanWeakDays = it.toInt())) }, valueRange = 0f..7f,
+                        steps = 6, colors = sliderColors())
                 }
             }
             Card {
@@ -136,6 +145,9 @@ fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
                     }
                 }
             }
+            // which version is installed: the first thing to check when something behaves differently
+            Text("Fábrica de Clipes ${clipfactory.app.BuildConfig.VERSION_NAME}", color = C.muted,
+                style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(16.dp))
         }
     }
 }

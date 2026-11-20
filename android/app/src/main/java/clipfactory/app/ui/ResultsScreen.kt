@@ -148,7 +148,16 @@ fun ResultsScreen(projectId: String, start: Int, onBack: () -> Unit, onEdit: (In
                     style = MaterialTheme.typography.bodyMedium, color = C.muted)
                 PostText.Platform.entries.forEach { pl ->
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.surface2)
-                        .clickable { posting = null; Poster.post(ctx as Activity, Uri.parse(c.uri), c.title, Prefs.options(ctx), pl) }
+                        .clickable {
+                            posting = null
+                            val ready = p.notes.firstOrNull { it.startsWith("Legenda sugerida pelo servidor:") }
+                                ?.substringAfter("\n")?.trim()
+                            Poster.post(ctx as Activity, Uri.parse(c.uri), c.title, Prefs.options(ctx), pl, ready)
+                            // marked as posted: the home screen keeps posted clips in their own tab
+                            ProjectStore.update(ctx, p.id) { pr ->
+                                pr.copy(clips = pr.clips.map { x -> if (x.uri == c.uri) x.copy(posted = System.currentTimeMillis()) else x })
+                            }
+                        }
                         .padding(16.dp)) { Text(pl.label, style = MaterialTheme.typography.titleMedium, color = C.text) }
                 }
             }

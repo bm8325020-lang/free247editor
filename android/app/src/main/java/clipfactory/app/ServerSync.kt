@@ -76,6 +76,7 @@ object ServerSync {
             return Result(false, "Não consegui falar com o servidor (${e.javaClass.simpleName}). Ele está ligado? A porta está aberta?")
         }
         fillKeys(ctx, base, opt)
+        cleanWeak(ctx, opt)
         var added = 0
         var best: Triple<Int, String, String>? = null // grade, channel, title of the best new clip
         val toRender = ArrayList<String>()
@@ -165,6 +166,19 @@ object ServerSync {
                     android.util.Log.i("ServerSync", "keys filled from the bot on this phone")
                 }
             }
+        }
+    }
+
+    /** Weak bot clips (under the bar, never posted) older than the chosen days leave the list and the gallery. */
+    private fun cleanWeak(ctx: Context, opt: Options) {
+        if (opt.cleanWeakDays <= 0) return
+        val limit = System.currentTimeMillis() - opt.cleanWeakDays * 86_400_000L
+        ProjectStore.projects.value.filter { p ->
+            p.id.startsWith("srv") && p.createdAt < limit && p.status != "rendering" &&
+                p.clips.none { it.posted > 0 } && (p.clips.firstOrNull()?.score ?: 0) < opt.weakBar
+        }.forEach { p ->
+            p.clips.forEach { c -> if (c.uri.startsWith("content:")) runCatching { ctx.contentResolver.delete(Uri.parse(c.uri), null, null) } }
+            ProjectStore.delete(ctx, p.id)
         }
     }
 

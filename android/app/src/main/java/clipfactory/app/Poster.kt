@@ -28,8 +28,9 @@ object Poster {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
-    fun post(activity: Activity, uri: Uri, title: String, opt: Options, platform: PostText.Platform) {
-        val text = PostText.build(title, opt.credit, opt.hashtags, platform)
+    /** caption: a ready post text (the bot's AI writes one per clip); otherwise built from the title. */
+    fun post(activity: Activity, uri: Uri, title: String, opt: Options, platform: PostText.Platform, caption: String? = null) {
+        val text = caption?.takeIf { it.isNotBlank() } ?: PostText.build(title, opt.credit, opt.hashtags, platform)
         val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("legenda", text))
         val pm = activity.packageManager
