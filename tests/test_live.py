@@ -145,3 +145,14 @@ def test_ai_verdicts_are_never_used_as_titles():
         assert aigate._VERDICT.search(bad)
     for ok in ("Ele caiu do prédio KKK", "A polícia não acreditou", "Fugiu de cueca"):
         assert not aigate._VERDICT.search(ok)
+
+
+def test_the_same_moment_is_not_clipped_twice():
+    ch = live.Channel({"plataforma": "kick", "canal": "x"}, dict(live.DEFAULTS), {}, None)
+    ch.spans = [(100.0, 160.0)]
+    assert ch.already_clipped(110, 150)          # inside a clip already made
+    assert ch.already_clipped(90, 140)           # mostly overlapping
+    assert not ch.already_clipped(155, 215)      # touches the end only
+    assert not ch.already_clipped(300, 360)
+    ch.pending.append({"peak": 425.0, "end": 460.0})
+    assert ch.already_clipped(405, 455)          # a clip still waiting counts too

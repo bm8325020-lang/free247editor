@@ -347,6 +347,7 @@ class Channel(threading.Thread):
         self.sl.stdout.close()
         self.segments, self.loud = [], []
         self.seen_segments = set()  # every segment ever listed, also the ones already dropped from the buffer
+        self.spans = []  # stream seconds of the clips made from this recording (no clip twice)
         self.seg_count = 0
 
     def stop_recorder(self):
@@ -497,6 +498,8 @@ class Channel(threading.Thread):
                 back = onset + self.opts["volta_segundos"]
                 scene = sn - back
             self.last_clip = time.time()
+            if self.already_clipped(scene - self.opts["antes"], max(scene, sn) + self.opts["depois"]):
+                return
             # the clip must still run past the reaction we just saw
             self.pending.append({"peak": scene, "end": max(scene, sn) + self.opts["depois"], "back": back,
                                  "chat_z": cz, "audio_z": az, "wall": time.time()})
@@ -524,6 +527,16 @@ class Channel(threading.Thread):
             log(self.name, f"clipe oficial falhou: {str(e)[:150]}")
 
     # ---------- cutting ----------
+    def already_clipped(self, a, b):
+        """True when a..b (stream seconds) is mostly inside a clip already made or waiting: the same moment twice
+        (a chat burst and the listener both catching it) would be two copies of one clip."""
+        spans = list(getattr(self, "spans", [])) + [(p["peak"] - self.opts["antes"], p["end"]) for p in self.pending]
+        for x, y in spans:
+            inter = min(b, y) - max(a, x)
+            if inter > 0.5 * min(b - a, y - x):
+                return True
+        return False
+
     def remember(self, verdict):
         """Keep the AI's one-line summary of the moment: the next judgement knows what happened before."""
         if verdict and verdict.get("summary"):
@@ -570,7 +583,10 @@ class Channel(threading.Thread):
                 self.heard_until = end
                 if len(words) < 8:  # nobody talking: nothing to judge from the speech
                     return
-                v = aigate.review(self.name, "", [], timed=aigate.timed_lines(words), peak=info["duration"] / 2,
+                # with chat, what people typed during this stretch (reactions only: no commands, no bots)
+                since = time.time() - info["duration"] - 20
+                heard_chat = [t for w, wt, t in self.chat.copy() if w >= since and wt > 0][-80:]
+                v = aigate.review(self.name, "", heard_chat, timed=aigate.timed_lines(words), peak=info["duration"] / 2,
                                   duration=info["duration"], frames=grab_frames(src, info["duration"], work, n=4),
                                   context=list(self.context))
                 self.remember(v)
@@ -586,6 +602,9 @@ class Channel(threading.Thread):
                 return
             t0 = segs[0]["start"]
             self.last_clip = time.time()
+            if self.already_clipped(t0 + v["start"], t0 + v["end"]):
+                log(self.name, "a IA ouviu um momento que já virou clipe: não repito")
+                return
             self.pending.append({"peak": t0 + v["start"] + self.opts["antes"], "end": t0 + v["end"], "back": 0,
                                  "chat_z": 0.0, "audio_z": 0.0, "wall": time.time()})
             log(self.name, f"a IA ouviu um momento (nota {v['score']}): {v['why'][:110]}")
@@ -695,6 +714,7 @@ class Channel(threading.Thread):
             log(self.name, f"nota da IA {score}: {why[:120]}")
         # the title burned at the start of the video: off unless "titulo_no_video": true (it stays as the post caption)
         clip = {"start": a, "end": b, "hook": hook if self.opts.get("titulo_no_video", False) else "", "title": title}
+        self.spans = (getattr(self, "spans", []) + [(offset + a, offset + b)])[-50:]
         n = len(self.made) + 1
         name = f"{stamp}-{slugify(title)[:40]}.mp4"
         # "legendas": false in live-canais.json = clips without captions (the title at the start stays)
