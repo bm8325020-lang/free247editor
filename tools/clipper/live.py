@@ -600,9 +600,13 @@ class Channel(threading.Thread):
                 if not self.live_now():
                     with _waiting_lock:
                         WAITING.pop(self.name, None)
-                    log(self.name, "offline; checando de novo em 60 s")
+                    # said once, not every minute for every channel: with many channels the useful lines got buried
+                    if not getattr(self, "said_offline", False):
+                        log(self.name, "offline (checo a cada minuto; aviso quando entrar ao vivo)")
+                        self.said_offline, self.last_wait_msg = True, None
                     self.stopped.wait(60)
                     continue
+                self.said_offline = False
                 with _waiting_lock:
                     twin = RECORDING_PEOPLE.get(self.person)
                     if twin and twin != self.name:

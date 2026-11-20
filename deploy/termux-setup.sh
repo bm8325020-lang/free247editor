@@ -8,6 +8,8 @@ BRANCH="claude/clip-platform-tools-w2g52z"
 say() { printf '\n\033[1;33m%s\033[0m\n' "$1"; }
 
 say "1/4 Instalando os programas (demora uns 10 a 20 minutos na primeira vez)…"
+# o DNS padrão do Termux às vezes para de achar sites ("Could not resolve host"): usa o do Google e o da Cloudflare
+printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > "$PREFIX/etc/resolv.conf" 2>/dev/null || true
 yes | pkg update -y >/dev/null 2>&1 || true
 pkg install -y python python-numpy ffmpeg git clang libxml2 libxslt termux-api >/dev/null
 # OpenCV acha a webcam na live. Ele fica no repositório extra (x11-repo); o nome do pacote já mudou entre versões.
@@ -76,7 +78,8 @@ cat > "$HOME/ligar-clipador.sh" <<'SH'
 #!/data/data/com.termux/files/usr/bin/bash
 termux-wake-lock 2>/dev/null || true
 cd "$HOME/clipador"
-git pull --ff-only -q 2>/dev/null || true
+for i in 1 2 3; do git pull --ff-only -q 2>/dev/null && break
+  [ "$i" = 3 ] && echo "Aviso: sem internet para atualizar agora; ligando a versão que já está no celular."; sleep 5; done
 find outbox/live -name '*.mp4' -mtime +2 -delete 2>/dev/null || true
 echo "Clipador ligado. Deixe o Termux aberto em segundo plano (pode apagar a tela). Para parar: Ctrl+C."
 python live.py
