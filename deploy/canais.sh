@@ -33,9 +33,10 @@ while True:
     for i, c in enumerate(canais, 1):
         estado = "" if c.get("ativo", True) else "  (pausado)"
         print(f"{i:2}. {c['canal']}  [{c.get('plataforma', 'twitch')}]{estado}")
-    print("\nO bot grava uma live por vez. Se duas estiverem ao vivo, grava a de cima.")
+    lim = int(d.get("max_simultaneos") or 0)
+    print(f"\nLives gravando ao mesmo tempo: {lim if lim else 'sem limite'}. Se passar disso, grava as de cima.")
     print("Legendas nos clipes: " + ("LIGADAS" if d.get("legendas", True) else "DESLIGADAS"))
-    op = ask("\n[a] adicionar  [r] remover  [p] prioridade  [l] legendas  [s] sair: ").lower()
+    op = ask("\n[a] adicionar  [r] remover  [p] prioridade  [m] quantas ao mesmo tempo  [l] legendas  [s] sair: ").lower()
     if op.startswith("a"):
         print("Twitch: o nome (alanzoka) ou o link twitch.tv/alanzoka")
         print("YouTube: o @ do canal (@alanzoka) ou o link youtube.com/@alanzoka")
@@ -103,6 +104,15 @@ while True:
             d["canais"] = canais
             save(d)
             print(f"  {canais[0]['canal']} agora é o primeiro")
+        else:
+            print("  número inválido")
+    elif op.startswith("m"):
+        print("Cada live em qualidade máxima gasta uns 3 GB por hora de internet. Celular aguenta bem 3 a 6 (use Wi-Fi).")
+        num = ask("Quantas lives ao mesmo tempo (1 a 10): ")
+        if num.isdigit() and 1 <= int(num) <= 10:
+            d["max_simultaneos"] = int(num)
+            save(d)
+            print(f"  até {num} lives ao mesmo tempo")
         else:
             print("  número inválido")
     elif op.startswith("l"):

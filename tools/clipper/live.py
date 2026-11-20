@@ -71,6 +71,8 @@ RECORDING = threading.BoundedSemaphore(1000)  # replaced in main() by max_simult
 # A live higher on the list takes the recorder from a lower one (once that one has no clip waiting to finish).
 WAITING = {}
 _waiting_lock = threading.Lock()
+# person -> channel recording them: a streamer live on Twitch and YouTube at once is recorded only once
+RECORDING_PEOPLE = {}
 
 
 def higher_waiting(rank, name):
@@ -269,6 +271,8 @@ class Channel(threading.Thread):
         self.live = False
         self.live_since = None
         self.rank = 0  # set by main(): position in the list
+        # the same streamer on several platforms shares one "pessoa": only one of those lives records
+        self.person = str(spec.get("pessoa") or f"{self.platform}:{self.name}").lower()
 
     # ---------- recording ----------
     def live_now(self):
@@ -559,12 +563,23 @@ class Channel(threading.Thread):
                     log(self.name, "offline; checando de novo em 60 s")
                     self.stopped.wait(60)
                     continue
+                with _waiting_lock:
+                    twin = RECORDING_PEOPLE.get(self.person)
+                    if twin and twin != self.name:
+                        WAITING.pop(self.name, None)
+                if twin and twin != self.name:
+                    msg = f"ao vivo, mas já estou gravando essa mesma live por {twin} (não gravo em dobro)"
+                    if msg != getattr(self, "last_wait_msg", None):
+                        log(self.name, msg)
+                        self.last_wait_msg = msg
+                    self.stopped.wait(60)
+                    continue
                 first = higher_waiting(self.rank, self.name)
                 if first or not RECORDING.acquire(blocking=False):
                     with _waiting_lock:
                         WAITING[self.name] = self.rank
                     msg = (f"ao vivo, esperando a vez ({first} está mais acima na lista)" if first else
-                           "ao vivo, esperando: outra live já está sendo gravada (uma por vez)")
+                           "ao vivo, esperando: o limite de lives ao mesmo tempo está cheio")
                     if msg != getattr(self, "last_wait_msg", None):  # say it once, not every 15 s
                         log(self.name, msg)
                         self.last_wait_msg = msg
@@ -572,6 +587,10 @@ class Channel(threading.Thread):
                     continue
                 with _waiting_lock:
                     WAITING.pop(self.name, None)
+                    twin = RECORDING_PEOPLE.setdefault(self.person, self.name)
+                if twin != self.name:  # the other platform started in the same instant
+                    RECORDING.release()
+                    continue
                 self.holding = True
                 self.last_wait_msg = None
                 log(self.name, "AO VIVO: gravando buffer" + ("" if self.platform == "kick" else " e lendo o chat"))
@@ -625,6 +644,9 @@ class Channel(threading.Thread):
                 self.stop_recorder()
                 if getattr(self, "holding", False):
                     self.holding = False
+                    with _waiting_lock:
+                        if RECORDING_PEOPLE.get(self.person) == self.name:
+                            RECORDING_PEOPLE.pop(self.person)
                     RECORDING.release()
 
 
@@ -661,7 +683,10 @@ def apply_channel_pack(data, pack):
     for c in pack.get("canais", []):
         k = key(c)
         if k in by_key:
-            ordered.append(by_key.pop(k))
+            mine_c = by_key.pop(k)
+            if c.get("pessoa"):
+                mine_c["pessoa"] = c["pessoa"]
+            ordered.append(mine_c)
         elif aut and f"{k[0]}:{k[1]}" not in offered:
             ordered.append({**c, "autorizacao": aut, "ativo": True})
             added.append(c["canal"])
@@ -669,6 +694,7 @@ def apply_channel_pack(data, pack):
     data["canais"] = ordered + [c for c in mine if key(c) in by_key]
     data["pacote_versao"] = int(pack["versao"])
     data["pacote_oferecidos"] = sorted(offered)
+    data.update(pack.get("opcoes", {}))
     return added
 
 
