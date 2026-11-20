@@ -335,7 +335,7 @@ class Channel(threading.Thread):
         """Weighted chat messages per second over the last 5 minutes (oldest -> newest) and seconds of history."""
         now = time.time()
         sec = collections.Counter()
-        for w, wt, _ in self.chat:
+        for w, wt, _ in self.chat.copy():  # snapshot: the chat thread keeps appending
             if w >= now - 300:
                 sec[int(now - w)] += wt
         history = now - self.chat[0][0] if self.chat else 0
@@ -536,7 +536,7 @@ class Channel(threading.Thread):
                     self.ready_pending()
                     if time.time() - last_status > 60:
                         cz, az, _ = self.scores()
-                        msgs = sum(1 for w, _, _ in self.chat if w >= time.time() - 60)
+                        msgs = sum(1 for w, _, _ in self.chat.copy() if w >= time.time() - 60)
                         log(self.name, f"ok — {len(self.segments)} segmentos no buffer, {msgs} msgs/min, "
                                        f"chat {cz:+.1f}σ, áudio {az:+.1f}σ, {len(self.made)} clipes")
                         last_status = time.time()
@@ -567,7 +567,7 @@ class Channel(threading.Thread):
         if not self.live:
             return f"⚫ {self.name} ({self.platform}): offline. Checo a cada minuto."
         mins = int((time.time() - (self.live_since or time.time())) / 60)
-        msgs = sum(1 for w, _, _ in list(self.chat) if w >= time.time() - 60)
+        msgs = sum(1 for w, _, _ in self.chat.copy() if w >= time.time() - 60)
         return (f"🔴 {self.name} ({self.platform}): ao vivo há {mins} min, {msgs} msgs/min no chat, "
                 f"{len(self.made)} clipe(s) nesta live.")
 
