@@ -108,8 +108,13 @@ LOG_FILE = ROOT / "outbox" / "live" / "bot.log"
 _log_lock = threading.Lock()
 
 
+_last_note = {}  # channel -> its latest line, shown in the app
+
+
 def log(ch, msg):
     line = f"{datetime.now():%H:%M:%S} [{ch}] {msg}"
+    if not msg.startswith("ok —"):
+        _last_note[ch] = f"{datetime.now():%H:%M} {msg[:140]}"
     print(line, file=sys.stderr, flush=True)
     # also on disk: the Termux screen only keeps the last lines. Read it with:  tail -100 ~/clipador/outbox/live/bot.log
     try:
@@ -880,6 +885,12 @@ class Channel(threading.Thread):
         self.live, self.live_since = False, None
         self.made = []
 
+    def status_dict(self):
+        return {"name": self.name, "platform": self.platform,
+                "recording": bool(getattr(self, "holding", False)),
+                "minutes": int((time.time() - (self.live_since or time.time())) / 60),
+                "clips": len(self.made), "last": _last_note.get(self.name, "")}
+
     def describe(self):
         if not self.live:
             return f"⚫ {self.name} ({self.platform}): offline. Checo a cada minuto."
@@ -1060,7 +1071,11 @@ def main(argv=None):
         w.rank = i  # order in live-canais.json = priority when only some lives can record
     # APP_HOST=127.0.0.1 on a phone (Termux): only apps on the same phone can fetch the clips
     clipserver.serve(os.environ.get("APP_CODE", "").strip(), int(os.environ.get("APP_PORT", "8080")),
-                     status=lambda: [w.describe() for w in workers], host=os.environ.get("APP_HOST", "0.0.0.0"))
+                     status=lambda: [w.describe() for w in workers], host=os.environ.get("APP_HOST", "0.0.0.0"),
+                     details=lambda: {"lives": [w.status_dict() for w in workers if w.live],
+                                      "offline": [w.name for w in workers if not w.live],
+                                      "groq_min": round(groq_hour_used() / 60),
+                                      "groq_max": round(float(opts.get("groq_por_hora", 5400)) / 60)})
     global TG
     tg = Telegram(status=lambda: "\n".join(w.describe() for w in workers))
     if tg.enabled:

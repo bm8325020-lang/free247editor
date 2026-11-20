@@ -73,7 +73,7 @@ def _public(c):
     return out
 
 
-def serve(code, port=8080, status=lambda: [], host="0.0.0.0"):
+def serve(code, port=8080, status=lambda: [], host="0.0.0.0", details=lambda: {}):
     """Run in a background thread. Refuses to start without a code of at least 8 characters."""
     if code in ("TROQUE_AQUI", "invente_um_codigo_secreto"):
         print("[servidor] APP_CODE ainda é o exemplo do script: troque por uma senha sua. Servidor de clipes desligado.",
@@ -100,7 +100,7 @@ def serve(code, port=8080, status=lambda: [], host="0.0.0.0"):
             if not hmac.compare_digest(self.headers.get("X-Code", ""), code):
                 return self._send(401, {"error": "código errado"})
             if self.path == "/api/status":
-                return self._send(200, {"channels": status(), "clips": len(_read())})
+                return self._send(200, {"channels": status(), "clips": len(_read()), **details()})
             if self.path == "/api/keys":
                 if host != "127.0.0.1" or self.client_address[0] != "127.0.0.1":
                     return self._send(403, {"error": "só no mesmo celular"})
