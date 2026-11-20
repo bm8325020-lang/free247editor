@@ -299,9 +299,21 @@ class Channel(threading.Thread):
     def live_now(self):
         if self.simulated:
             return not getattr(self, "sim_done", False)
-        r = subprocess.run(["streamlink", "--stream-url", self.url, self.opts["qualidade"]],
-                           capture_output=True, text=True, timeout=60)
-        return r.returncode == 0 and r.stdout.strip().startswith("http")
+        # inside this process, not one "streamlink" program per channel per minute: Android 12+ kills apps that start
+        # too many processes ("Process completed (signal 9)" in Termux), and 17 channels started one every few seconds
+        try:
+            from streamlink import Streamlink
+        except ImportError:
+            r = subprocess.run(["streamlink", "--stream-url", self.url, self.opts["qualidade"]],
+                               capture_output=True, text=True, timeout=60)
+            return r.returncode == 0 and r.stdout.strip().startswith("http")
+        try:
+            session = Streamlink()
+            session.set_option("http-timeout", 30)
+            streams = session.streams(self.url)
+        except Exception:
+            return False
+        return bool(streams) and (self.opts["qualidade"] in streams or "best" in streams)
 
     def start_recorder(self):
         if self.work.exists():
