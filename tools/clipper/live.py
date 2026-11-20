@@ -92,8 +92,23 @@ def notify_error(ch, msg):
         TG.send_error(ch, f"{ch}: {msg}")
 
 
+LOG_FILE = ROOT / "outbox" / "live" / "bot.log"
+_log_lock = threading.Lock()
+
+
 def log(ch, msg):
-    print(f"{datetime.now():%H:%M:%S} [{ch}] {msg}", file=sys.stderr, flush=True)
+    line = f"{datetime.now():%H:%M:%S} [{ch}] {msg}"
+    print(line, file=sys.stderr, flush=True)
+    # also on disk: the Termux screen only keeps the last lines. Read it with:  tail -100 ~/clipador/outbox/live/bot.log
+    try:
+        with _log_lock:
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5_000_000:  # keep it small: the last ~5 MB
+                LOG_FILE.replace(LOG_FILE.with_suffix(".old.log"))
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(f"{datetime.now():%Y-%m-%d} {line}\n")
+    except OSError:
+        pass
 
 
 def proxy():
