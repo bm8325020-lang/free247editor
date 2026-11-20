@@ -646,6 +646,10 @@ class Channel(threading.Thread):
         for p in list(self.pending):
             if recorded >= p["end"] + self.opts.get("folga", 0) + 2:
                 self.pending.remove(p)
+                # being cut and judged now: counts as clipped right away (a chat burst and the listener caught the
+                # same robbery twice while the first one was still being made)
+                p["span"] = (p["peak"] - self.opts["antes"], p["end"])
+                self.spans = (getattr(self, "spans", []) + [p["span"]])[-50:]
                 threading.Thread(target=self.cut, args=(p,), daemon=True).start()
             elif time.time() - p["wall"] > 600:
                 self.pending.remove(p)
@@ -737,8 +741,17 @@ class Channel(threading.Thread):
                 title = hook = verdict["title"]
             log(self.name, f"nota da IA {score}: {why[:120]}")
         # the title burned at the start of the video: off unless "titulo_no_video": true (it stays as the post caption)
+        # the AI may have moved the cut onto a moment another clip already holds
+        own = p.get("span")
+        others = [x for x in getattr(self, "spans", []) if x != own]
+        saved, self.spans = self.spans, others
+        dup = self.already_clipped(offset + a, offset + b)
+        self.spans = saved
+        if dup:
+            log(self.name, "o corte escolhido já virou outro clipe: não repito")
+            return
         clip = {"start": a, "end": b, "hook": hook if self.opts.get("titulo_no_video", False) else "", "title": title}
-        self.spans = (getattr(self, "spans", []) + [(offset + a, offset + b)])[-50:]
+        self.spans = [x for x in getattr(self, "spans", []) if x != own] + [(offset + a, offset + b)]
         n = len(self.made) + 1
         name = f"{stamp}-{slugify(title)[:40]}.mp4"
         # "legendas": false in live-canais.json = clips without captions (the title at the start stays)
@@ -757,7 +770,9 @@ class Channel(threading.Thread):
         caption = post_text(title, credit, self.opts.get("hashtags", "#cortes #clips"))
         if verdict and verdict.get("caption"):
             # the AI's post text fits this moment; the credit to the streamer always goes along
-            caption = f"{verdict['caption']}\n\nCréditos: {credit if credit.startswith('@') else '@' + credit}"
+            # "#GTA RP" is two words to TikTok: glue the hashtag back together
+            fixed = re.sub(r"#(\w+) (RP|V|VI|5|6)\b", r"#\1\2", verdict["caption"])
+            caption = f"{fixed}\n\nCréditos: {credit if credit.startswith('@') else '@' + credit}"
         # keep the raw cut (original quality, with room around the clip) for the app's editor
         raw = folder / f"{stamp}-bruto.mp4"
         try:
