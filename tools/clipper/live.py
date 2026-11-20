@@ -62,6 +62,8 @@ DEFAULTS = {
     "clip_oficial_twitch": False,
     # how many lives may record at the same time (0 = no limit); a phone handles one
     "max_simultaneos": 0,
+    # captions on the clips (the title at the start comes from the speech either way)
+    "legendas": True,
 }
 
 RECORDING = threading.BoundedSemaphore(1000)  # replaced in main() by max_simultaneos
@@ -487,7 +489,9 @@ class Channel(threading.Thread):
         clip = {"start": a, "end": b, "hook": hook, "title": title}
         n = len(self.made) + 1
         name = f"{stamp}-{slugify(title)[:40]}.mp4"
-        meta = render_clip(src, info, words, clip, cfg, folder / name, work, self.layout)
+        # "legendas": false in live-canais.json = clips without captions (the title at the start stays)
+        meta = render_clip(src, info, words if self.opts.get("legendas", True) else [], clip, cfg, folder / name, work,
+                           self.layout)
         text = " ".join(w["text"] for w in words if a <= w["start"] < b)
         self.made.append({"rank": n, "file": name, "thumb": meta["thumb"], "title": title,
                           "score": round(min(99, 50 + 8 * max(p["chat_z"], p["audio_z"]))),

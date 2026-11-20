@@ -34,7 +34,8 @@ while True:
         estado = "" if c.get("ativo", True) else "  (pausado)"
         print(f"{i:2}. {c['canal']}  [{c.get('plataforma', 'twitch')}]{estado}")
     print("\nO bot grava uma live por vez: a primeira que entrar ao vivo.")
-    op = ask("\n[a] adicionar   [r] remover   [s] sair: ").lower()
+    print("Legendas nos clipes: " + ("LIGADAS" if d.get("legendas", True) else "DESLIGADAS"))
+    op = ask("\n[a] adicionar   [r] remover   [l] liga/desliga legendas   [s] sair: ").lower()
     if op.startswith("a"):
         nomes = ask("Nome(s) na Twitch (o que vem depois de twitch.tv/), separados por espaço: ")
         padrao = canais[0].get("autorizacao", "") if canais else ""
@@ -58,6 +59,10 @@ while True:
             print(f"  + {n}")
         d["canais"] = canais
         save(d)
+    elif op.startswith("l"):
+        d["legendas"] = not d.get("legendas", True)
+        save(d)
+        print("  legendas " + ("ligadas" if d["legendas"] else "desligadas"))
     elif op.startswith("r"):
         num = ask("Número do canal para remover: ")
         if num.isdigit() and 1 <= int(num) <= len(canais):
