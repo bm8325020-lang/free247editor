@@ -25,6 +25,7 @@ class Transcriber(private val key: String, private val language: String?) {
             .addFormDataPart("model", "whisper-large-v3")
             .addFormDataPart("response_format", "verbose_json")
             .addFormDataPart("timestamp_granularities[]", "word")
+            .addFormDataPart("timestamp_granularities[]", "segment")
             .apply { if (!language.isNullOrBlank()) addFormDataPart("language", language) }
             .addFormDataPart("file", if (m4a) "audio.m4a" else "audio.wav",
                 wav.toRequestBody((if (m4a) "audio/mp4" else "audio/wav").toMediaType()))
@@ -53,13 +54,42 @@ class Transcriber(private val key: String, private val language: String?) {
             val js = JSONObject(text)
             if (detectedLanguage == null) detectedLanguage = js.optString("language").ifBlank { null }
             val arr = js.optJSONArray("words") ?: return emptyList()
+            val drop = gameDialogue(js.optJSONArray("segments"))
             return (0 until arr.length()).mapNotNull { i ->
                 val w = arr.getJSONObject(i)
                 val t = w.optString("word").trim()
                 val s = w.optDouble("start")
                 val e = w.optDouble("end")
-                if (t.isEmpty() || e < s) null else Word(t, s + offsetS, e + offsetS)
+                if (t.isEmpty() || e < s || drop.any { (a, b) -> s >= a && s < b }) null else Word(t, s + offsetS, e + offsetS)
             }
         }
+    }
+
+    /**
+     * Stretches spoken by in-game characters (English, with the game's own subtitles on screen) while the streamer
+     * speaks Portuguese: left out of the captions, which carry only the streamer. Same rule as the server bot.
+     */
+    private fun gameDialogue(segs: org.json.JSONArray?): List<Pair<Double, Double>> {
+        if (segs == null) return emptyList()
+        val out = ArrayList<Pair<Double, Double>>()
+        var ptTotal = 0
+        for (i in 0 until segs.length()) {
+            val o = segs.getJSONObject(i)
+            val toks = o.optString("text").lowercase().split(Regex("\\s+")).map { it.trim('.', ',', '!', '?', '"', '\'', '…') }
+            val en = toks.count { it in EN }
+            val pt = toks.count { it in PT || it.startsWith("kkk") }
+            ptTotal += pt
+            if (en >= 2 && en > 1.5 * pt) out.add(o.optDouble("start") - 0.05 to o.optDouble("end") + 0.05)
+        }
+        return if (ptTotal < 3) emptyList() else out // an English-speaking streamer: keep every caption
+    }
+
+    private companion object {
+        val EN = ("the you and is it what i my don't that this are be get go we your of on for just right come here yeah " +
+            "hey gonna wanna know got can all out up now let's i'm you're it's what's he she they with have was will not did " +
+            "there where why how who fuck shit damn please sir think want need look sorry thank thanks guy fucking").split(" ").toSet()
+        val PT = ("o os as de que e não nao é um uma eu você voce mano pra para tá ta isso ele ela com na da dos das em meu " +
+            "minha vai vou aqui aí ai cara mas se já ja tô muito tem só então entao porque nossa caralho porra véi velho irmão " +
+            "irmao gente bora olha ó tipo foi tava essa esse lá la vamo vamos ver quero sei pô po né ne mesmo agora").split(" ").toSet()
     }
 }

@@ -52,6 +52,33 @@ def _local(audio, cfg, language, progress=None):
     return words, info.language
 
 
+# Clear-cut words of each language (ambiguous ones like "a", "no", "do", "me", "to", "so" are left out)
+_EN = set("""the you and is it what i my don't that this are be get go we your of on for just right come here yeah
+hey gonna wanna know got can all out up now let's i'm you're it's what's he she they with have was will not did there
+where why how who fuck shit damn please sir think want need look sorry thank thanks guy fucking motherfucker""".split())
+_PT = set("""o os as de que e não nao é um uma eu você voce mano pra para tá ta isso ele ela com na da dos das em meu minha
+vai vou aqui aí ai cara mas se já ja tô muito tem só então entao porque nossa caralho porra véi velho irmão irmao
+gente bora olha ó tipo foi tava essa esse lá la vamo vamos ver quero sei pô po né ne mesmo agora""".split())
+
+
+def drop_game_dialogue(words, segments):
+    """In-game characters (GTA and most games) speak English while the streamer speaks Portuguese; the game shows its
+    own subtitles. Drop the stretches that are clearly English so the captions carry only the streamer."""
+    drop, pt_total = [], 0
+    for seg in segments:
+        toks = [t.strip(".,!?\"'…").lower() for t in str(seg.get("text", "")).split()]
+        en = sum(t in _EN for t in toks)
+        pt = sum(t in _PT or t.startswith("kkk") for t in toks)
+        pt_total += pt
+        if en >= 2 and en > 1.5 * pt:
+            drop.append((float(seg.get("start", 0)) - 0.05, float(seg.get("end", 0)) + 0.05))
+    if pt_total < 3:  # no Portuguese speaker here (an English-speaking streamer): keep every caption
+        return words
+    if not drop:
+        return words
+    return [w for w in words if not any(a <= w["start"] < b for a, b in drop)]
+
+
 def _groq(path, start, dur, language):
     key = os.environ["GROQ_API_KEY"]
     with tempfile.TemporaryDirectory() as tmp:
@@ -60,7 +87,7 @@ def _groq(path, start, dur, language):
              "-ac", "1", "-ar", "16000", "-b:a", "48k", str(mp3)])
         boundary = uuid.uuid4().hex
         fields = [("model", "whisper-large-v3"), ("response_format", "verbose_json"),
-                  ("timestamp_granularities[]", "word")]
+                  ("timestamp_granularities[]", "word"), ("timestamp_granularities[]", "segment")]
         if language:
             fields.append(("language", language))
         body = b"".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode()
@@ -76,6 +103,7 @@ def _groq(path, start, dur, language):
         res = json.loads(r.read())
     words = [{"text": w["word"].strip(), "start": round(w["start"], 3), "end": round(w["end"], 3)}
              for w in res.get("words") or []]
+    words = drop_game_dialogue(words, res.get("segments") or [])
     lang = res.get("language")
     return words, LANG_CODES.get(str(lang).lower(), lang)
 
