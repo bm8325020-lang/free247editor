@@ -1,5 +1,5 @@
 {
-  "versao": 6,
+  "versao": 7,
   "nota": "Pacote de canais aplicado pelo bot ao ligar (live.py), uma vez por versão. 'pessoa' junta os canais do mesmo streamer: se ele estiver ao vivo na Twitch e no YouTube ao mesmo tempo, grava só um (o de cima). A ordem é a prioridade quando o limite de lives ao mesmo tempo enche. Canais que você remover não voltam. Kick: sem leitura do chat, detecta pelo áudio + IA.",
   "canais": [
     {
@@ -21,6 +21,24 @@
       "url": "https://www.youtube.com/@gameplayrj/live",
       "creditos": "@davyjones",
       "pessoa": "davyjones"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "luquet4",
+      "creditos": "@luquet4",
+      "pessoa": "luquet4"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "allanstag",
+      "creditos": "@allanstag",
+      "pessoa": "allanstag"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "jonvlogs",
+      "creditos": "@jonvlogs",
+      "pessoa": "jonvlogs"
     },
     {
       "plataforma": "twitch",
@@ -83,6 +101,12 @@
       "canal": "davyjones",
       "creditos": "@davyjones",
       "pessoa": "davyjones"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "maellen",
+      "creditos": "@maellen",
+      "pessoa": "maellen"
     }
   ]
 }
