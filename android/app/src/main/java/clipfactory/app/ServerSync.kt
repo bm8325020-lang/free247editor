@@ -136,7 +136,8 @@ object ServerSync {
                         ClipEdit(a, b, if (opt.hook && useRaw && c.has("score") && " às " !in title) title else "", opt.captionStyle,
                             if (useRaw) "pip" else "auto"),
                         uri = uri.toString(), status = if (useRaw) "pending" else "done", layoutName = "do servidor")),
-                    notes = listOf("Legenda sugerida pelo servidor:\n" + c.optString("caption")),
+                    notes = listOf("Legenda sugerida pelo servidor:\n" + c.optString("caption")) +
+                        (if (c.has("postavel")) listOf("IA: vale postar = " + (if (c.optBoolean("postavel")) "sim" else "não")) else emptyList()),
                     status = if (useRaw) "rendering" else "done"))
                 if (useRaw) toRender.add(pid)
                 if (best == null || score > best!!.first) best = Triple(score, channel, title)

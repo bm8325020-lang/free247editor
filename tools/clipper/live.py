@@ -958,6 +958,7 @@ class Channel(threading.Thread):
         clipserver.add_clip(folder / name, self.name, title, caption, score, why,  # the phone app picks it up
                             raw=raw, raw_start=meta.get("start", a), raw_end=meta.get("end", b),
                             category=(verdict or {}).get("category", ""),
+                            postavel=bool((verdict or {}).get("clip")),
                             info={  # what a clipper logs for each cut
                                 "streamer": self.name, "fonte": self.url, "data": datetime.now().strftime("%Y-%m-%d"),
                                 "inicio": datetime.fromtimestamp(p["wall"] - (end - a)).strftime("%H:%M:%S"),

@@ -34,7 +34,7 @@ def _read():
 
 
 def add_clip(path, channel, title, caption, score=None, why="", raw=None, raw_start=0.0, raw_end=0.0, category="",
-             info=None):
+             info=None, postavel=None):
     """Called by the bot when a clip is ready. raw: the uncut video around it (original quality), with the clip at
     raw_start..raw_end seconds; the app downloads it once to let the user move the start and the end."""
     path = Path(path)
@@ -45,6 +45,7 @@ def add_clip(path, channel, title, caption, score=None, why="", raw=None, raw_st
         extra = {"raw": str(Path(raw).relative_to(ROOT)), "raw_start": round(float(raw_start), 2),
                  "raw_end": round(float(raw_end), 2)} if raw and Path(raw).exists() else {}
         clips.append({**extra, "id": cid, "channel": channel, "title": title, "caption": caption, "score": score, "why": why, "category": category, "info": info or {},
+                      "postavel": postavel,
                       "created": datetime.now().isoformat(timespec="seconds"),
                       "bytes": path.stat().st_size, "path": str(path.relative_to(ROOT))})
         clips = clips[-500:]  # the newest 500 are enough for the app to catch up
@@ -68,7 +69,7 @@ def _drop_old_raws(hours=24):
 
 def _public(c):
     out = {k: c[k] for k in ("id", "channel", "title", "caption", "created", "bytes")}
-    out.update({k: c[k] for k in ("score", "why", "category", "info") if c.get(k) not in (None, "", {})})
+    out.update({k: c[k] for k in ("score", "why", "category", "info", "postavel") if c.get(k) not in (None, "", {})})
     if c.get("raw") and (ROOT / c["raw"]).is_file():
         out.update(raw=True, raw_start=c["raw_start"], raw_end=c["raw_end"])
     return out

@@ -17,24 +17,24 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 /**
  * Posts the best bot clips to the owner's Instagram by itself, through Meta's official Content Publishing API
  * (Instagram professional account linked to a Facebook Page; the device uploads the video directly, resumable
- * upload). Rules: only clips graded [minScore]+, at most [perDay] a day, at the chosen times, and the owner gets
- * [VETO_MIN] minutes to cancel each one from a notification. TikTok stays one tap (its API only posts privately
- * for unaudited apps).
+ * upload). The owner's rhythm: every [Config.interval] minutes up to [Config.perRound] clips, graded [Config.minScore]+
+ * (or under it when the AI said the clip is worth posting), never more than [Config.dailyCap] a day (Meta allows
+ * 50-100 API posts per 24 h), with [VETO_MIN] minutes to cancel from a notification. TikTok stays one tap (its API
+ * only posts privately for unaudited apps).
  */
 object AutoPost {
     data class Config(
-        val enabled: Boolean, val minScore: Int, val perDay: Int, val slots: List<Int>, // minutes of the day
+        val enabled: Boolean, val minScore: Int, val dailyCap: Int, val interval: Int, val perRound: Int,
         val username: String, val connected: Boolean,
     )
 
     private const val GRAPH = "https://graph.facebook.com"
-    private const val VETO_MIN = 30
+    private const val VETO_MIN = 5
     private val http = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(5, TimeUnit.MINUTES)
         .writeTimeout(10, TimeUnit.MINUTES).build()
 
@@ -42,23 +42,16 @@ object AutoPost {
 
     fun config(ctx: Context): Config {
         val p = sp(ctx)
-        return Config(p.getBoolean("enabled", false), p.getInt("minScore", 80), p.getInt("perDay", 4),
-            parseSlots(p.getString("slots", "12:30,18:30,21:30") ?: ""), p.getString("username", "") ?: "",
+        return Config(p.getBoolean("enabled", false), p.getInt("minScore2", 50), p.getInt("dailyCap", 50),
+            p.getInt("interval", 15), p.getInt("perRound", 2), p.getString("username", "") ?: "",
             (p.getString("token_enc", "") ?: "").isNotEmpty())
     }
 
-    fun slotsText(ctx: Context) = sp(ctx).getString("slots", "12:30,18:30,21:30") ?: ""
-
-    fun save(ctx: Context, enabled: Boolean, minScore: Int, perDay: Int, slots: String) {
-        sp(ctx).edit().putBoolean("enabled", enabled).putInt("minScore", minScore).putInt("perDay", perDay)
-            .putString("slots", slots).apply()
+    fun save(ctx: Context, c: Config) {
+        sp(ctx).edit().putBoolean("enabled", c.enabled).putInt("minScore2", c.minScore).putInt("dailyCap", c.dailyCap)
+            .putInt("interval", c.interval).putInt("perRound", c.perRound).apply()
+        if (c.enabled) start(ctx) else WorkManager.getInstance(ctx).cancelUniqueWork("autopost-round")
     }
-
-    fun parseSlots(s: String): List<Int> = s.split(",", " ", ";").mapNotNull { t ->
-        val m = Regex("^(\\d{1,2})(?::(\\d{2}))?$").find(t.trim()) ?: return@mapNotNull null
-        val h = m.groupValues[1].toInt(); val mi = m.groupValues[2].ifEmpty { "0" }.toInt()
-        if (h in 0..23 && mi in 0..59) h * 60 + mi else null
-    }.distinct().sorted()
 
     /**
      * Connect with a user token made in Meta's Graph API Explorer (permissions instagram_basic,
@@ -151,82 +144,91 @@ object AutoPost {
         sp(ctx).edit().putString("day", today()).putInt("count", n).apply()
     }
 
-    /** The best bot clip not posted, not vetoed, from the last 24 h, graded at least minScore. */
-    private fun candidate(ctx: Context, cfg: Config): Project? {
+    /** Clips to post now: not posted, not vetoed, rendered by the app, last 24 h; graded minScore+ or, under it,
+     *  marked worth posting by the AI. Best first. */
+    private fun candidates(ctx: Context, cfg: Config): List<Project> {
         val skipped = sp(ctx).getStringSet("skipped", emptySet())!!
+        val queued = (sp(ctx).getString("queue", "") ?: "").split(",").filter { it.isNotEmpty() }.toSet()
         val since = System.currentTimeMillis() - 86_400_000L
         return ProjectStore.projects.value.filter { p ->
-            p.id.startsWith("srv") && p.createdAt > since && p.id !in skipped && p.status == "done" &&
-                p.doneClips.isNotEmpty() && p.clips.none { it.posted > 0 } &&
-                (p.clips.first().score) >= cfg.minScore && p.clips.first().layoutName != "do servidor"
-        }.maxByOrNull { it.clips.first().score }
+            val c = p.clips.firstOrNull()
+            p.id.startsWith("srv") && p.createdAt > since && p.id !in skipped && p.id !in queued && p.status == "done" &&
+                c != null && p.doneClips.isNotEmpty() && p.clips.none { it.posted > 0 } && c.layoutName != "do servidor" &&
+                (c.score >= cfg.minScore || p.notes.any { it == "IA: vale postar = sim" })
+        }.sortedByDescending { it.clips.first().score }
     }
 
-    /**
-     * Called every 15 minutes (with the bot sync) and when the app opens: schedules the next post when a time slot
-     * is coming (and warns the owner), and posts it when its time comes unless it was vetoed.
-     */
+    /** Keep the round chain alive (called every 15 minutes and when the app opens). */
     fun tick(ctx: Context) {
         val cfg = config(ctx)
-        if (!cfg.enabled || !cfg.connected || cfg.slots.isEmpty()) return
+        if (cfg.enabled && cfg.connected) start(ctx)
+    }
+
+    private fun start(ctx: Context) {
+        WorkManager.getInstance(ctx).enqueueUniqueWork("autopost-round", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<RoundWorker>().build())
+    }
+
+    /** One round: pick up to perRound clips, warn the owner (VETO_MIN minutes to cancel), schedule the next round. */
+    private fun round(ctx: Context) {
+        val cfg = config(ctx)
+        if (!cfg.enabled || !cfg.connected) return
         ProjectStore.load(ctx)
         val p = sp(ctx)
-        val now = Calendar.getInstance()
-        val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-        val pending = p.getString("scheduledPid", "") ?: ""
-        val at = p.getLong("scheduledAt", 0)
-        if (pending.isNotEmpty()) {
-            if (System.currentTimeMillis() >= at) postNow(ctx)
-            return
+        val room = cfg.dailyCap - postedToday(ctx)
+        val queuedNow = (p.getString("queue", "") ?: "").split(",").filter { it.isNotEmpty() }
+        if (room > 0 && queuedNow.isEmpty()) {
+            val pick = candidates(ctx, cfg).take(minOf(cfg.perRound, room))
+            if (pick.isNotEmpty()) {
+                p.edit().putString("queue", pick.joinToString(",") { it.id }).apply()
+                notify(ctx, 40, "📅 Vou postar ${pick.size} clipe(s) no Instagram em $VETO_MIN min",
+                    pick.joinToString("\n") { "• ${it.clips.first().title} (nota ${it.clips.first().score})" } +
+                        "\nToque em Cancelar para não postar.", actions = true)
+                WorkManager.getInstance(ctx).enqueueUniqueWork("autopost-now", ExistingWorkPolicy.REPLACE,
+                    OneTimeWorkRequestBuilder<PostWorker>().setInitialDelay(VETO_MIN.toLong(), TimeUnit.MINUTES).build())
+            }
         }
-        if (postedToday(ctx) >= cfg.perDay) return
-        // the next slot within the veto window
-        val slot = cfg.slots.firstOrNull { it - minute in 0..VETO_MIN + 15 } ?: return
-        if (p.getString("lastSlot", "") == "${today()}-$slot") return
-        val best = candidate(ctx, cfg) ?: return
-        val time = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, slot / 60); set(Calendar.MINUTE, slot % 60); set(Calendar.SECOND, 0)
-        }.timeInMillis
-        p.edit().putString("scheduledPid", best.id).putLong("scheduledAt", time).putString("lastSlot", "${today()}-$slot").apply()
-        notify(ctx, 40, "📅 Vou postar no Instagram às %02d:%02d".format(slot / 60, slot % 60),
-            "\"${best.clips.first().title}\" (nota ${best.clips.first().score}). Toque em Cancelar para não postar.", actions = true)
-        // the post itself runs at its time even if the 15-minute check comes late
-        WorkManager.getInstance(ctx).enqueueUniqueWork("autopost-now", ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<PostWorker>().setInitialDelay(maxOf(0, time - System.currentTimeMillis()), TimeUnit.MILLISECONDS).build())
+        // the next round
+        WorkManager.getInstance(ctx).enqueueUniqueWork("autopost-round", ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<RoundWorker>().setInitialDelay(cfg.interval.toLong(), TimeUnit.MINUTES).build())
     }
 
     fun cancelScheduled(ctx: Context) {
         val p = sp(ctx)
-        val pid = p.getString("scheduledPid", "") ?: ""
-        if (pid.isNotEmpty()) p.edit().putStringSet("skipped", p.getStringSet("skipped", emptySet())!! + pid).apply()
-        p.edit().remove("scheduledPid").remove("scheduledAt").apply()
+        val queued = (p.getString("queue", "") ?: "").split(",").filter { it.isNotEmpty() }
+        p.edit().putStringSet("skipped", p.getStringSet("skipped", emptySet())!! + queued).remove("queue").apply()
         WorkManager.getInstance(ctx).cancelUniqueWork("autopost-now")
         ctx.getSystemService(NotificationManager::class.java).cancel(40)
     }
 
-    /** Post the scheduled clip now (its time came, or the owner tapped "Postar agora"). */
+    /** Post the next queued clip; one per job (a background job has 10 minutes), the next job takes the next one. */
     fun postNow(ctx: Context) {
         val p = sp(ctx)
-        val pid = p.getString("scheduledPid", "") ?: ""
-        if (pid.isEmpty()) return
-        p.edit().remove("scheduledPid").remove("scheduledAt").apply()
+        val queued = (p.getString("queue", "") ?: "").split(",").filter { it.isNotEmpty() }
+        val pid = queued.firstOrNull() ?: return
+        p.edit().putString("queue", queued.drop(1).joinToString(",")).apply()
+        if (queued.size > 1) WorkManager.getInstance(ctx).enqueueUniqueWork("autopost-next", ExistingWorkPolicy.APPEND,
+            OneTimeWorkRequestBuilder<PostWorker>().build())
+        if (postedToday(ctx) >= config(ctx).dailyCap) return
         ProjectStore.load(ctx)
         val pr = ProjectStore.get(pid) ?: return
         val c = pr.doneClips.firstOrNull() ?: return
+        if (c.posted > 0) return
         val caption = pr.notes.firstOrNull { it.startsWith("Legenda sugerida pelo servidor:") }?.substringAfter("\n")?.trim()
             ?: c.title
+        val nid = 50 + (pid.hashCode() and 0xff)
         try {
-            notify(ctx, 40, "⏫ Postando no Instagram", c.title)
-            val link = publish(ctx, Uri.parse(c.uri), caption) { step -> notify(ctx, 40, "⏫ Postando no Instagram", "$step · ${c.title}") }
+            notify(ctx, nid, "⏫ Postando no Instagram", c.title)
+            val link = publish(ctx, Uri.parse(c.uri), caption) { step -> notify(ctx, nid, "⏫ Postando no Instagram", "$step · ${c.title}") }
             countPost(ctx)
             ProjectStore.update(ctx, pid) { x ->
                 x.copy(clips = x.clips.map { if (it.uri == c.uri) it.copy(posted = System.currentTimeMillis()) else it },
                     notes = x.notes + "Postado no Instagram: $link")
             }
-            notify(ctx, 40, "✅ Postado no Instagram", "${c.title} · $link", link = link)
+            notify(ctx, nid, "✅ Postado no Instagram", "${c.title} · $link", link = link)
         } catch (e: Exception) {
             p.edit().putStringSet("skipped", p.getStringSet("skipped", emptySet())!! + pid).apply()
-            notify(ctx, 40, "❌ Não consegui postar no Instagram", e.message?.take(200) ?: e.toString())
+            notify(ctx, nid, "❌ Não consegui postar no Instagram", e.message?.take(200) ?: e.toString())
         }
     }
 
@@ -253,6 +255,13 @@ object AutoPost {
                 "now" -> WorkManager.getInstance(ctx).enqueueUniqueWork("autopost-now", ExistingWorkPolicy.REPLACE,
                     OneTimeWorkRequestBuilder<PostWorker>().build())
             }
+        }
+    }
+
+    class RoundWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+        override suspend fun doWork(): androidx.work.ListenableWorker.Result {
+            round(applicationContext)
+            return androidx.work.ListenableWorker.Result.success()
         }
     }
 

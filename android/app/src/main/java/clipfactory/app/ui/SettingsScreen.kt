@@ -123,26 +123,31 @@ fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
             Card {
                 // posting by itself to Instagram (official API, with a veto before each post)
                 var ap by remember { mutableStateOf(clipfactory.app.AutoPost.config(ctx)) }
-                var slots by remember { mutableStateOf(clipfactory.app.AutoPost.slotsText(ctx)) }
                 var igToken by remember { mutableStateOf("") }
                 var igMsg by remember { mutableStateOf("") }
-                fun saveAp(c: clipfactory.app.AutoPost.Config, sl: String = slots) {
-                    clipfactory.app.AutoPost.save(ctx, c.enabled, c.minScore, c.perDay, sl)
+                fun saveAp(c: clipfactory.app.AutoPost.Config) {
+                    clipfactory.app.AutoPost.save(ctx, c)
                     ap = clipfactory.app.AutoPost.config(ctx)
                 }
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionTitle("Postar sozinho no Instagram", "Só os clipes do bot com nota alta, nos horários escolhidos. " +
-                        "30 min antes chega um aviso com Cancelar. TikTok continua em um toque.")
+                    SectionTitle("Postar sozinho no Instagram", "Os clipes do bot, de tempos em tempos. 5 min antes de cada " +
+                        "rodada chega um aviso com Cancelar. TikTok continua em um toque.")
                     if (ap.connected) {
                         Text("Conectado: @${ap.username}", color = C.good, style = MaterialTheme.typography.bodyMedium)
                         Toggle("Postar sozinho", ap.enabled) { saveAp(ap.copy(enabled = it)) }
-                        Text("Nota mínima: ${ap.minScore}", color = C.text, style = MaterialTheme.typography.bodyMedium)
-                        Slider(ap.minScore.toFloat(), { saveAp(ap.copy(minScore = (it / 5).toInt() * 5)) }, valueRange = 60f..95f,
+                        Text("A cada ${ap.interval} min, até ${ap.perRound} clipe(s)", color = C.text, style = MaterialTheme.typography.bodyMedium)
+                        Slider(ap.interval.toFloat(), { saveAp(ap.copy(interval = (it / 5).toInt() * 5)) }, valueRange = 10f..60f,
                             colors = sliderColors())
-                        Text("Até ${ap.perDay} post(s) por dia", color = C.text, style = MaterialTheme.typography.bodyMedium)
-                        Slider(ap.perDay.toFloat(), { saveAp(ap.copy(perDay = it.toInt())) }, valueRange = 1f..8f, steps = 6,
+                        Slider(ap.perRound.toFloat(), { saveAp(ap.copy(perRound = it.toInt())) }, valueRange = 1f..3f, steps = 1,
                             colors = sliderColors())
-                        Field("Horários (ex.: 12:30, 18:30, 21:30)", slots) { slots = it; saveAp(ap, it) }
+                        Text("Nota mínima: ${ap.minScore} (abaixo disso, só se a IA disse que vale postar)", color = C.text,
+                            style = MaterialTheme.typography.bodyMedium)
+                        Slider(ap.minScore.toFloat(), { saveAp(ap.copy(minScore = (it / 5).toInt() * 5)) }, valueRange = 0f..95f,
+                            colors = sliderColors())
+                        Text("No máximo ${ap.dailyCap} por dia (a Meta bloqueia acima de 50 a 100)", color = C.text,
+                            style = MaterialTheme.typography.bodyMedium)
+                        Slider(ap.dailyCap.toFloat(), { saveAp(ap.copy(dailyCap = (it / 5).toInt() * 5)) }, valueRange = 5f..90f,
+                            colors = sliderColors())
                         androidx.compose.material3.TextButton({ clipfactory.app.AutoPost.disconnect(ctx); ap = clipfactory.app.AutoPost.config(ctx) }) {
                             Text("Desconectar", color = C.bad)
                         }
