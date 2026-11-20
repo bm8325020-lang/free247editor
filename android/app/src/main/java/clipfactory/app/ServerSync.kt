@@ -80,12 +80,16 @@ object ServerSync {
                         finally { release() }
                     }
                 }.getOrDefault(30.0)
-                val reason = "Cortado pelo bot no servidor às ${c.optString("created").substringAfter('T').take(5)}."
+                // the bot makes every clip; its AI only grades them (0-100) so the best can be posted first
+                val score = if (c.has("score") && !c.isNull("score")) c.optInt("score", 60).coerceIn(0, 99) else 60
+                val why = c.optString("why").trim()
+                val reason = "Cortado pelo bot às ${c.optString("created").substringAfter('T').take(5)}." +
+                    (if (why.isNotEmpty()) " Nota da IA $score: $why" else "")
                 val pid = "srv$id"
                 ProjectStore.put(ctx, Project(pid, "@$channel ao vivo (servidor)", uri.toString(), System.currentTimeMillis(),
                     durationS = dur,
-                    moments = listOf(Moment(0, 0.0, dur, dur / 2, title, "", reason, 80, "", "", true)),
-                    clips = listOf(PClip(0, title, 80, reason, ClipEdit(0.0, dur, "", opt.captionStyle, "auto"),
+                    moments = listOf(Moment(0, 0.0, dur, dur / 2, title, "", reason, score, "", "", true)),
+                    clips = listOf(PClip(0, title, score, reason, ClipEdit(0.0, dur, "", opt.captionStyle, "auto"),
                         uri = uri.toString(), status = "done", layoutName = "do servidor")),
                     notes = listOf("Legenda sugerida pelo servidor:\n" + c.optString("caption")), status = "done"))
                 seen.add(id)

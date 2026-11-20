@@ -5,7 +5,7 @@ download them. Every request needs the code the user chose (APP_CODE in .env), s
 read-only: nothing on the server can be changed through it.
 
   GET /api/status   -> {"channels": [...], "clips": n}
-  GET /api/clips    -> [{"id", "channel", "title", "caption", "created", "bytes"}, ...] (newest last)
+  GET /api/clips    -> [{"id", "channel", "title", "caption", "created", "bytes", "score"?, "why"?}, ...] (newest last)
   GET /api/clip/ID  -> the MP4
   GET /api/keys     -> {"groq", "coarena"}: only when the server listens on 127.0.0.1 (bot and app on the same phone),
                        so the app can fill in the keys typed into the bot once instead of asking for them again
@@ -32,13 +32,13 @@ def _read():
         return []
 
 
-def add_clip(path, channel, title, caption):
+def add_clip(path, channel, title, caption, score=None, why=""):
     """Called by the bot when a clip is ready."""
     path = Path(path)
     with _lock:
         clips = _read()
         cid = datetime.now().strftime("%Y%m%d%H%M%S") + f"-{len(clips) % 1000:03d}"
-        clips.append({"id": cid, "channel": channel, "title": title, "caption": caption,
+        clips.append({"id": cid, "channel": channel, "title": title, "caption": caption, "score": score, "why": why,
                       "created": datetime.now().isoformat(timespec="seconds"),
                       "bytes": path.stat().st_size, "path": str(path.relative_to(ROOT))})
         clips = clips[-500:]  # the newest 500 are enough for the app to catch up
@@ -50,7 +50,9 @@ def add_clip(path, channel, title, caption):
 
 
 def _public(c):
-    return {k: c[k] for k in ("id", "channel", "title", "caption", "created", "bytes")}
+    out = {k: c[k] for k in ("id", "channel", "title", "caption", "created", "bytes")}
+    out.update({k: c[k] for k in ("score", "why") if c.get(k) not in (None, "")})
+    return out
 
 
 def serve(code, port=8080, status=lambda: [], host="0.0.0.0"):

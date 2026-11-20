@@ -118,3 +118,22 @@ def test_chat_silent_after_three_minutes_without_messages():
     assert ch.chat_silent()                          # 10 min, no chat at all
     ch.chat.append((time.time() - 30, 1.0, "kkkk"))
     assert not ch.chat_silent()                      # chat is flowing
+
+
+def test_buffer_drops_old_segments_and_never_takes_them_back(tmp_path, monkeypatch):
+    ch = live.Channel({"plataforma": "kick", "canal": "x"}, dict(live.DEFAULTS), {}, None)
+    ch.work = tmp_path
+    ch.segments, ch.loud, ch.seen_segments, ch.seg_count = [], [], set(), 0
+    monkeypatch.setattr(ch, "add_loudness", lambda seg: None)
+    rows = []
+    for i in range(60):  # 10 minutes of 10 s segments
+        name = f"seg_{i:06d}.ts"
+        (tmp_path / name).write_bytes(b"x")
+        rows.append(f"{name},{i * 10:.3f},{(i + 1) * 10:.3f}")
+        (tmp_path / "list.csv").write_text("\n".join(rows) + "\n")
+        ch.poll_segments()
+        ch.poll_segments()  # polling again with nothing new changes nothing
+    ends = [s["end"] for s in ch.segments]
+    assert ends == sorted(ends) and ends[-1] == 600.0
+    assert len(ch.segments) <= live.DEFAULTS["buffer_segundos"] / 10 + 2
+    assert not (tmp_path / "seg_000000.ts").exists()

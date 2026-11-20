@@ -57,9 +57,11 @@ DEFAULTS = {
     # when the chat fires, go back this many seconds from the moment the chat STARTED reacting,
     # so the whole scene is in the clip even though the chat types after it happens
     "volta_segundos": 3,
-    "limiar": 3.0,
+    "limiar": 2.5,
     # lives with no chat coming in (Kick; a YouTube chat that fails): audio spike that alone makes a moment
-    "limiar_audio_sem_chat": 3.0,
+    "limiar_audio_sem_chat": 2.5,
+    # ...and after this many minutes without a clip, the loudest moment of the last 3 minutes is clipped anyway
+    "minutos_sem_clipe": 8,
     "qualidade": "best",
     "clip_oficial_twitch": False,
     # how many lives may record at the same time (0 = no limit); a phone handles one
@@ -304,6 +306,7 @@ class Channel(threading.Thread):
         self.proc = subprocess.Popen(ff, stdin=self.sl.stdout, stderr=subprocess.DEVNULL)
         self.sl.stdout.close()
         self.segments, self.loud = [], []
+        self.seen_segments = set()  # every segment ever listed, also the ones already dropped from the buffer
         self.seg_count = 0
 
     def stop_recorder(self):
@@ -316,12 +319,17 @@ class Channel(threading.Thread):
         lst = self.work / "list.csv"
         if not lst.exists():
             return
-        known = {s["path"].name for s in self.segments}
+        # the list keeps every segment ffmpeg ever wrote: remember them all, or the ones dropped from the buffer came back
+        # at the end of the list (out of order), which broke the clock of the live and ran ffmpeg on deleted files
+        known = getattr(self, "seen_segments", None)
+        if known is None:
+            known = self.seen_segments = {s["path"].name for s in self.segments}
         with open(lst, newline="") as f:
             rows = list(csv.reader(f))
         for row in rows:
             if len(row) < 3 or row[0] in known:
                 continue
+            known.add(row[0])
             seg = {"path": self.work / row[0], "start": float(row[1]), "end": float(row[2]), "wall": time.time()}
             self.segments.append(seg)
             self.add_loudness(seg)
@@ -424,6 +432,15 @@ class Channel(threading.Thread):
                 log(self.name, "nenhuma mensagem do chat chegando: detectando só pelo áudio (a IA filtra os fracos)")
                 self.said_no_chat = True
             strong = strong or az >= float(self.opts.get("limiar_audio_sem_chat", 3.0))
+            # a steady pace: after N minutes without a clip, the loudest moment of the last 3 minutes becomes one
+            # (the AI grades it; the user picks in the app)
+            if at is not None:
+                self.recent_peaks = [(t, z) for t, z in getattr(self, "recent_peaks", []) if t > time.time() - 180]
+                self.recent_peaks.append((time.time(), az))
+                quiet_for = time.time() - max(self.last_clip, self.live_since or 0)
+                if (quiet_for >= 60 * float(self.opts.get("minutos_sem_clipe", 8)) and az >= 1.5
+                        and az >= max(z for _, z in self.recent_peaks)):
+                    strong = True
         elif getattr(self, "said_no_chat", False):
             log(self.name, "o chat voltou a chegar")
             self.said_no_chat = False
@@ -542,14 +559,18 @@ class Channel(threading.Thread):
         said = " ".join(w["text"] for w in words if a <= w["start"] < b)
         chat_lines = [t for w, wt, t in self.chat.copy() if p["wall"] - 25 <= w <= p["wall"] + 12 and wt > 0]
         verdict = aigate.review(self.name, said, chat_lines[-80:])
+        score, why = None, ""
         if verdict is not None:
-            if not verdict["clip"] or verdict["score"] < int(self.opts.get("nota_minima", 60)):
+            score, why = (verdict["score"] if verdict["clip"] else min(verdict["score"], 40)), verdict["why"]
+            # "descartar": true in live-canais.json lets the AI throw clips away; by default every clip is made and
+            # the AI only gives it a grade and a title, and the user decides in the app
+            if self.opts.get("descartar", False) and score < int(self.opts.get("nota_minima", 60)):
                 self.discarded = getattr(self, "discarded", 0) + 1
-                log(self.name, f"descartado pela IA (nota {verdict['score']}): {verdict['why'][:120]}")
+                log(self.name, f"descartado pela IA (nota {score}): {why[:120]}")
                 return
             if verdict["title"]:
                 title = hook = verdict["title"]
-            log(self.name, f"aprovado pela IA (nota {verdict['score']}): {verdict['why'][:120]}")
+            log(self.name, f"nota da IA {score}: {why[:120]}")
         clip = {"start": a, "end": b, "hook": hook, "title": title}
         n = len(self.made) + 1
         name = f"{stamp}-{slugify(title)[:40]}.mp4"
@@ -567,7 +588,7 @@ class Channel(threading.Thread):
         log(self.name, f"CLIPE PRONTO: {folder / name}")
         credit = self.spec.get("creditos") or self.opts.get("creditos") or self.name
         caption = post_text(title, credit, self.opts.get("hashtags", "#cortes #clips"))
-        clipserver.add_clip(folder / name, self.name, title, caption)  # the phone app picks it up
+        clipserver.add_clip(folder / name, self.name, title, caption, score, why)  # the phone app picks it up
         if TG:
             TG.send_clip(folder / name, caption)
 
@@ -644,8 +665,8 @@ class Channel(threading.Thread):
                         cz, az, _ = self.scores()
                         msgs = sum(1 for w, _, _ in self.chat.copy() if w >= time.time() - 60)
                         log(self.name, f"ok — {len(self.segments)} segmentos no buffer, {msgs} msgs/min, "
-                                       f"chat {cz:+.1f}σ, áudio {az:+.1f}σ, {len(self.made)} clipes, "
-                                       f"{getattr(self, 'discarded', 0)} descartados pela IA")
+                                       f"chat {cz:+.1f}σ, áudio {az:+.1f}σ, {len(self.made)} clipes"
+                                       + (f", {self.discarded} descartados pela IA" if getattr(self, "discarded", 0) else ""))
                         last_status = time.time()
                     self.stopped.wait(1)
                 if yielded:
