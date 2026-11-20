@@ -162,7 +162,7 @@ def _render_ffmpeg_only(src, info, words, clip, cfg, out_path, workdir, ranges, 
     lufs = cfg["loudness_lufs"]
     fc = (f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps={fps},split[a][b];"
           f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20:2,eq=brightness=-0.18[bg];"
-          f"[b]scale={W}:{bh}[fg];"
+          f"[b]scale={W}:{bh}:flags=lanczos[fg];"
           f"[bg][fg]overlay=0:{(H - bh) // 2},"
           f"ass='{_filter_path(ass, workdir)}':fontsdir='{_filter_path(HERE / 'fonts', workdir)}',format=yuv420p[v];"
           f"[0:a]aselect='{sel}',asetpts=N/SR/TB,loudnorm=I={lufs}:TP=-1.5:LRA=11,aresample=48000[au]")

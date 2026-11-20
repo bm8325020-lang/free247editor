@@ -141,6 +141,27 @@ vec4 camImg(vec2 p) {
   return clamp(c + 0.6 * (c - n * 0.25), 0.0, 1.0);
 }
 
+// the gameplay gets enlarged too (a 4:5 band of a 16:9 game is 1.25x on 1080p, 1.9x on 720p): Catmull-Rom bicubic
+// keeps edges and HUD text crisp where plain bilinear smears them (9 bilinear taps)
+vec4 gameImg(vec2 p) {
+  vec2 size = 1.0 / uTexel;
+  vec2 sp = p * size;
+  vec2 t1 = floor(sp - 0.5) + 0.5;
+  vec2 f = sp - t1;
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  vec2 w3 = f * f * (-0.5 + 0.5 * f);
+  vec2 w12 = w1 + w2;
+  vec2 t0 = (t1 - 1.0) * uTexel;
+  vec2 t3 = (t1 + 2.0) * uTexel;
+  vec2 t12 = (t1 + w2 / w12) * uTexel;
+  vec4 c = img(vec2(t0.x, t0.y)) * w0.x * w0.y + img(vec2(t12.x, t0.y)) * w12.x * w0.y + img(vec2(t3.x, t0.y)) * w3.x * w0.y
+         + img(vec2(t0.x, t12.y)) * w0.x * w12.y + img(vec2(t12.x, t12.y)) * w12.x * w12.y + img(vec2(t3.x, t12.y)) * w3.x * w12.y
+         + img(vec2(t0.x, t3.y)) * w0.x * w3.y + img(vec2(t12.x, t3.y)) * w12.x * w3.y + img(vec2(t3.x, t3.y)) * w3.x * w3.y;
+  return clamp(c, 0.0, 1.0);
+}
+
 vec4 blurred(vec2 p) {
   vec4 c = vec4(0.0);
   float r = 0.035;
@@ -158,14 +179,14 @@ void main() {
     if (o.y < uPanel) {
       col = camImg(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
     } else {
-      col = img(uGame.xy + vec2(o.x, (o.y - uPanel) / (1.0 - uPanel)) * uGame.zw);
+      col = gameImg(uGame.xy + vec2(o.x, (o.y - uPanel) / (1.0 - uPanel)) * uGame.zw);
     }
     if (abs(o.y - uPanel) < 3.0 / 1920.0) col = vec4(0.0, 0.0, 0.0, 1.0);
   } else if (uMode < 1.5) {
     float band = uZoom * uOutAspect / uSrcAspect; // gameplay band height, fraction of output height
     float top = 0.5 - band * 0.5;
     if (o.y >= top && o.y <= top + band) {
-      col = img(vec2(0.5 + (o.x - 0.5) / uZoom, (o.y - top) / band));
+      col = gameImg(vec2(0.5 + (o.x - 0.5) / uZoom, (o.y - top) / band));
     } else {
       vec2 p = vec2(0.5 + (o.x - 0.5) * uOutAspect / uSrcAspect, o.y);
       col = vec4(blurred(p).rgb * 0.55, 1.0);
@@ -176,7 +197,7 @@ void main() {
     // picture-in-picture: a tall gameplay band with a blurred copy above and below, the whole webcam small in the
     // corner, in its own shape
     if (o.y >= uBand.x && o.y < uBand.x + uBand.y) {
-      col = img(uGame.xy + vec2(o.x, (o.y - uBand.x) / uBand.y) * uGame.zw);
+      col = gameImg(uGame.xy + vec2(o.x, (o.y - uBand.x) / uBand.y) * uGame.zw);
     } else {
       vec2 p = vec2(0.5 + (o.x - 0.5) * uOutAspect / uSrcAspect, o.y);
       col = vec4(blurred(p).rgb * 0.5, 1.0);
@@ -204,7 +225,7 @@ void main() {
     if (o.y < uPanel && uCamOn > 0.5) {
       col = camImg(uCam.xy + vec2(o.x, o.y / uPanel) * uCam.zw);
     } else if (o.y >= uPip.x && o.y < uPip.x + uPip.y) {
-      col = img(uGame.xy + vec2(o.x, (o.y - uPip.x) / uPip.y) * uGame.zw);
+      col = gameImg(uGame.xy + vec2(o.x, (o.y - uPip.x) / uPip.y) * uGame.zw);
     } else {
       float gAspect = (uGame.z * uSrcAspect) / uGame.w;
       vec2 p = vec2(0.5 + (o.x - 0.5) * uOutAspect / gAspect, o.y);
