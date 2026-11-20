@@ -63,6 +63,22 @@ def timed_lines(words, every=5.0):
     return out
 
 
+def playbook():
+    """The clipper's manual (tools/clipper/clipador.md) plus the user's own notes (meu-clipador.md in the clipper's
+    folder, never touched by updates): read on every judgement, so editing them changes the bot at once."""
+    from pathlib import Path
+    here = Path(__file__).resolve().parent
+    parts = []
+    for f in (here / "clipador.md", here.parent.parent / "meu-clipador.md"):
+        try:
+            parts.append(f.read_text(encoding="utf-8").strip())
+        except OSError:
+            pass
+    if len(parts) == 2:
+        parts[1] = "## Notas do dono (valem mais que o resto do manual)\n" + parts[1]
+    return "\n\n".join(parts) or "You are a top Brazilian clipper of gaming lives."
+
+
 CATEGORIES = ("engraçado", "épico", "fail", "raiva", "susto", "história", "polêmica", "fofo", "absurdo")
 
 
@@ -78,17 +94,10 @@ def review(channel, said, chat_lines, language="pt", timed=None, peak=None, dura
         return None
     chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat available: judge from the speech and the images)"
     earlier = "\n".join(f"- {c}" for c in (context or [])[-6:]) or "(start of the live)"
-    prompt = f"""You are a top Brazilian clipper of gaming lives (GTA RP, GTA 6, and others), the kind whose clips get
-millions of views. You are watching {channel}'s live. Judge this stretch the way you would before posting.
+    prompt = f"""{playbook()}
 
-What a clip needs (score each honestly):
-1. HOOK: the first 2-3 seconds already grab (a strong line, a shout, something visibly going wrong). No warm-up.
-2. PAYOFF: something clearly happens: a joke lands, an epic play, a fail, rage, a scare, an absurd situation, a
-   savage reply, a story with an ending.
-3. REACTION: the streamer (or someone) reacts; the reaction is often the best part, keep it.
-4. STANDS ALONE: a stranger scrolling understands it without the rest of the live.
-Reject (score under 40) random gameplay, menus and loading screens, plain talk, the chat reacting to something
-off-stream (giveaway, subs, raid, donation), and inside jokes that need context.
+---
+You are watching {channel}'s live now. Judge this stretch exactly as the manual above says, before posting.
 
 What happened earlier in this live (for callbacks and running jokes):
 {earlier}
