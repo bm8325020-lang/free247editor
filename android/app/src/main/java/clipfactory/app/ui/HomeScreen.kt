@@ -70,7 +70,13 @@ fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings
         if (uris.isNotEmpty()) onNew(uris)
     }
     HomeContent(projects, work.phase != "idle", work.stage, work.progress, onPick = { pick.launch(arrayOf("video/*")) },
-        onOpen = onOpen, onSettings = onSettings, onWork = onWork, onDelete = { ProjectStore.delete(ctx, it.id) }, onDiscover = onDiscover, onLive = onLive)
+        onOpen = onOpen, onSettings = onSettings, onWork = onWork, onDelete = { p ->
+            // a bot clip is only in the app's list and the gallery: deleting it frees both
+            if (p.id.startsWith("srv")) p.clips.forEach { c ->
+                if (c.uri.startsWith("content:")) runCatching { ctx.contentResolver.delete(Uri.parse(c.uri), null, null) }
+            }
+            ProjectStore.delete(ctx, p.id)
+        }, onDiscover = onDiscover, onLive = onLive)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -79,6 +85,14 @@ fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress:
                 onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDelete: (Project) -> Unit,
                 onDiscover: () -> Unit = {}, onLive: () -> Unit = {}) {
     var confirm by remember { mutableStateOf<Project?>(null) }
+    var confirmWeak by remember { mutableStateOf(false) }
+    // the bot's clips: best first, the weak ones (AI grade under 40) out of the way but one tap away
+    var botTab by remember { mutableStateOf("bons") }
+    val botAll = projects.filter { it.id.startsWith("srv") }
+    val grade = { p: Project -> p.clips.firstOrNull()?.score ?: 0 }
+    val good = botAll.filter { grade(it) >= WEAK }.sortedWith(compareByDescending<Project> { grade(it) }.thenByDescending { it.createdAt })
+    val weak = botAll.filter { grade(it) < WEAK }.sortedByDescending { it.createdAt }
+    val mine = projects.filter { !it.id.startsWith("srv") }
     LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(span = { GridItemSpan(2) }) {
@@ -138,11 +152,29 @@ fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress:
                 }
             }
         }
+        if (botAll.isNotEmpty()) {
+            item(span = { GridItemSpan(2) }) {
+                Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Clipes do bot", style = MaterialTheme.typography.titleMedium, color = C.text)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Chip("Melhores (${good.size})", botTab == "bons") { botTab = "bons" }
+                        Chip("Fracos (${weak.size})", botTab == "fracos") { botTab = "fracos" }
+                        if (botTab == "fracos" && weak.isNotEmpty())
+                            TextButton({ confirmWeak = true }) { Text("Apagar fracos", color = C.bad) }
+                    }
+                    if (botTab == "bons" && good.isEmpty())
+                        Text("Nenhum com nota 40 ou mais ainda. Os outros estão em Fracos.", color = C.muted,
+                            style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            items(if (botTab == "bons") good else weak, key = { it.id }) { p -> BotTile(p, grade(p), { onOpen(p) }, { confirm = p }) }
+        }
         item(span = { GridItemSpan(2) }) {
-            Text(if (projects.isEmpty()) "Seus clipes aparecem aqui." else "Seus projetos", style = MaterialTheme.typography.titleMedium,
+            Text(if (projects.isEmpty()) "Seus clipes aparecem aqui." else if (mine.isEmpty()) "" else "Seus projetos",
+                style = MaterialTheme.typography.titleMedium,
                 color = if (projects.isEmpty()) C.muted else C.text, modifier = Modifier.padding(top = 8.dp))
         }
-        items(projects, key = { it.id }) { p ->
+        items(mine, key = { it.id }) { p ->
             Column(Modifier.clip(RoundedCornerShape(18.dp)).background(C.surface)
                 .combinedClickable(onClick = { onOpen(p) }, onLongClick = { confirm = p })) {
                 Box(Modifier.fillMaxWidth().aspectRatio(9f / 12f)) {
@@ -160,12 +192,48 @@ fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress:
             }
         }
     }
+    if (confirmWeak) AlertDialog(onDismissRequest = { confirmWeak = false },
+        title = { Text("Apagar os ${weak.size} fracos?") },
+        text = { Text("Saem da lista e da galeria. Os melhores ficam.") },
+        confirmButton = { TextButton({ weak.forEach(onDelete); confirmWeak = false }) { Text("Apagar") } },
+        dismissButton = { TextButton({ confirmWeak = false }) { Text("Cancelar") } })
     confirm?.let { p ->
         AlertDialog(onDismissRequest = { confirm = null },
             title = { Text("Apagar projeto?") },
-            text = { Text("\"${p.name}\" sai da lista. Os clipes continuam na galeria.") },
+            text = { Text(if (p.id.startsWith("srv")) "Sai da lista e da galeria." else "\"${p.name}\" sai da lista. Os clipes continuam na galeria.") },
             confirmButton = { TextButton({ onDelete(p); confirm = null }) { Text("Apagar") } },
             dismissButton = { TextButton({ confirm = null }) { Text("Cancelar") } })
+    }
+}
+
+/** AI grade under this = a weak clip: kept, but out of the main list. */
+const val WEAK = 40
+
+/** A bot clip: its own title, the grade big, the channel and the time. */
+@Composable
+private fun BotTile(p: Project, grade: Int, onOpen: () -> Unit, onLong: () -> Unit) {
+    val clip = p.clips.firstOrNull()
+    Column(Modifier.clip(RoundedCornerShape(18.dp)).background(C.surface)
+        .combinedClickable(onClick = onOpen, onLongClick = onLong)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(9f / 12f)) {
+            Thumb(p.doneClips.firstOrNull()?.uri ?: clip?.uri ?: "", Modifier.fillMaxSize())
+            Box(Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(10.dp))
+                .background(if (grade >= 70) C.accent else if (grade >= WEAK) Color(0xFFFFB020) else Color(0xFF555555))
+                .padding(horizontal = 10.dp, vertical = 4.dp)) {
+                Text("$grade", color = Color.Black, style = MaterialTheme.typography.titleMedium)
+            }
+            if (p.status == "rendering") Box(Modifier.align(Alignment.TopEnd).padding(8.dp).clip(RoundedCornerShape(8.dp))
+                .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                Text("Montando", color = C.text, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        Column(Modifier.padding(10.dp)) {
+            Text(clip?.title ?: p.name, style = MaterialTheme.typography.titleSmall, color = C.text, maxLines = 2,
+                overflow = TextOverflow.Ellipsis)
+            Text(p.name.removeSuffix(" ao vivo (servidor)") + " · " +
+                SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(p.createdAt)),
+                style = MaterialTheme.typography.labelSmall, color = C.muted, maxLines = 1)
+        }
     }
 }
 

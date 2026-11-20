@@ -528,8 +528,15 @@ class Channel(threading.Thread):
         """Without chat, a loud moment is a poor sign of a clip (a story told calmly has no spike): every couple of
         minutes the last stretch of the live is transcribed and the AI is asked whether it holds a clip."""
         every = float(self.opts.get("escuta_segundos", 120))
-        if (not every or getattr(self, "listening", False) or not self.chat_silent() or not self.segments
-                or time.time() - getattr(self, "last_listen", 0) < every):
+        if not every or getattr(self, "listening", False) or not self.segments:
+            return
+        if not self.chat_silent():
+            # with chat, bursts already point at moments; but a big chat bursts at everything and calm stories get
+            # no burst: listen too while the free Groq hour has plenty of room (lives without chat come first)
+            if groq_hour_used() > float(self.opts.get("groq_por_hora", 5400)) * 0.35:
+                return
+            every *= 1.5
+        if time.time() - getattr(self, "last_listen", 0) < every:
             return
         now = self.segments[-1]["end"]
         start = max(getattr(self, "heard_until", 0) - 15, now - every - 15)
@@ -838,6 +845,12 @@ def groq_budget_ok(seconds, opts):
         hour = sum(s for t, s in _groq_log if t > now - 3600)
         day = sum(s for _, s in _groq_log)
     return hour + seconds <= float(opts.get("groq_por_hora", 5400)) and day + seconds <= float(opts.get("groq_por_dia", 24000))
+
+
+def groq_hour_used():
+    now = time.time()
+    with _groq_lock:
+        return sum(s for t, s in _groq_log if t > now - 3600)
 
 
 def groq_spent(seconds):
