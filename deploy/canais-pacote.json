@@ -1,12 +1,12 @@
 {
-  "versao": 7,
+  "versao": 8,
   "nota": "Pacote de canais aplicado pelo bot ao ligar (live.py), uma vez por versão. 'pessoa' junta os canais do mesmo streamer: se ele estiver ao vivo na Twitch e no YouTube ao mesmo tempo, grava só um (o de cima). A ordem é a prioridade quando o limite de lives ao mesmo tempo enche. Canais que você remover não voltam. Kick: sem leitura do chat, detecta pelo áudio + IA.",
   "canais": [
     {
-      "plataforma": "twitch",
-      "canal": "alanzoka",
-      "creditos": "@alanzoka",
-      "pessoa": "alanzoka"
+      "plataforma": "kick",
+      "canal": "paulinholokobr",
+      "creditos": "@paulinholokobr",
+      "pessoa": "paulinho"
     },
     {
       "plataforma": "youtube",
@@ -16,9 +16,34 @@
       "pessoa": "paulinho"
     },
     {
+      "plataforma": "twitch",
+      "canal": "paulinholokobr",
+      "creditos": "@paulinholokobr",
+      "pessoa": "paulinho"
+    },
+    {
+      "plataforma": "twitch",
+      "canal": "alanzoka",
+      "creditos": "@alanzoka",
+      "pessoa": "alanzoka"
+    },
+    {
+      "plataforma": "youtube",
+      "canal": "@alanzoka",
+      "url": "https://www.youtube.com/@alanzoka/live",
+      "creditos": "@alanzoka",
+      "pessoa": "alanzoka"
+    },
+    {
       "plataforma": "youtube",
       "canal": "@gameplayrj",
       "url": "https://www.youtube.com/@gameplayrj/live",
+      "creditos": "@davyjones",
+      "pessoa": "davyjones"
+    },
+    {
+      "plataforma": "twitch",
+      "canal": "davyjones",
       "creditos": "@davyjones",
       "pessoa": "davyjones"
     },
@@ -48,46 +73,9 @@
     },
     {
       "plataforma": "kick",
-      "canal": "bistecone",
-      "creditos": "@bistecone",
-      "pessoa": "bistecone"
-    },
-    {
-      "plataforma": "kick",
-      "canal": "gabepeixe",
-      "creditos": "@gabepeixe",
-      "pessoa": "gabepeixe"
-    },
-    {
-      "plataforma": "twitch",
-      "canal": "galego_pururuca",
-      "creditos": "@galego_pururuca",
-      "pessoa": "pururuca"
-    },
-    {
-      "plataforma": "kick",
       "canal": "coringa",
       "creditos": "@coringa",
       "pessoa": "coringa"
-    },
-    {
-      "plataforma": "kick",
-      "canal": "paulinholokobr",
-      "creditos": "@paulinholokobr",
-      "pessoa": "paulinho"
-    },
-    {
-      "plataforma": "twitch",
-      "canal": "paulinholokobr",
-      "creditos": "@paulinholokobr",
-      "pessoa": "paulinho"
-    },
-    {
-      "plataforma": "youtube",
-      "canal": "@alanzoka",
-      "url": "https://www.youtube.com/@alanzoka/live",
-      "creditos": "@alanzoka",
-      "pessoa": "alanzoka"
     },
     {
       "plataforma": "youtube",
@@ -97,10 +85,22 @@
       "pessoa": "coringa"
     },
     {
+      "plataforma": "kick",
+      "canal": "gabepeixe",
+      "creditos": "@gabepeixe",
+      "pessoa": "gabepeixe"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "bistecone",
+      "creditos": "@bistecone",
+      "pessoa": "bistecone"
+    },
+    {
       "plataforma": "twitch",
-      "canal": "davyjones",
-      "creditos": "@davyjones",
-      "pessoa": "davyjones"
+      "canal": "galego_pururuca",
+      "creditos": "@galego_pururuca",
+      "pessoa": "pururuca"
     },
     {
       "plataforma": "kick",
