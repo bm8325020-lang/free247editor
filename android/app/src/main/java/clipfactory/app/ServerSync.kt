@@ -41,6 +41,22 @@ object ServerSync {
 
     private fun get(url: String, code: String) = http.newCall(Request.Builder().url(url).header("X-Code", code).build()).execute()
 
+    /** What the bot is doing now (lives, clips, latest decision); null when it does not answer. */
+    fun status(ctx: Context): org.json.JSONObject? {
+        val opt = Prefs.options(ctx)
+        val base = base(opt.serverAddr) ?: return null
+        if (opt.serverCode.length < 8) return null
+        return runCatching {
+            quick.newCall(Request.Builder().url("$base/api/status").header("X-Code", opt.serverCode).build()).execute().use { r ->
+                if (r.isSuccessful) org.json.JSONObject(r.body?.string().orEmpty()) else null
+            }
+        }.getOrNull()
+    }
+
+    private val quick = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
+
+    fun configured(ctx: Context) = Prefs.options(ctx).let { base(it.serverAddr) != null && it.serverCode.length >= 8 }
+
     fun sync(ctx: Context): Result {
         val opt = Prefs.options(ctx)
         val base = base(opt.serverAddr) ?: return Result(false, "Sem endereço do servidor.")

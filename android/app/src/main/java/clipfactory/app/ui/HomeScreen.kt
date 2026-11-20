@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import clipfactory.app.JobState
 import clipfactory.app.Project
 import clipfactory.app.ProjectStore
+import clipfactory.app.ServerSync
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,6 +70,20 @@ fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings
         }
         if (uris.isNotEmpty()) onNew(uris)
     }
+    // the bot on this phone: what it is doing, and its new clips every minute while the app is open
+    var bot by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var botDown by remember { mutableStateOf(false) }
+    val configured = remember { ServerSync.configured(ctx) }
+    if (configured) androidx.compose.runtime.LaunchedEffect(Unit) {
+        var n = 0
+        while (true) {
+            val st = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ServerSync.status(ctx) }
+            bot = st; botDown = st == null
+            if (st != null && n % 2 == 0) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ServerSync.sync(ctx) }
+            n++
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
     HomeContent(projects, work.phase != "idle", work.stage, work.progress, onPick = { pick.launch(arrayOf("video/*")) },
         onOpen = onOpen, onSettings = onSettings, onWork = onWork, onDelete = { p ->
             // a bot clip is only in the app's list and the gallery: deleting it frees both
@@ -76,14 +91,46 @@ fun HomeScreen(onNew: (List<Uri>) -> Unit, onOpen: (Project) -> Unit, onSettings
                 if (c.uri.startsWith("content:")) runCatching { ctx.contentResolver.delete(Uri.parse(c.uri), null, null) }
             }
             ProjectStore.delete(ctx, p.id)
-        }, onDiscover = onDiscover, onLive = onLive)
+        }, onDiscover = onDiscover, onLive = onLive,
+        botCard = if (configured) ({ BotCard(bot, botDown) }) else null)
+}
+
+/** The bot at a glance: lives being recorded, clips, its latest decision. */
+@Composable
+private fun BotCard(st: org.json.JSONObject?, down: Boolean) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(C.surface).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (down) {
+            Text("🤖 Bot desligado", style = MaterialTheme.typography.titleMedium, color = C.bad)
+            Text("No Termux: bash \$HOME/ligar-clipador.sh", style = MaterialTheme.typography.bodyMedium, color = C.muted)
+            return@Column
+        }
+        if (st == null) { Text("🤖 Procurando o bot…", color = C.muted); return@Column }
+        val lives = st.optJSONArray("lives") ?: org.json.JSONArray()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (lives.length() > 0) "🔴 Bot gravando" else "🤖 Bot ligado", style = MaterialTheme.typography.titleMedium,
+                color = C.text, modifier = Modifier.weight(1f))
+            Text("IA: ${st.optInt("groq_min")}/${st.optInt("groq_max")} min/h", style = MaterialTheme.typography.labelSmall, color = C.muted)
+        }
+        if (lives.length() == 0) Text("Nenhuma live no ar agora. Ele avisa quando alguém entrar.",
+            style = MaterialTheme.typography.bodyMedium, color = C.muted)
+        for (i in 0 until lives.length()) {
+            val l = lives.getJSONObject(i)
+            Text("${if (l.optBoolean("recording")) "●" else "○"} ${l.optString("name")} · ${l.optString("platform")} · " +
+                "${l.optInt("minutes")} min · ${l.optInt("clips")} clipe(s)" + if (l.optBoolean("recording")) "" else " · na fila",
+                style = MaterialTheme.typography.bodyMedium, color = if (l.optBoolean("recording")) C.text else C.muted)
+            l.optString("last").takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = C.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress: Double, onPick: () -> Unit,
                 onOpen: (Project) -> Unit, onSettings: () -> Unit, onWork: () -> Unit, onDelete: (Project) -> Unit,
-                onDiscover: () -> Unit = {}, onLive: () -> Unit = {}) {
+                onDiscover: () -> Unit = {}, onLive: () -> Unit = {}, botCard: (@Composable () -> Unit)? = null) {
     var confirm by remember { mutableStateOf<Project?>(null) }
     var confirmWeak by remember { mutableStateOf(false) }
     // the bot's clips: best first, the weak ones (AI grade under 40) out of the way but one tap away
@@ -143,6 +190,7 @@ fun HomeContent(projects: List<Project>, busy: Boolean, stage: String, progress:
                 }
             }
         }
+        if (botCard != null) item(span = { GridItemSpan(2) }) { botCard() }
         if (busy) item(span = { GridItemSpan(2) }) {
             Card(onClick = onWork) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
