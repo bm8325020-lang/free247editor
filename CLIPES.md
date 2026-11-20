@@ -140,7 +140,10 @@ pega os clipes sozinho. Grátis. Uma live por vez, em 720p.
 3. Ele instala tudo (10 a 20 minutos) e pergunta: canais (Enter aceita alanzoka, loud_coringa e paulinholokobr),
    autorização, hashtags e a chave do Groq. No fim mostra o **código** para o app.
 4. No app: Configurações → Servidor do bot de lives → endereço `127.0.0.1` e o código → Conectar.
-5. Para ligar o bot: no Termux, `~/ligar-clipador.sh`. Pode apagar a tela e usar outros apps.
+5. Para ligar o bot: no Termux, `bash $HOME/ligar-clipador.sh`. Pode apagar a tela e usar outros apps.
+6. Para ver, adicionar ou remover canais (qualquer streamer da Twitch, não só GTA):
+   `bash $HOME/clipador/deploy/canais.sh` (ou só `canais`, depois de rodar o instalador de novo). Depois reinicie o bot.
+   O bot grava uma live por vez: a primeira da lista que estiver ao vivo.
 
 Deixe no carregador e no **Wi-Fi** (uma live em 720p gasta uns 1 a 2 GB por hora) e tire o Termux da economia de
 bateria (Configurações do Android → Apps → Termux → Bateria → Sem restrições).

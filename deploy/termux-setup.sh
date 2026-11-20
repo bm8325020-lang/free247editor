@@ -81,6 +81,10 @@ echo "Clipador ligado. Deixe o Termux aberto em segundo plano (pode apagar a tel
 python live.py
 SH
 chmod +x "$HOME/ligar-clipador.sh"
+# atalhos: "clipador" liga o bot, "canais" muda os canais vigiados
+ln -sf "$HOME/ligar-clipador.sh" "$PREFIX/bin/clipador" 2>/dev/null || true
+printf '#!/data/data/com.termux/files/usr/bin/bash\nexec bash "$HOME/clipador/deploy/canais.sh"\n' > "$PREFIX/bin/canais" 2>/dev/null \
+  && chmod +x "$PREFIX/bin/canais" || true
 
 say "4/4 Pronto!"
 # abre o app já com o endereço e o código: é só confirmar
