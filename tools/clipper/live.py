@@ -611,6 +611,43 @@ class Channel(threading.Thread):
             self.context.append(f"{datetime.now():%H:%M} {verdict['summary']}")
 
     # ---------- listening: lives without chat ----------
+    def watch_motion(self):
+        """A cheap motion alarm on the light copy: how many sharp changes the screen had in each 10 s piece (a crash,
+        an explosion, a car rolling). Normal play gives 0-2; a jump well above this live's usual makes the AI look
+        now instead of at the next round."""
+        eyes = self.work / "olhos" / "list.csv"
+        if not eyes.exists():
+            return
+        seen = getattr(self, "motion_seen", None)
+        if seen is None:
+            seen = self.motion_seen = set()
+            self.motion = collections.deque(maxlen=60)
+        try:
+            rows = [r for r in csv.reader(open(eyes, newline="")) if len(r) >= 3]
+        except OSError:
+            return
+        if rows and len(rows) % 20 == 0:  # the light copy keeps ~7 minutes, never more (disk)
+            last = float(rows[-1][2])
+            for r in rows:
+                if float(r[2]) < last - 400:
+                    (eyes.parent / r[0]).unlink(missing_ok=True)
+        for r in rows[-2:]:  # only the newest pieces: the alarm is about now
+            if r[0] in seen:
+                continue
+            seen.add(r[0])
+            f = eyes.parent / r[0]
+            out = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(f), "-an", "-vf",
+                                  "fps=4,scale=96:-2,select='gt(scene\\,0.25)',metadata=print:key=lavfi.scene_score",
+                                  "-f", "null", "-"], capture_output=True, text=True).stderr
+            n = out.count("scene_score")
+            usual = sorted(self.motion)[len(self.motion) // 2] if len(self.motion) >= 12 else 1
+            self.motion.append(n)
+            if (n >= max(4, usual + 3) and not getattr(self, "listening", False)
+                    and time.time() - getattr(self, "last_listen", 0) > 40 and len(self.motion) >= 12):
+                log(self.name, f"a tela agitou ({n} mudanças bruscas em 10 s): a IA vai olhar agora")
+                self.last_listen = 0
+                self.motion_alarm = time.time()
+
     def maybe_listen(self):
         """Without chat, a loud moment is a poor sign of a clip (a story told calmly has no spike): every couple of
         minutes the last stretch of the live is transcribed and the AI is asked whether it holds a clip."""
@@ -1000,6 +1037,7 @@ class Channel(threading.Thread):
                     self.poll_segments()
                     self.detect()
                     self.ready_pending()
+                    self.watch_motion()
                     self.maybe_listen()
                     if time.time() - last_status > 60:
                         cz, az, _ = self.scores()
