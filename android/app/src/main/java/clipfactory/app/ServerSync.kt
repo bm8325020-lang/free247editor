@@ -107,7 +107,7 @@ object ServerSync {
                     // with the raw cut the app renders the clip again with its own layout (webcam found by the face
                     // detector, a tall game band, sharper scaling); the bot's version shows meanwhile and is replaced
                     clips = listOf(PClip(0, title, score, reason,
-                        ClipEdit(a, b, if (useRaw && c.has("score") && " às " !in title) title else "", opt.captionStyle,
+                        ClipEdit(a, b, if (opt.hook && useRaw && c.has("score") && " às " !in title) title else "", opt.captionStyle,
                             if (useRaw) "pip" else "auto"),
                         uri = uri.toString(), status = if (useRaw) "pending" else "done", layoutName = "do servidor")),
                     notes = listOf("Legenda sugerida pelo servidor:\n" + c.optString("caption")),

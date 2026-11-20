@@ -676,7 +676,8 @@ class Channel(threading.Thread):
             if verdict["title"]:
                 title = hook = verdict["title"]
             log(self.name, f"nota da IA {score}: {why[:120]}")
-        clip = {"start": a, "end": b, "hook": hook, "title": title}
+        # the title burned at the start of the video: off unless "titulo_no_video": true (it stays as the post caption)
+        clip = {"start": a, "end": b, "hook": hook if self.opts.get("titulo_no_video", False) else "", "title": title}
         n = len(self.made) + 1
         name = f"{stamp}-{slugify(title)[:40]}.mp4"
         # "legendas": false in live-canais.json = clips without captions (the title at the start stays)

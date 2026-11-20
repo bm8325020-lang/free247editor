@@ -22,7 +22,7 @@ object Prefs {
             maxSeconds = p.getInt("maxSeconds", 50),
             layout = p.getString("layout", "auto") ?: "auto",
             captions = p.getBoolean("captions", true),
-            hook = p.getBoolean("hook", true),
+            hook = p.getBoolean("hook_v2", false), // off by default: a title burned at the start looked amateur
             groqKey = secret(ctx, "groqKey"),
             claudeKey = secret(ctx, "claudeKey"),
             coarenaKey = secret(ctx, "coarenaKey"),
@@ -42,7 +42,7 @@ object Prefs {
     fun save(ctx: Context, o: Options) {
         sp(ctx).edit()
             .putInt("clips", o.clips).putInt("maxSeconds", o.maxSeconds).putString("layout", o.layout)
-            .putBoolean("captions", o.captions).putBoolean("hook", o.hook)
+            .putBoolean("captions", o.captions).putBoolean("hook_v2", o.hook)
             .putString("groqKey_enc", SecureKeys.encrypt(o.groqKey.trim()))
             .putString("claudeKey_enc", SecureKeys.encrypt(o.claudeKey.trim()))
             .putString("coarenaKey_enc", SecureKeys.encrypt(o.coarenaKey.trim()))
