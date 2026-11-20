@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -60,6 +61,7 @@ object ServerSync {
         }
         fillKeys(ctx, base, opt)
         var added = 0
+        val toRender = ArrayList<String>()
         for (i in 0 until list.length()) {
             val c = list.getJSONObject(i)
             val id = c.getString("id")
@@ -86,12 +88,31 @@ object ServerSync {
                 val reason = "Cortado pelo bot às ${c.optString("created").substringAfter('T').take(5)}." +
                     (if (why.isNotEmpty()) " Nota da IA $score: $why" else "")
                 val pid = "srv$id"
-                ProjectStore.put(ctx, Project(pid, "@$channel ao vivo (servidor)", uri.toString(), System.currentTimeMillis(),
-                    durationS = dur,
-                    moments = listOf(Moment(0, 0.0, dur, dur / 2, title, "", reason, score, "", "", true)),
-                    clips = listOf(PClip(0, title, score, reason, ClipEdit(0.0, dur, "", opt.captionStyle, "auto"),
-                        uri = uri.toString(), status = "done", layoutName = "do servidor")),
-                    notes = listOf("Legenda sugerida pelo servidor:\n" + c.optString("caption")), status = "done"))
+                // the raw cut around the clip (original quality, with room on both sides): Editar can then move the
+                // start and the end, and render with the app's own layout. Kept in the app's files, not the gallery.
+                val raw = if (c.optBoolean("raw")) fetchRaw(ctx, base, opt.serverCode, id) else null
+                val rawDur = raw?.let { f -> runCatching {
+                    android.media.MediaMetadataRetriever().run {
+                        try { setDataSource(f.path); extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toDouble() / 1000 }
+                        finally { release() }
+                    }
+                }.getOrNull() }
+                val useRaw = raw != null && rawDur != null
+                val src = if (useRaw) Uri.fromFile(raw).toString() else uri.toString()
+                val a = if (useRaw) c.optDouble("raw_start", 0.0).coerceIn(0.0, rawDur!!) else 0.0
+                val b = if (useRaw) c.optDouble("raw_end", rawDur!!).coerceIn(a + 1, rawDur) else dur
+                ProjectStore.put(ctx, Project(pid, "@$channel ao vivo (servidor)", src, System.currentTimeMillis(),
+                    durationS = if (useRaw) rawDur!! else dur,
+                    moments = listOf(Moment(0, a, b, (a + b) / 2, title, "", reason, score, "", "", true)),
+                    // with the raw cut the app renders the clip again with its own layout (webcam found by the face
+                    // detector, a tall game band, sharper scaling); the bot's version shows meanwhile and is replaced
+                    clips = listOf(PClip(0, title, score, reason,
+                        ClipEdit(a, b, if (useRaw && c.has("score") && " às " !in title) title else "", opt.captionStyle,
+                            if (useRaw) "pip" else "auto"),
+                        uri = uri.toString(), status = if (useRaw) "pending" else "done", layoutName = "do servidor")),
+                    notes = listOf("Legenda sugerida pelo servidor:\n" + c.optString("caption")),
+                    status = if (useRaw) "rendering" else "done"))
+                if (useRaw) toRender.add(pid)
                 seen.add(id)
                 added++
             } catch (e: Exception) {
@@ -100,6 +121,9 @@ object ServerSync {
             }
         }
         sp.edit().putStringSet("seen", seen).apply()
+        // the render service picks up every project waiting to render; from the background Android may refuse to
+        // start it, and then the app does it the next time it opens
+        if (toRender.isNotEmpty()) runCatching { ClipService.render(ctx, toRender.first(), emptyList()) }
         if (added > 0) notifyNew(ctx, added)
         return Result(true, if (added > 0) "$added clipe(s) novo(s) do servidor." else "Conectado. Nenhum clipe novo.", added)
     }
@@ -123,6 +147,26 @@ object ServerSync {
                     android.util.Log.i("ServerSync", "keys filled from the bot on this phone")
                 }
             }
+        }
+    }
+
+    /** Downloads the raw cut of a clip into the app's files (the bot frees its copy once sent); null if it fails. */
+    private fun fetchRaw(ctx: Context, base: String, code: String, id: String): File? {
+        val dir = File(ctx.filesDir, "raw").apply { mkdirs() }
+        // raw cuts are big (~1 MB per second): the ones older than 3 days go
+        dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3 * 86_400_000L }?.forEach { it.delete() }
+        val f = File(dir, "srv-$id.mp4")
+        return try {
+            get("$base/api/raw/$id", code).use { r ->
+                if (!r.isSuccessful) return null
+                val tmp = File(dir, "srv-$id.part")
+                tmp.outputStream().use { out -> r.body!!.byteStream().copyTo(out) }
+                if (!tmp.renameTo(f)) return null
+            }
+            f
+        } catch (e: Exception) {
+            android.util.Log.w("ServerSync", "raw $id failed", e)
+            null
         }
     }
 

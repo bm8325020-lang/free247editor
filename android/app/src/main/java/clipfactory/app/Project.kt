@@ -77,6 +77,10 @@ object ProjectStore {
 
     @Synchronized
     fun delete(ctx: Context, id: String) {
+        // a bot clip's raw cut lives in the app's files: it goes with the project
+        get(id)?.source?.let { src ->
+            if (src.startsWith("file:") && "/raw/" in src) runCatching { java.io.File(android.net.Uri.parse(src).path!!).delete() }
+        }
         state.value = state.value.filter { it.id != id }
         dir(ctx, id).deleteRecursively()
     }

@@ -64,7 +64,8 @@ class ClipService : Service() {
         }
         if (busy) {
             // a render request waits in its project and is picked up when the current work ends
-            if (intent.action != ACTION_RENDER || intent.getStringExtra(EXTRA_PROJECT)?.startsWith("live") != true)
+            val pidIn = intent.getStringExtra(EXTRA_PROJECT) ?: ""
+            if (intent.action != ACTION_RENDER || !(pidIn.startsWith("live") || pidIn.startsWith("srv")))
                 android.widget.Toast.makeText(this, "Espere o trabalho atual terminar.", android.widget.Toast.LENGTH_LONG).show()
             return START_NOT_STICKY
         }
@@ -207,8 +208,10 @@ class ClipService : Service() {
             } catch (e: Exception) {
                 Log.e("ClipService", "clip $i failed", e)
                 failed.add(e.message?.take(100) ?: e.toString())
+                // a bot clip keeps the bot's own version when the app's render fails
                 ProjectStore.update(this, pid) { it.copy(clips = it.clips.mapIndexed { k, c ->
-                    if (k == i) c.copy(status = "failed", error = e.message?.take(160) ?: e.toString()) else c }) }
+                    if (k == i) c.copy(status = if (pid.startsWith("srv") && c.uri.isNotEmpty()) "done" else "failed",
+                        error = e.message?.take(160) ?: e.toString()) else c }) }
             }
         }
         val p = ProjectStore.get(pid) ?: return

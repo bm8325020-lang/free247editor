@@ -51,8 +51,12 @@ TOKEN = re.compile(r"[\wÀ-ÿ?!]+", re.UNICODE)
 
 DEFAULTS = {
     "buffer_segundos": 180,
-    "antes": 20,
-    "depois": 10,
+    # the clip: from this many seconds before the moment to this many after it (the action often goes on well after
+    # the scream: 30 s clips ended in the middle of it)
+    "antes": 25,
+    "depois": 35,
+    # extra video kept around each clip (the raw cut), so the app can move the start and the end afterwards
+    "folga": 30,
     "intervalo_minimo": 90,
     # when the chat fires, go back this many seconds from the moment the chat STARTED reacting,
     # so the whole scene is in the clip even though the chat types after it happens
@@ -375,7 +379,8 @@ class Channel(threading.Thread):
             now = self.segments[-1]["end"]
             keep_from = now - self.opts["buffer_segundos"]
             if self.pending:
-                keep_from = min(keep_from, min(p["peak"] for p in self.pending) - self.opts["antes"] - SEG)
+                keep_from = min(keep_from, min(p["peak"] for p in self.pending) - self.opts["antes"]
+                                - self.opts.get("folga", 0) - SEG)
             while len(self.segments) > 2 and self.segments[0]["end"] < keep_from:
                 old = self.segments.pop(0)
                 old["path"].unlink(missing_ok=True)
@@ -518,7 +523,7 @@ class Channel(threading.Thread):
         # clock runs ahead of the recording, and cutting by it found no segments ("corte perdido")
         recorded = self.segments[-1]["end"]
         for p in list(self.pending):
-            if recorded >= p["end"] + 2:
+            if recorded >= p["end"] + self.opts.get("folga", 0) + 2:
                 self.pending.remove(p)
                 threading.Thread(target=self.cut, args=(p,), daemon=True).start()
             elif time.time() - p["wall"] > 600:
@@ -526,8 +531,9 @@ class Channel(threading.Thread):
                 log(self.name, "corte desistido: a gravação ficou mais de 10 min atrás da live (internet lenta?)")
 
     def cut(self, p):
-        a = p["peak"] - self.opts["antes"] - 4  # room for snapping to a pause
-        b = p["end"] + 4
+        # the raw cut: the clip plus some room on both sides (the app can move the start and the end within it)
+        a = p["peak"] - self.opts["antes"] - self.opts.get("folga", 0) - 4
+        b = p["end"] + self.opts.get("folga", 0) + 4
         segs = [s for s in list(self.segments) if s["end"] > a and s["start"] < b and s["path"].exists()]
         if not segs:
             log(self.name, "corte perdido: os segmentos já tinham saído do buffer")
@@ -538,12 +544,12 @@ class Channel(threading.Thread):
         work = folder / ".work"
         work.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%H%M%S")
-        lst = work / f"concat-{stamp}.txt"
-        lst.write_text("".join(f"file '{s['path'].as_posix()}'\n" for s in segs))
         src = work / f"src-{stamp}.mp4"
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy",
-                        "-fflags", "+genpts", str(src)], check=False)
-        lst.unlink(missing_ok=True)
+        # MPEG-TS pieces join byte by byte (the concat protocol): the concat demuxer re-timed every piece and could
+        # leave small gaps or repeats in the audio at the joins
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", "concat:" + "|".join(s["path"].as_posix() for s in segs),
+                        "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-fflags", "+genpts",
+                        "-movflags", "+faststart", str(src)], check=False)
         if not src.exists():
             log(self.name, "corte falhou ao juntar os segmentos")
             return
@@ -617,7 +623,14 @@ class Channel(threading.Thread):
         log(self.name, f"CLIPE PRONTO: {folder / name}")
         credit = self.spec.get("creditos") or self.opts.get("creditos") or self.name
         caption = post_text(title, credit, self.opts.get("hashtags", "#cortes #clips"))
-        clipserver.add_clip(folder / name, self.name, title, caption, score, why)  # the phone app picks it up
+        # keep the raw cut (original quality, with room around the clip) for the app's editor
+        raw = folder / f"{stamp}-bruto.mp4"
+        try:
+            shutil.move(str(src), raw)
+        except OSError:
+            raw = None
+        clipserver.add_clip(folder / name, self.name, title, caption, score, why,  # the phone app picks it up
+                            raw=raw, raw_start=meta.get("start", a), raw_end=meta.get("end", b))
         if TG:
             TG.send_clip(folder / name, caption)
 

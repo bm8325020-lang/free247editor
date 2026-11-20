@@ -23,6 +23,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ProjectStore.load(this)
         ServerSync.schedule(this) // keeps the 15-min check running when a server is set
+        // bot clips waiting to be rendered with the app's layout (Android may refuse to start that from the background)
+        ProjectStore.projects.value.firstOrNull { p -> p.status == "rendering" && p.clips.any { it.status == "pending" } }
+            ?.let { runCatching { ClipService.render(this, it.id, emptyList()) } }
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)

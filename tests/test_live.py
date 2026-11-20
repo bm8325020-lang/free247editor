@@ -45,7 +45,7 @@ def test_channels_without_authorization_are_refused(tmp_path, monkeypatch, capsy
     ], "limiar": 2.5}), encoding="utf-8")
     chans, opts = live.load_channels()
     assert [c["canal"] for c in chans] == ["com_permissao"]
-    assert opts["limiar"] == 2.5 and opts["antes"] == 20
+    assert opts["limiar"] == 2.5 and opts["antes"] == 25
     assert "sem 'autorizacao'" in capsys.readouterr().err
 
 

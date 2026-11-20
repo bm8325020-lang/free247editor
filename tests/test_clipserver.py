@@ -70,3 +70,25 @@ def test_keys_only_on_the_same_phone(tmp_path, monkeypatch):
         except urllib.error.HTTPError as e:
             assert e.code == 401
         srv.shutdown()
+
+
+def test_raw_cut_is_served_once_then_freed(tmp_path, monkeypatch):
+    import json, urllib.request
+    from tools.clipper import clipserver
+    monkeypatch.setattr(clipserver, "ROOT", tmp_path)
+    monkeypatch.setattr(clipserver, "MANIFEST", tmp_path / "outbox" / "live" / "clips.json")
+    d = tmp_path / "outbox" / "live" / "kick-x" / "2026-11-20"
+    d.mkdir(parents=True)
+    (d / "a.mp4").write_bytes(b"clip")
+    (d / "a-bruto.mp4").write_bytes(b"raw-video")
+    cid = clipserver.add_clip(d / "a.mp4", "x", "t", "c", 80, "ok", raw=d / "a-bruto.mp4", raw_start=30, raw_end=95)
+    srv = clipserver.serve("codigo-secreto-1", 0, host="127.0.0.1")
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    h = {"X-Code": "codigo-secreto-1"}
+    lst = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/clips", headers=h)).read())
+    assert lst[0]["raw"] is True and lst[0]["raw_start"] == 30 and lst[0]["raw_end"] == 95
+    assert urllib.request.urlopen(urllib.request.Request(f"{base}/api/raw/{cid}", headers=h)).read() == b"raw-video"
+    assert not (d / "a-bruto.mp4").exists()                    # freed after sending
+    lst = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/clips", headers=h)).read())
+    assert "raw" not in lst[0]                                  # no longer offered
+    srv.shutdown()

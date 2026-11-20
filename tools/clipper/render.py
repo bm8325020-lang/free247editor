@@ -143,7 +143,8 @@ def render_clip(src, info, words, clip, cfg, out_path, workdir, layout):
 
     thumb = out_path.with_suffix(".jpg")
     run(["ffmpeg", "-y", "-v", "error", "-ss", "0.6", "-i", str(out_path), "-frames:v", "1", "-q:v", "3", str(thumb)])
-    return {"duration": round(tl.duration, 2), "layout": kind, "cuts": len(ranges) - 1, "thumb": thumb.name}
+    return {"duration": round(tl.duration, 2), "layout": kind, "cuts": len(ranges) - 1, "thumb": thumb.name,
+            "start": S, "end": E}
 
 
 def _render_ffmpeg_only(src, info, words, clip, cfg, out_path, workdir, ranges, S, E, tl):
@@ -174,4 +175,5 @@ def _render_ffmpeg_only(src, info, words, clip, cfg, out_path, workdir, ranges, 
         raise RuntimeError(f"render failed for {Path(out_path).name}: {r.stderr.strip()[-600:]}")
     thumb = Path(out_path).with_suffix(".jpg")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "1", "-i", str(out_path), "-frames:v", "1", str(thumb)])
-    return {"duration": round(tl.duration, 2), "layout": "game", "cuts": len(ranges) - 1, "thumb": thumb.name}
+    return {"duration": round(tl.duration, 2), "layout": "game", "cuts": len(ranges) - 1, "thumb": thumb.name,
+            "start": S, "end": E}
