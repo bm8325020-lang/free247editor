@@ -1,18 +1,18 @@
 {
-  "versao": 8,
+  "versao": 9,
   "nota": "Pacote de canais aplicado pelo bot ao ligar (live.py), uma vez por versão. 'pessoa' junta os canais do mesmo streamer: se ele estiver ao vivo na Twitch e no YouTube ao mesmo tempo, grava só um (o de cima). A ordem é a prioridade quando o limite de lives ao mesmo tempo enche. Canais que você remover não voltam. Kick: sem leitura do chat, detecta pelo áudio + IA.",
   "canais": [
-    {
-      "plataforma": "kick",
-      "canal": "paulinholokobr",
-      "creditos": "@paulinholokobr",
-      "pessoa": "paulinho"
-    },
     {
       "plataforma": "youtube",
       "canal": "@paulinholokooficial",
       "url": "https://www.youtube.com/@paulinholokooficial/live",
       "creditos": "@paulinholoko",
+      "pessoa": "paulinho"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "paulinholokobr",
+      "creditos": "@paulinholokobr",
       "pessoa": "paulinho"
     },
     {
