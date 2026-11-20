@@ -7,7 +7,9 @@ from clipper import live
 
 
 def test_reaction_messages_weigh_more_than_plain_ones():
-    assert live.message_weight("boa noite chat") == 1.0
+    assert live.message_weight("boa noite chat") == 0.25  # a busy chat is always talking: plain talk counts little
+    assert live.message_weight("!sorteio") == 0.0  # commands (giveaways) are not moments
+    assert live.message_weight("Obrigado pelo sub!", "StreamElements") == 0.0  # bots neither
     assert live.message_weight("KEKW KEKW") > 3
     assert live.message_weight("CLIPA ISSO kkkkkk") > 4
     assert live.message_weight("????? " * 20) <= 6.0  # capped: one spammer cannot fake a moment
