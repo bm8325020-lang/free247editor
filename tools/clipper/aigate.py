@@ -63,32 +63,50 @@ def timed_lines(words, every=5.0):
     return out
 
 
-def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None):
-    """{"clip": bool, "score": int, "title": str, "why": str, "start"?: s, "end"?: s}, or None when no AI is
+CATEGORIES = ("engraçado", "épico", "fail", "raiva", "susto", "história", "polêmica", "fofo", "absurdo")
+
+
+def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None, context=None):
+    """{"clip", "score", "title", "why", "category", "caption", "summary", "start"?, "end"?}, or None when no AI is
     available (keep the clip). With `timed` (lines of the whole recorded window, seconds from its start) the AI also
     picks where the clip should start and end, so a story that started earlier or ended later is not cut off.
     frames: [(second, jpeg bytes)] from the same window: the AI sees what happened on screen, not only what was said
-    (a visual moment with little talk got a grade of 12)."""
+    (a visual moment with little talk got a grade of 12). context: one-line summaries of what happened earlier in
+    this live, oldest first: callbacks and running jokes make sense only with them."""
     key = os.environ.get("COARENA_API_KEY", "").strip()
     if not key:
         return None
-    chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat available: judge from the speech alone)"
-    prompt = f"""You are a top Brazilian clipper of gaming lives (GTA RP, GTA 6, and others).
-A bot flagged a moment of {channel}'s live because the chat or the streamer's audio spiked. Decide like a clipper whether it deserves a
-TikTok/Reels/Shorts clip: something clearly happened that works on its own (funny line or situation, epic play,
-fail, rage, scare, absurd moment, savage reply). Reject when nothing clear happened: random gameplay, the chat
-reacting to something off-stream (giveaway, subs, raid, a donation message, a meme unrelated to the moment), or
-talk that needs context. Be strict: a wrong clip costs more than a missed one.
+    chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat available: judge from the speech and the images)"
+    earlier = "\n".join(f"- {c}" for c in (context or [])[-6:]) or "(start of the live)"
+    prompt = f"""You are a top Brazilian clipper of gaming lives (GTA RP, GTA 6, and others), the kind whose clips get
+millions of views. You are watching {channel}'s live. Judge this stretch the way you would before posting.
+
+What a clip needs (score each honestly):
+1. HOOK: the first 2-3 seconds already grab (a strong line, a shout, something visibly going wrong). No warm-up.
+2. PAYOFF: something clearly happens: a joke lands, an epic play, a fail, rage, a scare, an absurd situation, a
+   savage reply, a story with an ending.
+3. REACTION: the streamer (or someone) reacts; the reaction is often the best part, keep it.
+4. STANDS ALONE: a stranger scrolling understands it without the rest of the live.
+Reject (score under 40) random gameplay, menus and loading screens, plain talk, the chat reacting to something
+off-stream (giveaway, subs, raid, donation), and inside jokes that need context.
+
+What happened earlier in this live (for callbacks and running jokes):
+{earlier}
 
 {_window(timed, peak, duration) if timed else "What the streamer said in the clip:" + chr(10) + (said.strip() or "(nothing understandable)")}
 
 What the chat wrote right then:
 {chat}
 {_frames_note(frames)}
-Answer with ONLY a JSON object: {{"clip": true, "score": 0-100, "title": "...", "why": "one short sentence"{', "start": seconds, "end": seconds' if timed else ''}}}
-"title" is burned on the video and posted, so it is ALWAYS a hook a viewer would click, written from what was said
-(max 6 words, in {language}, no hashtags, no emoji), even when the score is low. Never describe the clip's quality
-in the title (no "sem contexto", "conversa aleatória", "nada acontece"): that goes in "why"."""
+Answer with ONLY a JSON object:
+{{"clip": true, "score": 0-100, "title": "...", "why": "one short sentence", "category": "one of {"/".join(CATEGORIES)}",
+ "caption": "...", "summary": "..."{', "start": seconds, "end": seconds' if timed else ''}}}
+- "title" is a hook a viewer would click, written from what was said (max 6 words, in {language}, no hashtags, no
+  emoji), even when the score is low. Never describe the clip's quality in it ("sem contexto", "conversa
+  aleatória", "nada acontece"): that goes in "why".
+- "caption": the post text in {language}: one short punchy line plus 3 hashtags that fit this moment.
+- "summary": one sentence of what is going on in the live right now (it becomes context for the next judgement).
+- "start"/"end": start right before the hook line (no dead air before it), end after the reaction settles."""
     order = ([(m, frames) for m in VISION] + [(m, None) for m in MODELS]) if frames else [(m, None) for m in MODELS]
     for model, imgs in order:
         try:
@@ -109,8 +127,12 @@ in the title (no "sem contexto", "conversa aleatória", "nada acontece"): that g
                     pass
             if _VERDICT.search(title):  # a verdict, not a title: never burn it on the video
                 title = ""
+            cat = str(d.get("category", "")).strip().lower()
             return {"clip": bool(d.get("clip")), "score": int(d.get("score", 0)),
-                    "title": title, "why": str(d.get("why", "")).strip(), **span}
+                    "title": title, "why": str(d.get("why", "")).strip(),
+                    "category": cat if cat in CATEGORIES else "",
+                    "caption": str(d.get("caption", "")).strip()[:300],
+                    "summary": str(d.get("summary", "")).strip()[:200], **span}
         except Exception:
             continue
     return None

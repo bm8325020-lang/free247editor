@@ -302,6 +302,7 @@ class Channel(threading.Thread):
         self.live = False
         self.live_since = None
         self.rank = 0  # set by main(): position in the list
+        self.context = collections.deque(maxlen=8)  # one-line summaries of the live so far, for the AI
         # the same streamer on several platforms shares one "pessoa": only one of those lives records
         self.person = str(spec.get("pessoa") or f"{self.platform}:{self.name}").lower()
 
@@ -523,6 +524,11 @@ class Channel(threading.Thread):
             log(self.name, f"clipe oficial falhou: {str(e)[:150]}")
 
     # ---------- cutting ----------
+    def remember(self, verdict):
+        """Keep the AI's one-line summary of the moment: the next judgement knows what happened before."""
+        if verdict and verdict.get("summary"):
+            self.context.append(f"{datetime.now():%H:%M} {verdict['summary']}")
+
     # ---------- listening: lives without chat ----------
     def maybe_listen(self):
         """Without chat, a loud moment is a poor sign of a clip (a story told calmly has no spike): every couple of
@@ -565,7 +571,9 @@ class Channel(threading.Thread):
                 if len(words) < 8:  # nobody talking: nothing to judge from the speech
                     return
                 v = aigate.review(self.name, "", [], timed=aigate.timed_lines(words), peak=info["duration"] / 2,
-                                  duration=info["duration"], frames=grab_frames(src, info["duration"], work, n=4))
+                                  duration=info["duration"], frames=grab_frames(src, info["duration"], work, n=4),
+                                  context=list(self.context))
+                self.remember(v)
             finally:
                 src.unlink(missing_ok=True)
             if not v or "start" not in v:
@@ -665,7 +673,9 @@ class Channel(threading.Thread):
         said = " ".join(w["text"] for w in words if a <= w["start"] < b)
         chat_lines = [t for w, wt, t in self.chat.copy() if p["wall"] - 25 <= w <= p["wall"] + 12 and wt > 0]
         verdict = aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
-                                duration=info["duration"], frames=grab_frames(src, info["duration"], work))
+                                duration=info["duration"], frames=grab_frames(src, info["duration"], work),
+                                context=list(self.context))
+        self.remember(verdict)
         score, why = None, ""
         if verdict is not None and "start" in verdict:
             # the AI read the whole window and points at where the story really starts and ends
@@ -701,6 +711,9 @@ class Channel(threading.Thread):
         log(self.name, f"CLIPE PRONTO: {folder / name}")
         credit = self.spec.get("creditos") or self.opts.get("creditos") or self.name
         caption = post_text(title, credit, self.opts.get("hashtags", "#cortes #clips"))
+        if verdict and verdict.get("caption"):
+            # the AI's post text fits this moment; the credit to the streamer always goes along
+            caption = f"{verdict['caption']}\n\nCréditos: {credit if credit.startswith('@') else '@' + credit}"
         # keep the raw cut (original quality, with room around the clip) for the app's editor
         raw = folder / f"{stamp}-bruto.mp4"
         try:
@@ -708,7 +721,8 @@ class Channel(threading.Thread):
         except OSError:
             raw = None
         clipserver.add_clip(folder / name, self.name, title, caption, score, why,  # the phone app picks it up
-                            raw=raw, raw_start=meta.get("start", a), raw_end=meta.get("end", b))
+                            raw=raw, raw_start=meta.get("start", a), raw_end=meta.get("end", b),
+                            category=(verdict or {}).get("category", ""))
         if TG:
             TG.send_clip(folder / name, caption)
 
