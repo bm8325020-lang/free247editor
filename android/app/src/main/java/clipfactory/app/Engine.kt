@@ -256,7 +256,8 @@ object Engine {
             val (a0, b0) = Hype.snap(words, max(0.0, m.t - 22), min(duration, m.t + 12), duration)
             val (a, b) = Hype.capLength(a0, b0, m.t, maxSeconds)
             val c = Clip(peak = m.t, start = a, end = b, audio = 0.0)
-            c.title = Hype.hookFrom(words, m.t).ifBlank { "Momento %d:%02d".format((m.t / 60).toInt(), (m.t % 60).toInt()) }
+            c.title = Hype.hookFrom(words, m.t).ifBlank { Hype.quoteFrom(words, m.t) }
+                .ifBlank { "Momento %d:%02d".format((m.t / 60).toInt(), (m.t % 60).toInt()) }
             c.hook = c.title
             c.score = (62 + m.weight * 3).toInt().coerceAtMost(90)
             c.reason = "O público marcou esse momento: \"${m.sample.take(90)}\""

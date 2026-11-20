@@ -58,6 +58,7 @@ object ServerSync {
         } catch (e: Exception) {
             return Result(false, "Não consegui falar com o servidor (${e.javaClass.simpleName}). Ele está ligado? A porta está aberta?")
         }
+        fillKeys(ctx, base, opt)
         var added = 0
         for (i in 0 until list.length()) {
             val c = list.getJSONObject(i)
@@ -97,6 +98,28 @@ object ServerSync {
         sp.edit().putStringSet("seen", seen).apply()
         if (added > 0) notifyNew(ctx, added)
         return Result(true, if (added > 0) "$added clipe(s) novo(s) do servidor." else "Conectado. Nenhum clipe novo.", added)
+    }
+
+    /**
+     * Bot on this same phone (Termux): the Groq and Coarena keys typed into its installer also go into the app, so
+     * they are typed once. Only fills keys the app does not have yet.
+     */
+    private fun fillKeys(ctx: Context, base: String, opt: Options) {
+        val host = base.substringAfter("://").substringBefore(":")
+        if (host != "127.0.0.1" && host != "localhost") return
+        if (opt.groqKey.isNotBlank() && opt.coarenaKey.isNotBlank()) return
+        runCatching {
+            get("$base/api/keys", opt.serverCode).use { r ->
+                if (!r.isSuccessful) return
+                val k = org.json.JSONObject(r.body?.string().orEmpty())
+                val groq = opt.groqKey.ifBlank { k.optString("groq").trim() }
+                val coarena = opt.coarenaKey.ifBlank { k.optString("coarena").trim() }
+                if (groq != opt.groqKey || coarena != opt.coarenaKey) {
+                    Prefs.save(ctx, Prefs.options(ctx).copy(groqKey = groq, coarenaKey = coarena))
+                    android.util.Log.i("ServerSync", "keys filled from the bot on this phone")
+                }
+            }
+        }
     }
 
     /** Start (or stop, without an address) the check every 15 minutes. */

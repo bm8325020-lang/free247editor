@@ -161,7 +161,8 @@ class ParityTest {
         }
         for ((name, cam) in listOf("rect" to loadCam(""), "round" to loadCam("round_"))) {
             val e = rows.getValue(name).map { it.toDouble() }
-            val pip = LayoutMath.choose(cam, 1280, 720, force = "pip") as Layout.Pip
+            // the Python engine fills the whole frame with the game: compare at that shape
+            val pip = LayoutMath.pipLayout(cam, 1280, 720, gameAspect = 9.0 / 16)
             assertEquals("$name src", e.subList(0, 4), listOf(pip.src.x, pip.src.y, pip.src.w, pip.src.h).map { Math.round(it * 1e5) / 1e5 })
             assertEquals(name == "round", pip.round)
             assertEquals(e[4] == 1.0, pip.round)
@@ -230,5 +231,16 @@ class ParityTest {
         assertEquals(1, Captions.at(ev, 0.5))
         assertEquals(listOf("OLHA", "ISSO", "MANO"), ev[2].words)
         assertEquals(-1, Captions.at(ev, 9.0))
+    }
+
+    @Test
+    fun pipShowsMoreOfTheGameInABand() {
+        val cam = loadCam("")
+        val pip = LayoutMath.choose(cam, 1920, 1080, force = "pip") as Layout.Pip
+        // 4:5 band: 1350 of 1920 px tall, centered; the crop is 45% of the game's width (a 9:16 crop is 32%)
+        assertEquals(1350.0 / 1920, pip.bandH, 1e-9)
+        assertEquals((1 - 1350.0 / 1920) / 2, pip.bandY, 1e-9)
+        assertEquals(1080.0 * 0.8 / 1920, pip.game.w, 1e-6)
+        assertEquals(1.0, pip.game.h, 1e-9)
     }
 }

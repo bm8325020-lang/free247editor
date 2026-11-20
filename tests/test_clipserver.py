@@ -47,3 +47,26 @@ def test_lists_and_serves_clips_only_with_the_code(tmp_path, monkeypatch):
 def test_refuses_to_start_without_a_real_code():
     assert cs.serve("", 0) is None and cs.serve("curto", 0) is None
     assert cs.serve("TROQUE_AQUI", 0) is None and cs.serve("invente_um_codigo_secreto", 0) is None
+
+
+def test_keys_only_on_the_same_phone(tmp_path, monkeypatch):
+    import json, urllib.request, urllib.error
+    from tools.clipper import clipserver
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("COARENA_API_KEY", "coa_test")
+    for host, expect in (("127.0.0.1", 200), ("0.0.0.0", 403)):
+        srv = clipserver.serve("codigo-secreto-1", 0, host=host)
+        port = srv.server_address[1]
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/keys", headers={"X-Code": "codigo-secreto-1"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                assert expect == 200 and json.loads(r.read()) == {"groq": "gsk_test", "coarena": "coa_test"}
+        except urllib.error.HTTPError as e:
+            assert e.code == expect
+        bad = urllib.request.Request(f"http://127.0.0.1:{port}/api/keys", headers={"X-Code": "errado"})
+        try:
+            urllib.request.urlopen(bad, timeout=5)
+            assert False
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+        srv.shutdown()

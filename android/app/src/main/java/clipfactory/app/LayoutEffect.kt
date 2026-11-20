@@ -53,6 +53,7 @@ class LayoutEffect(
             var zoom = 1.3f
             var pip = floatArrayOf(0f, 0f, 0f, 0f)
             var round = 0f
+            var band = floatArrayOf(0f, 1f)
             when (layout) {
                 is Layout.Stack -> {
                     mode = 4f; cam = vec(layout.cam); game = vec(layout.game); panel = layout.top.toFloat()
@@ -61,6 +62,7 @@ class LayoutEffect(
                 is Layout.Pip -> {
                     mode = 3f; cam = vec(layout.src); game = vec(layout.game); pip = vec(layout.dst)
                     round = if (layout.round) 1f else 0f
+                    band = floatArrayOf(layout.bandY.toFloat(), layout.bandH.toFloat())
                 }
                 is Layout.Split -> {
                     mode = 0f; cam = vec(layout.cam); game = vec(layout.game); panel = layout.panel.toFloat()
@@ -87,6 +89,7 @@ class LayoutEffect(
             program.setFloatUniform("uCamOn", if (on) 1f else 0f)
             program.setFloatsUniform("uPip", pip)
             program.setFloatUniform("uRound", round)
+            program.setFloatsUniform("uBand", band)
             program.setFloatsUniform("uTexel", texel)
             program.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -120,6 +123,7 @@ uniform float uSrcAspect;
 uniform float uOutAspect;
 uniform vec4 uPip;   // webcam window in the output (fractions, origin top-left)
 uniform float uRound;
+uniform vec2 uBand;    // picture-in-picture: the gameplay band (top, height; fractions of the output height)
 uniform float uCamOn;  // stacked layout: 0 while the webcam is off screen (the top keeps the blurred background)
 uniform vec2 uTexel;   // one source pixel
 varying vec2 vTexSamplingCoord;
@@ -169,8 +173,14 @@ void main() {
   } else if (uMode < 2.5) {
     col = camImg(uCam.xy + o * uCam.zw);
   } else if (uMode < 3.5) {
-    // picture-in-picture: full-screen gameplay, the whole webcam small in the corner, in its own shape
-    col = img(uGame.xy + o * uGame.zw);
+    // picture-in-picture: a tall gameplay band with a blurred copy above and below, the whole webcam small in the
+    // corner, in its own shape
+    if (o.y >= uBand.x && o.y < uBand.x + uBand.y) {
+      col = img(uGame.xy + vec2(o.x, (o.y - uBand.x) / uBand.y) * uGame.zw);
+    } else {
+      vec2 p = vec2(0.5 + (o.x - 0.5) * uOutAspect / uSrcAspect, o.y);
+      col = vec4(blurred(p).rgb * 0.5, 1.0);
+    }
     vec2 q = (o - uPip.xy) / uPip.zw;
     if (q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0) {
       vec2 size = uPip.zw * vec2(1080.0, 1920.0);          // window size in output pixels

@@ -29,9 +29,12 @@ sealed class Layout {
 
     /**
      * The streamer's whole webcam, in its own shape, small in the top-left corner over full-screen gameplay.
-     * src and game are fractions of the source frame; dst is a fraction of the output frame.
+     * src and game are fractions of the source frame; dst is a fraction of the output frame. The gameplay fills the
+     * band bandY..bandY+bandH of the output height (a blurred copy above and below), so more of the game shows than
+     * in a full-height 9:16 crop.
      */
-    data class Pip(val src: Box, val round: Boolean, val dst: Box, val game: Box) : Layout()
+    data class Pip(val src: Box, val round: Boolean, val dst: Box, val game: Box,
+                   val bandY: Double = 0.0, val bandH: Double = 1.0) : Layout()
 
     /**
      * Videos: webcam across the top (cam: source box), a wide gameplay band under it (game: source box), blurred
@@ -149,7 +152,8 @@ object LayoutMath {
     }
 
     /** Picture-in-picture: the whole webcam (its own shape), small in the top-left corner, nothing of the face cut. */
-    fun pipLayout(cam: Facecam, srcW: Int, srcH: Int, pipWidth: Double = 0.40, margin: Int = 36, top: Double = 0.06): Layout.Pip {
+    fun pipLayout(cam: Facecam, srcW: Int, srcH: Int, pipWidth: Double = 0.40, margin: Int = 36, top: Double = 0.06,
+                  gameAspect: Double = 0.8): Layout.Pip {
         val W = srcW.toDouble()
         val H = srcH.toDouble()
         val fx0 = cam.x0 * W
@@ -189,8 +193,10 @@ object LayoutMath {
         val dw = Math.round(pw / 2) * 2.0
         val dh = Math.round(ph / 2) * 2.0
         val dst = Box(margin.toDouble() / OUT_W, Math.floor(OUT_H * top) / OUT_H, dw / OUT_W, dh / OUT_H)
-        // gameplay fills the frame, steering clear of the webcam when a small shift does it
-        val ga = OUT_W.toDouble() / OUT_H
+        // gameplay in a 4:5 band (45% of a 16:9 game's width, against 32% for a full-height crop), steering clear of
+        // the webcam when a small shift does it
+        val bandH = min(1.0, Math.round(OUT_W / gameAspect / 2) * 2.0 / OUT_H)
+        val ga = OUT_W / (bandH * OUT_H)
         var gh = H
         var gw = gh * ga
         if (gw > W) { gw = W; gh = W / ga }
@@ -201,7 +207,8 @@ object LayoutMath {
             if (x1 - gx < W * 0.12 && x1 + mg + gw <= W) gx = x1 + mg
             else if (gx + gw - x0 < W * 0.12 && x0 - mg - gw >= 0) gx = x0 - mg - gw
         }
-        return Layout.Pip(Box(x0 / W, y0 / H, bw / W, bh / H), round, dst, Box(gx / W, gy / H, gw / W, gh / H))
+        return Layout.Pip(Box(x0 / W, y0 / H, bw / W, bh / H), round, dst, Box(gx / W, gy / H, gw / W, gh / H),
+            (1 - bandH) / 2, bandH)
     }
 
     /** The webcam overlay's border: straight edges that stay put while the game changes around them. */

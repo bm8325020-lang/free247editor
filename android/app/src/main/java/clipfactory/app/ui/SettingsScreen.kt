@@ -94,15 +94,19 @@ fun SettingsScreen(onBack: () -> Unit, onDiagnostics: () -> Unit = {}) {
             }
             Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionTitle("Servidor do bot de lives", "Os clipes que o bot faz na Oracle chegam aqui sozinhos (a cada 15 min).")
-                    Field("Endereço (IP público da Oracle)", opt.serverAddr, hint = "ex.: 129.146.10.20 (a porta 8080 é automática)") {
+                    SectionTitle("Bot de lives", "Os clipes que o bot faz (no Termux deste celular) chegam aqui sozinhos, a cada 15 min. " +
+                        "As chaves do Groq e da Coarena que você pôs no bot entram aqui também.")
+                    Field("Endereço do bot", opt.serverAddr, hint = "No Termux deste celular: 127.0.0.1") {
                         set(opt.copy(serverAddr = it))
                     }
-                    Field("Código (APP_CODE do script)", opt.serverCode, secret = true) { set(opt.copy(serverCode = it)) }
+                    Field("Código do bot (cel-…)", opt.serverCode, secret = true) { set(opt.copy(serverCode = it)) }
                     SoftButton("Conectar e buscar agora", icon = Icons.Filled.Wifi) {
                         srvMsg = clipfactory.app.ServerSync.Result(true, "Buscando…")
                         clipfactory.app.ServerSync.schedule(ctx)
-                        scope.launch { srvMsg = withContext(Dispatchers.IO) { clipfactory.app.ServerSync.sync(ctx) } }
+                        scope.launch {
+                            srvMsg = withContext(Dispatchers.IO) { clipfactory.app.ServerSync.sync(ctx) }
+                            opt = Prefs.options(ctx) // the sync may have brought the keys from the bot on this phone
+                        }
                     }
                     srvMsg?.let { Text(it.message, color = if (it.ok) C.good else C.bad, style = MaterialTheme.typography.bodyMedium) }
                 }

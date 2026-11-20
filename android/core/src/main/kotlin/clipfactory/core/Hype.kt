@@ -219,6 +219,17 @@ object Hype {
         return if (bestS >= 1.5) (best ?: "").trim(' ', ',', '.', ';', ':') else ""
     }
 
+    /**
+     * A title when no hype phrase is found: what the streamer said right at the moment, up to 6 words ("" without speech).
+     */
+    fun quoteFrom(words: List<Word>, peak: Double): String {
+        val i = words.indexOfFirst { it.start >= peak - 3.0 }
+        if (i < 0 || words[i].start > peak + 3.0) return ""
+        val text = words.subList(i, min(words.size, i + 6)).joinToString(" ") { it.text }.trim(' ', ',', '.', ';', ':')
+        if (text.count { it.isLetter() } < 6) return ""
+        return text.replaceFirstChar { it.uppercase() } + if (words.size > i + 6) "…" else ""
+    }
+
     /** Candidate windows from the audio alone (before any transcription). */
     fun audioCandidates(ex: DoubleArray, duration: Double, s: Settings): List<Clip> {
         val peaks = candidatePeaks(ex, s, max(12, s.clips * 3))
@@ -287,7 +298,7 @@ object Hype {
             c.hook = hookFrom(words, c.peak)
             val m = (c.peak / 60).toInt()
             val sec = (c.peak % 60).toInt()
-            c.title = c.hook.ifEmpty { "Momento %d:%02d".format(m, sec) }
+            c.title = c.hook.ifEmpty { quoteFrom(words, c.peak).ifEmpty { "Momento %d:%02d".format(m, sec) } }
             c.reason = "Pico de áudio %.1fσ".format(c.audio) +
                 (if (c.hype > 0) ", palavras de hype %.0f".format(c.hype) else "") + " (seletor automático)."
             c.picker = "auto"

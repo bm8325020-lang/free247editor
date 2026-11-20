@@ -116,9 +116,11 @@ object CaptionStyles {
         val space = fill.measureText(" ")
         val widths = shown.mapIndexed { i, word -> fill.textSize = if (i == active) big else base; fill.measureText(word) }
         var total = widths.sum() + space * (shown.size - 1)
-        val scale = if (total > w - 80) (w - 80) / total else 1f
+        // safe area: TikTok, Reels and Shorts put their buttons on the right edge, over the lower half
+        val maxW = w * 0.74f
+        val scale = if (total > maxW) maxW / total else 1f
         total *= scale
-        var x = (w - total) / 2
+        var x = (w - total) / 2 - w * 0.03f
         val y = centerY + base * scale * 0.35f
         val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = purple }
         for ((i, word) in shown.withIndex()) {

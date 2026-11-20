@@ -58,6 +58,8 @@ DEFAULTS = {
     # so the whole scene is in the clip even though the chat types after it happens
     "volta_segundos": 3,
     "limiar": 3.0,
+    # lives with no chat coming in (Kick; a YouTube chat that fails): audio spike that alone makes a moment
+    "limiar_audio_sem_chat": 3.0,
     "qualidade": "best",
     "clip_oficial_twitch": False,
     # how many lives may record at the same time (0 = no limit); a phone handles one
@@ -397,6 +399,13 @@ class Channel(threading.Thread):
             az, at = float(z[i]), float(stimes[-n_new + i])
         return cz, az, at
 
+    def chat_silent(self):
+        """True once the live has recorded 3 minutes without a single chat message."""
+        if self.live_since is None or time.time() - self.live_since < 180:
+            return False
+        last = self.chat[-1][0] if self.chat else 0
+        return time.time() - last > 180
+
     def detect(self):
         sn = self.stream_now()
         if sn is None:
@@ -408,6 +417,16 @@ class Channel(threading.Thread):
             self.last_audio_checked = self.segments[-1]["end"]
         score = 0.6 * max(cz, 0) + 0.4 * max(az, 0)
         strong = cz >= 6 or az >= 5
+        # no chat reaching us (Kick, or a YouTube chat that is not coming through): the audio alone has to decide,
+        # with a lower bar, and the AI review throws out the loud moments that are not clips
+        if self.chat_silent():
+            if not getattr(self, "said_no_chat", False):
+                log(self.name, "nenhuma mensagem do chat chegando: detectando só pelo áudio (a IA filtra os fracos)")
+                self.said_no_chat = True
+            strong = strong or az >= float(self.opts.get("limiar_audio_sem_chat", 3.0))
+        elif getattr(self, "said_no_chat", False):
+            log(self.name, "o chat voltou a chegar")
+            self.said_no_chat = False
         cooled = time.time() - self.last_clip >= self.opts["intervalo_minimo"]
         if (score >= self.opts["limiar"] or strong) and cooled:
             if az >= cz and at is not None:

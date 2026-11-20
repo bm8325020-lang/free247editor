@@ -7,6 +7,8 @@ read-only: nothing on the server can be changed through it.
   GET /api/status   -> {"channels": [...], "clips": n}
   GET /api/clips    -> [{"id", "channel", "title", "caption", "created", "bytes"}, ...] (newest last)
   GET /api/clip/ID  -> the MP4
+  GET /api/keys     -> {"groq", "coarena"}: only when the server listens on 127.0.0.1 (bot and app on the same phone),
+                       so the app can fill in the keys typed into the bot once instead of asking for them again
 """
 import hmac
 import json
@@ -79,6 +81,11 @@ def serve(code, port=8080, status=lambda: [], host="0.0.0.0"):
                 return self._send(401, {"error": "código errado"})
             if self.path == "/api/status":
                 return self._send(200, {"channels": status(), "clips": len(_read())})
+            if self.path == "/api/keys":
+                if host != "127.0.0.1" or self.client_address[0] != "127.0.0.1":
+                    return self._send(403, {"error": "só no mesmo celular"})
+                return self._send(200, {"groq": os.environ.get("GROQ_API_KEY", "").strip(),
+                                        "coarena": os.environ.get("COARENA_API_KEY", "").strip()})
             if self.path == "/api/clips":
                 return self._send(200, [_public(c) for c in _read()])
             m = re.fullmatch(r"/api/clip/([\w-]{1,40})", self.path)

@@ -106,3 +106,15 @@ def test_kick_channels_are_accepted(tmp_path, monkeypatch):
     assert [c["canal"] for c in chans] == ["bistecone"]
     ch = live.Channel(chans[0], dict(live.DEFAULTS), {}, None)
     assert ch.url == "https://kick.com/bistecone"
+
+
+def test_chat_silent_after_three_minutes_without_messages():
+    import time
+    ch = live.Channel({"plataforma": "kick", "canal": "x"}, dict(live.DEFAULTS), {}, None)
+    assert not ch.chat_silent()                      # not live
+    ch.live_since = time.time() - 60
+    assert not ch.chat_silent()                      # too early to tell
+    ch.live_since = time.time() - 600
+    assert ch.chat_silent()                          # 10 min, no chat at all
+    ch.chat.append((time.time() - 30, 1.0, "kkkk"))
+    assert not ch.chat_silent()                      # chat is flowing
