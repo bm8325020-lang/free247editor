@@ -36,7 +36,14 @@ while True:
     lim = int(d.get("max_simultaneos") or 0)
     print(f"\nLives gravando ao mesmo tempo: {lim if lim else 'sem limite'}. Se passar disso, grava as de cima.")
     print("Legendas nos clipes: " + ("LIGADAS" if d.get("legendas", True) else "DESLIGADAS"))
-    op = ask("\n[a] adicionar  [r] remover  [p] prioridade  [m] quantas ao mesmo tempo  [l] legendas  [s] sair: ").lower()
+    estilos = [("humor", "Humor e situações absurdas"), ("perseguicoes", "Perseguições policiais e fugas"),
+               ("acidentes", "Acidentes, batidas e física absurda"), ("reacoes", "Reações fortes do streamer"),
+               ("raros", "Coisas raras de acontecer"), ("acao", "Tiroteios, explosões e ação"),
+               ("historias", "Histórias e roleplay"), ("descobertas", "Descobertas e lugares do mapa")]
+    nomes = dict(estilos)
+    atual = d.get("estilo") or []
+    print("Estilo do clipador: " + (", ".join(nomes[k] for k in atual if k in nomes) or "padrão (o manual decide)"))
+    op = ask("\n[a] adicionar  [r] remover  [p] prioridade  [m] quantas ao mesmo tempo  [e] estilo  [l] legendas  [s] sair: ").lower()
     if op.startswith("a"):
         print("Twitch: o nome (alanzoka) ou o link twitch.tv/alanzoka")
         print("YouTube: o @ do canal (@alanzoka) ou o link youtube.com/@alanzoka")
@@ -115,6 +122,15 @@ while True:
             print(f"  até {num} lives ao mesmo tempo")
         else:
             print("  número inválido")
+    elif op.startswith("e"):
+        print("\nO que a IA deve priorizar? Digite os números em ordem de importância (ex.: 1 2 4). Enter vazio = padrão.")
+        for i, (k, t) in enumerate(estilos, 1):
+            print(f"  {i}. {t}")
+        nums = ask("Números: ").replace(",", " ").split()
+        escolha = [estilos[int(n) - 1][0] for n in nums if n.isdigit() and 1 <= int(n) <= len(estilos)]
+        d["estilo"] = list(dict.fromkeys(escolha))
+        save(d)
+        print("  estilo: " + (", ".join(nomes[k] for k in d["estilo"]) or "padrão"))
     elif op.startswith("l"):
         d["legendas"] = not d.get("legendas", True)
         save(d)

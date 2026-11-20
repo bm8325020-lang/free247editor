@@ -79,15 +79,38 @@ def playbook():
     return "\n\n".join(parts) or "You are a top Brazilian clipper of gaming lives."
 
 
+# The owner's editorial style: the same eyes, different clipping. Chosen in the canais menu ("estilo").
+STYLES = {
+    "humor": "humor: situações engraçadas, falas absurdas, tudo dando errado",
+    "perseguicoes": "perseguições policiais e fugas com começo, meio e desfecho",
+    "acidentes": "acidentes, batidas, capotamentos e física absurda",
+    "reacoes": "reações espontâneas fortes do streamer (grito, gargalhada, desespero)",
+    "raros": "acontecimentos raros, que quase nunca acontecem no GTA",
+    "acao": "tiroteios, explosões e sequências de ação de cinema",
+    "historias": "histórias e roleplay com começo, meio e fim",
+    "descobertas": "descobertas, lugares e detalhes surpreendentes do mapa",
+}
+
+
+def style_text(style):
+    picked = [STYLES[k] for k in (style or []) if k in STYLES]
+    if not picked:
+        return ""
+    return ("\n\n## Estilo editorial do dono (siga isto acima das preferências gerais)\n"
+            "Priorize, nesta ordem: " + "; ".join(f"{i}. {t}" for i, t in enumerate(picked, 1)) +
+            ".\nMomentos fora dessas prioridades só passam se forem excepcionais (85+). Evite repetir o mesmo tipo "
+            "de momento que já virou clipe.")
+
+
 CATEGORIES = ("engraçado", "épico", "fail", "raiva", "susto", "história", "polêmica", "fofo", "absurdo")
 
 
 def build_prompt(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None,
-                 context=None, made=None, video=False):
+                 context=None, made=None, video=False, style=None):
     chat = "\n".join(f"- {c[:120]}" for c in chat_lines[:80]) or "(no chat available: judge from the speech and the images)"
     earlier = "\n".join(f"- {c}" for c in (context or [])[-6:]) or "(start of the live)"
     done = "\n".join(f"- {c}" for c in (made or [])[-12:]) or "(none yet)"
-    prompt = f"""{playbook()}
+    prompt = f"""{playbook()}{style_text(style)}
 
 ---
 You are watching {channel}'s live now. Judge this stretch exactly as the manual above says, before posting.
@@ -156,7 +179,7 @@ def parse(text, timed=True, duration=None):
 
 
 def review(channel, said, chat_lines, language="pt", timed=None, peak=None, duration=None, frames=None, context=None,
-           made=None):
+           made=None, style=None):
     """{"clip", "score", "title", "why", "category", "caption", "summary", "start"?, "end"?}, or None when no AI is
     available (keep the clip). With `timed` (lines of the whole recorded window, seconds from its start) the AI also
     picks where the clip should start and end, so a story that started earlier or ended later is not cut off.
@@ -166,7 +189,7 @@ def review(channel, said, chat_lines, language="pt", timed=None, peak=None, dura
     key = os.environ.get("COARENA_API_KEY", "").strip()
     if not key:
         return None
-    prompt = build_prompt(channel, said, chat_lines, language, timed, peak, duration, frames, context, made)
+    prompt = build_prompt(channel, said, chat_lines, language, timed, peak, duration, frames, context, made, style=style)
     order = ([(m, frames) for m in VISION] + [(m, None) for m in MODELS]) if frames else [(m, None) for m in MODELS]
     for model, imgs in order:
         try:

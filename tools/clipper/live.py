@@ -391,7 +391,7 @@ class Channel(threading.Thread):
         except OSError:
             self.eyes_sl = self.eyes_proc = None
 
-    def eyes_video(self, start, end, out):
+    def eyes_video(self, start, end, out, fps=2):
         """A small MP4 (360p, 2 frames per second, mono sound) of stream seconds start..end from the light copy, and
         the stream second where it begins; None when the light copy does not cover it."""
         eyes = self.work / "olhos"
@@ -409,7 +409,7 @@ class Channel(threading.Thread):
             return None
         cut0 = max(0.0, start - use[0][1])
         r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", "concat:" + "|".join(f.as_posix() for f, _, _ in use),
-                            "-ss", f"{cut0:.2f}", "-t", f"{end - start:.2f}", "-vf", "fps=2,scale=-2:360",
+                            "-ss", f"{cut0:.2f}", "-t", f"{end - start:.2f}", "-vf", f"fps={fps},scale=-2:360",
                             "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-ac", "1", "-b:a", "48k",
                             "-movflags", "+faststart", str(out)], capture_output=True)
         if r.returncode != 0 or not out.exists() or out.stat().st_size > 15_000_000:
@@ -664,7 +664,7 @@ class Channel(threading.Thread):
                     try:
                         length = probe(small)["duration"]
                         v = gemini.review_video(self.name, small, length, heard_chat, context=list(self.context),
-                                                made=list(self.made_notes), peak=length / 2)
+                                                made=list(self.made_notes), peak=length / 2, style=self.opts.get("estilo"))
                     finally:
                         small.unlink(missing_ok=True)
                     if v:
@@ -692,7 +692,7 @@ class Channel(threading.Thread):
                     n_frames = max(6, min(14, int(length / 10)))
                     v = aigate.review(self.name, "", heard_chat, timed=timed, peak=length / 2, duration=length,
                                       frames=grab_frames(src, length, work, n=n_frames),
-                                      context=list(self.context), made=list(self.made_notes))
+                                      context=list(self.context), made=list(self.made_notes), style=self.opts.get("estilo"))
                     how = "ouvi e olhei"
                 finally:
                     src.unlink(missing_ok=True)
@@ -818,7 +818,7 @@ class Channel(threading.Thread):
                 try:
                     v = gemini.review_video(self.name, small, probe(small)["duration"], chat_lines[-80:],
                                             context=list(self.context), made=list(self.made_notes),
-                                            peak=peak - (base - offset))
+                                            peak=peak - (base - offset), style=self.opts.get("estilo"))
                 finally:
                     small.unlink(missing_ok=True)
                 if v:
@@ -828,7 +828,7 @@ class Channel(threading.Thread):
                     verdict = v
         verdict = verdict or aigate.review(self.name, said, chat_lines[-80:], timed=aigate.timed_lines(words), peak=peak,
                                 duration=info["duration"], frames=grab_frames(src, info["duration"], work),
-                                context=list(self.context), made=list(self.made_notes))
+                                context=list(self.context), made=list(self.made_notes), style=self.opts.get("estilo"))
         if not p.get("verdict"):
             self.remember(verdict)
         score, why = None, ""
@@ -853,6 +853,21 @@ class Channel(threading.Thread):
                 title = hook = verdict["title"]
             log(self.name, f"nota da IA {score}: {why[:120]}")
         # the title burned at the start of the video: off unless "titulo_no_video": true (it stays as the post caption)
+        # the exact cut: Gemini looks again at just this moment, closer (4 frames a second, room on both sides)
+        if verdict and verdict.get("clip", True) and gemini.available():
+            small = work / f"corte-{stamp}.mp4"
+            lo, hi = max(0.0, a - 12), min(info["duration"], b + 12)
+            base = self.eyes_video(offset + lo, offset + hi, small, fps=4)
+            if base is not None:
+                try:
+                    r = gemini.refine_cut(small, probe(small)["duration"], verdict.get("event") or verdict.get("why", ""))
+                finally:
+                    small.unlink(missing_ok=True)
+                if r:
+                    na, nb = base - offset + r["start"], base - offset + r["end"]
+                    if 0 <= na < nb <= info["duration"]:
+                        log(self.name, f"corte exato: {na - a:+.0f} s no começo, {nb - b:+.0f} s no fim ({nb - na:.0f} s)")
+                        a, b = na, nb
         # the AI may have moved the cut onto a moment another clip already holds
         own = p.get("span")
         others = [x for x in getattr(self, "spans", []) if x != own]
