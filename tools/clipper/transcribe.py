@@ -69,7 +69,9 @@ def _groq(path, start, dur, language):
                  f"Content-Type: audio/mpeg\r\n\r\n").encode() + mp3.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
     req = urllib.request.Request("https://api.groq.com/openai/v1/audio/transcriptions", data=body, method="POST",
                                  headers={"Authorization": f"Bearer {key}",
-                                          "Content-Type": f"multipart/form-data; boundary={boundary}"})
+                                          "Content-Type": f"multipart/form-data; boundary={boundary}",
+                                          # Groq's Cloudflare refuses Python's default agent (403, error 1010)
+                                          "User-Agent": "fabrica-de-clipes/1.0"})
     with urllib.request.urlopen(req, timeout=600) as r:
         res = json.loads(r.read())
     words = [{"text": w["word"].strip(), "start": round(w["start"], 3), "end": round(w["end"], 3)}
@@ -87,6 +89,11 @@ def _segment(path, start, dur, cfg, language, progress=None):
         except Exception as e:  # network, quota, bad key: finish the job locally
             cfg["_groq_failed"] = True
             print(f"   Groq failed ({str(e)[:120]}); transcribing on this computer instead.", file=sys.stderr)
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:  # e.g. Termux: no local transcription; the clip goes out without captions instead of failing
+        print("   Sem transcrição neste aparelho (faster-whisper ausente): clipe sem legenda.", file=sys.stderr)
+        return [], language
     return _local(_pcm16k(path, start, dur), cfg, language, progress)
 
 

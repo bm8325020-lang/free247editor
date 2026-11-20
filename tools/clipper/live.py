@@ -413,13 +413,18 @@ class Channel(threading.Thread):
 
     # ---------- cutting ----------
     def ready_pending(self):
-        sn = self.stream_now()
-        if sn is None:
+        if not self.segments:
             return
+        # what is really on disk: when the download runs behind the live (slow connection), the estimate from the
+        # clock runs ahead of the recording, and cutting by it found no segments ("corte perdido")
+        recorded = self.segments[-1]["end"]
         for p in list(self.pending):
-            if sn >= p["end"] + SEG + 2:
+            if recorded >= p["end"] + 2:
                 self.pending.remove(p)
                 threading.Thread(target=self.cut, args=(p,), daemon=True).start()
+            elif time.time() - p["wall"] > 600:
+                self.pending.remove(p)
+                log(self.name, "corte desistido: a gravação ficou mais de 10 min atrás da live (internet lenta?)")
 
     def cut(self, p):
         a = p["peak"] - self.opts["antes"] - 4  # room for snapping to a pause
