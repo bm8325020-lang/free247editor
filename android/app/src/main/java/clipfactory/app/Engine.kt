@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.util.Log
 import clipfactory.core.Captions
 import clipfactory.core.Clip
+import clipfactory.core.Face
 import clipfactory.core.Facecam
 import clipfactory.core.Hype
 import clipfactory.core.Layout
@@ -284,7 +285,15 @@ object Engine {
         val (loud, samples) = analysis(ctx, uri, info, frames, AudioAnalyzer(ctx, uri)) { _, _ -> }
         val det = LayoutMath.detectFacecam(samples.faces, samples.edgeFreq, samples.w, samples.h)
         val bigFace = samples.faces.flatten().maxByOrNull { it.h }
-        val layout = LayoutMath.choose(det, info.width, info.height, pc.edit.layout, bigFace)
+        var layout = LayoutMath.choose(det, info.width, info.height, pc.edit.layout, bigFace)
+        // camera-only scene (just chatting, a talk in front of the camera): a face much bigger than the webcam's in
+        // most frames. The corner window would repeat the same face: follow the big face instead.
+        if (layout is Layout.Pip && det is Facecam && samples.faces.isNotEmpty()) {
+            val big = { f: Face -> f.h >= max(0.18, det.fh * 1.8) }
+            val camScene = samples.faces.count { fs -> fs.any(big) } >= samples.faces.size * 0.4
+            if (camScene) layout = Layout.Follow(LayoutMath.followCrop(samples.faces.flatten().filter(big).maxByOrNull { it.h },
+                info.width, info.height))
+        }
         val c = Clip(peak = (pc.edit.start + pc.edit.end) / 2, start = pc.edit.start, end = pc.edit.end, audio = 0.0)
         val events = if (opt.captions) Captions.build(project.words, c.start, c.end) else emptyList()
         val (cy, hy) = textPositions(layout, info.width, info.height)
