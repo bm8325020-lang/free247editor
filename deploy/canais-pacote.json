@@ -1,5 +1,5 @@
 {
-  "versao": 5,
+  "versao": 6,
   "nota": "Pacote de canais aplicado pelo bot ao ligar (live.py), uma vez por versão. 'pessoa' junta os canais do mesmo streamer: se ele estiver ao vivo na Twitch e no YouTube ao mesmo tempo, grava só um (o de cima). A ordem é a prioridade quando o limite de lives ao mesmo tempo enche. Canais que você remover não voltam. Kick: sem leitura do chat, detecta pelo áudio + IA.",
   "canais": [
     {
@@ -42,6 +42,24 @@
     },
     {
       "plataforma": "twitch",
+      "canal": "galego_pururuca",
+      "creditos": "@galego_pururuca",
+      "pessoa": "pururuca"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "coringa",
+      "creditos": "@coringa",
+      "pessoa": "coringa"
+    },
+    {
+      "plataforma": "kick",
+      "canal": "paulinholokobr",
+      "creditos": "@paulinholokobr",
+      "pessoa": "paulinho"
+    },
+    {
+      "plataforma": "twitch",
       "canal": "paulinholokobr",
       "creditos": "@paulinholokobr",
       "pessoa": "paulinho"
@@ -66,8 +84,5 @@
       "creditos": "@davyjones",
       "pessoa": "davyjones"
     }
-  ],
-  "opcoes": {
-    "max_simultaneos": 3
-  }
+  ]
 }
