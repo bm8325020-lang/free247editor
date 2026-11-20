@@ -62,6 +62,8 @@ DEFAULTS = {
     "limiar_audio_sem_chat": 2.5,
     # ...and after this many minutes without a clip, the loudest moment of the last 3 minutes is clipped anyway
     "minutos_sem_clipe": 8,
+    # wipe the Termux screen every N minutes (0 = never) and print a summary; the full log stays in bot.log
+    "limpar_tela_minutos": 15,
     "qualidade": "best",
     "clip_oficial_twitch": False,
     # how many lives may record at the same time (0 = no limit); a phone handles one
@@ -724,6 +726,31 @@ class Channel(threading.Thread):
                 f"{len(self.made)} clipe(s) nesta live.")
 
 
+def clear_screen(workers):
+    """Wipe the terminal (and its scrollback) and print a short summary: the old lines piled up in Termux until it
+    ran out of room. Everything stays in outbox/live/bot.log."""
+    if not sys.stderr.isatty():
+        return
+    sys.stderr.write("\033[3J\033[2J\033[H")  # scrollback, screen, cursor home
+    print(f"===== {datetime.now():%H:%M} · tela limpa (histórico completo em outbox/live/bot.log) =====", file=sys.stderr)
+    for w in workers:
+        if w.live:
+            print("  " + w.describe(), file=sys.stderr)
+    off = [w.name for w in workers if not w.live]
+    if off:
+        print(f"  offline: {', '.join(off)}", file=sys.stderr)
+    try:
+        clips = json.loads(clipserver.MANIFEST.read_text(encoding="utf-8"))[-8:]
+    except (OSError, ValueError):
+        clips = []
+    if clips:
+        print("  últimos clipes prontos:", file=sys.stderr)
+        for c in clips:
+            nota = f" (nota {c['score']})" if c.get("score") is not None else ""
+            print(f"    {c['created'][11:16]}  {c['channel']}: {c['title']}{nota}", file=sys.stderr)
+    print("=" * 40, file=sys.stderr, flush=True)
+
+
 def apply_channel_pack(data, pack):
     """Merge a shipped channel pack into the user's list once (per pack version).
 
@@ -837,8 +864,13 @@ def main(argv=None):
     print(f"Vigiando {len(workers)} canal(is). Clipes em outbox/live/. Ctrl+C para parar.", file=sys.stderr)
     t0 = time.time()
     try:
+        last_clear = time.time()
+        clear_every = 60 * float(opts.get("limpar_tela_minutos", 15) or 0)
         while any(w.is_alive() for w in workers):
             time.sleep(1)
+            if clear_every and time.time() - last_clear > clear_every:
+                clear_screen(workers)
+                last_clear = time.time()
             if a.minutos and time.time() - t0 > a.minutos * 60:
                 break
     except KeyboardInterrupt:
